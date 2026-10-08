@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#202327">
+  <meta name="description" content="Rustias: the native Rust synthesis engine in your browser. No firmware required.">
+  <title>Rustias · Native synthesizer</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main class="instrument">
+    <header class="app-header">
+      <a class="brand" href="https://github.com/fushugaku/Rustias" aria-label="Rustias source on GitHub">RUSTIAS<span>NATIVE SYNTHESIZER</span></a>
+      <div class="header-actions"><button id="midi" class="quiet">MIDI</button><button id="power" class="power" disabled>Loading…</button></div>
+    </header>
+    <div class="workspace-bar">
+      <div class="timbres" role="tablist" aria-label="Timbre">
+        <button role="tab" aria-selected="true" data-timbre="0">01</button>
+        <button role="tab" aria-selected="false" data-timbre="1">02</button>
+        <button role="tab" aria-selected="false" data-timbre="2">03</button>
+        <button role="tab" aria-selected="false" data-timbre="3">04</button>
+      </div>
+      <div class="preset-wrap"><label for="preset">Program</label><select id="preset"><option value="init">INIT</option><option value="pad">Warm pad</option><option value="pulse">Pulse bass</option><option value="pluck">Soft pluck</option></select></div>
+      <button id="panic" class="quiet">All notes off</button>
+    </div>
+    <section class="faceplate" aria-label="Synthesis controls">
+      <div class="panel-identity"><span>RUSTIAS<span class="edition">WASM</span></span><span class="panel-caption">4 TIMBRES / 24 VOICE SLOTS</span></div>
+      <div class="modules">
+        <section class="module oscillator">
+          <h2>OSCILLATOR</h2>
+          <div class="display"><span id="wave-name">SAW</span><svg id="wave-display" viewBox="0 0 240 72" role="img" aria-label="Saw waveform"><path id="wave-path" d="M0 60 L60 12 L60 60 L120 12 L120 60 L180 12 L180 60 L240 12"/></svg></div>
+          <div class="waveforms segmented" aria-label="Waveform"><button data-wave="0" aria-pressed="true">Saw</button><button data-wave="1" aria-pressed="false">Pulse</button><button data-wave="2" aria-pressed="false">Triangle</button><button data-wave="3" aria-pressed="false">Sine</button></div>
+        </section>
+        <section class="module filter">
+          <h2>FILTER</h2><div class="filter-types segmented" aria-label="Filter type"><button data-filter="0" aria-pressed="true">LP</button><button data-filter="1" aria-pressed="false">HP</button><button data-filter="2" aria-pressed="false">BP</button></div>
+          <div class="knob-row" id="filter-knobs"></div>
+        </section>
+        <section class="module envelope"><h2>AMP ENVELOPE</h2><div class="knob-row" id="envelope-knobs"></div></section>
+        <section class="module output"><h2>OUTPUT</h2><div class="knob-row" id="output-knobs"></div></section>
+      </div>
+      <div class="keybed-heading"><span>KEYBOARD</span><div class="octaves"><button id="octave-down" aria-label="Lower octave">−</button><span id="octave-label">C4–D♯5</span><button id="octave-up" aria-label="Higher octave">+</button></div></div>
+      <div id="keys" class="keys" aria-label="Keyboard"></div>
+    </section>
+    <footer class="monitor">
+      <div class="connection"><span id="led" class="led"></span><span id="status" role="status" aria-live="polite">Loading Rust engine…</span></div>
+      <div class="monitor-right"><span><b id="voices">0</b> / 24</span><meter id="meter" min="0" max="1" value="0" aria-label="Output level"></meter><label class="volume">Volume<input id="volume" type="range" min="0" max="100" value="30"></label></div>
+    </footer>
+    <p class="keyboard-hint">Play with the pads or <kbd>A W S E D F T G Y H U J K O L P</kbd><a href="https://github.com/fushugaku/Rustias#webassembly">About this build ↗</a></p>
+    <p id="error" class="error" role="alert" hidden></p>
+    <noscript>JavaScript is required to load the WebAssembly synthesizer.</noscript>
+  </main>
+</body>
+</html>

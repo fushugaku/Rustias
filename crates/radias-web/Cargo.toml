@@ -1,0 +1,10 @@
+[package]
+name = "radias-web"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+radias-synth-infrastructure = { path = "../radias-synth-infrastructure" }

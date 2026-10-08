@@ -1,5 +1,6 @@
 # Cargo output
 /target/
+/dist/
 
 # External firmware, prepared programs and local research artifacts
 /firmware/

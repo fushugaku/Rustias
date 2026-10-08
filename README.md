@@ -1,89 +1,107 @@
 # Rustias
 
-Rustias — Rust-часть проекта эмуляции Korg RADIAS: нативный синтезатор, интерпретатор оригинальной прошивки, desktop-интерфейс и консольный отладчик. Восемь крейтов собраны в один Cargo workspace.
+**English** · [Русский](README.ru.md)
 
-Проект находится в разработке. Отдельные алгоритмы и записанные сценарии сверяются с исходным C++-эмулятором; эти проверки не доказывают полное совпадение с аппаратным RADIAS.
+Rustias is the Rust implementation of a Korg RADIAS emulation project: a direct synthesis engine, an original-firmware interpreter, a desktop instrument and a headless debugger. Nine crates share one Cargo workspace.
 
-## Два режима работы
+The project is under development. Individual algorithms and recorded scenarios are compared with the C++ reference emulator. These comparisons do not establish complete equivalence with physical RADIAS hardware.
 
-- **Нативный синтез** (`radias-synth-*`) исполняет восстановленные алгоритмы напрямую в Rust: осцилляторы, фильтры, огибающие, усилитель, панораму, LFO, модуляцию и управление голосами. Desktop использует пул из 24 голосов и четыре независимо управляемых тембра. Звуковые сэмплы создаются в callback аудиоустройства.
-- **Оригинальная прошивка** (`radias-domain`, `radias-application`) исполняется в моделях SH3 и C55 с памятью, периферией и шинами платы. Этот режим нужен для исследования, трассировки и сравнения. Интерпретатор работает медленнее реального времени.
+## WebAssembly
 
-Desktop использует нативный режим, когда доступны необходимые файлы и аудиоустройство. CLI работает с интерпретатором прошивки.
+[Play the synthesizer](https://fushugaku.github.io/Rustias/).
 
-## Сборка
+The browser instrument runs **without firmware**. The shared Rust generator in `radias-synth-infrastructure::synthesizer` produces audio inside a Web Audio `AudioWorklet`. JavaScript forwards controls and plays the generated samples. The web build does not use the SH3/C55 interpreter, SYS images, RDL banks, PCM ROM or audio recordings.
 
-Workspace использует Rust edition 2024. Перенос проверен с Rust/Cargo **1.97.1** на macOS. `Cargo.lock` фиксирует зависимости; основные desktop-библиотеки — eframe/egui 0.36.2, CPAL 0.18.2 и midir 0.11.0.
+Available controls:
+
+- Four timbres and a pool of 24 voice slots.
+- Saw, pulse, triangle and sine oscillators.
+- Low-pass, high-pass and band-pass filtering, cutoff and resonance.
+- Amplifier ADSR, timbre level and stereo pan.
+- On-screen pads, computer keyboard and Web MIDI where supported. MIDI note on/off, sustain and all notes/sound off are supported; timbres receive MIDI on channels 1–4.
+
+Click **Start audio** to enable playback. Monitor volume is separate from each timbre's level. Dials support vertical drag, Shift for fine adjustment, mouse wheel and arrow keys. Pads support multiple pointers; held notes are released when the page loses focus.
+
+The standalone profile generates its own tuning, envelope, velocity and pan tables mathematically. Its waveform interpolation correction is zero. These are independent parameters for our DSP code, not factory ROM tables or a claim of hardware sound parity. ROM-dependent controller tables and the full desktop interface are outside this browser build.
+
+Build and serve locally:
+
+```sh
+rustup target add wasm32-unknown-unknown
+bash scripts/build-web.sh
+python3 -m http.server 8080 --directory dist
+```
+
+Open `http://localhost:8080`. AudioWorklet requires HTTPS or localhost. The build produces `dist/` with HTML, JavaScript and `rustias.wasm`. It requires no wasm-bindgen, npm installation or application server. Native synthesis runs at 48 kHz; the Web Audio adapter resamples when the output context uses another rate.
+
+Run `node scripts/verify-web.mjs` to check the compiled module and AudioWorklet at 48/44.1 kHz. The [Pages workflow](.github/workflows/pages.yml) tests the standalone profile, builds WebAssembly and deploys `dist/` on pushes to `main`. Set Settings → Pages → Source to **GitHub Actions**.
+
+## Desktop and CLI builds
+
+The workspace uses Rust edition 2024. The initial import was tested on macOS with Rust/Cargo **1.97.1**. `Cargo.lock` pins dependencies, including eframe/egui 0.36.2, CPAL 0.18.2 and midir 0.11.0.
 
 ```sh
 git clone https://github.com/fushugaku/Rustias.git
 cd Rustias
-
-# Консольный эмулятор
 cargo build --release --locked -p radias-cli
-
-# Нативное приложение
 cargo build --release --locked -p radias-desktop
-```
-
-Бинарные файлы появятся в `target/release/radias-rust` и `target/release/radias-desktop`. Для сборки всего workspace:
-
-```sh
+# Build all workspace crates:
 cargo build --release --locked --workspace
 ```
 
-Сборка CLI не подключает аудио- и MIDI-библиотеки. Desktop требует оконного окружения и системных библиотек, используемых CPAL, midir и eframe. Другие операционные системы при переносе не проверялись.
+Executables are `target/release/radias-rust` and `target/release/radias-desktop`. The CLI does not enable audio/MIDI device libraries. Desktop builds need a windowing environment and the platform libraries used by CPAL, midir and eframe. Other desktop operating systems were not verified during the import.
 
-## Данные для запуска
+## Engine modes
 
-Сборка и обычные unit-тесты обходятся без оригинальных образов. Для работы движка нужны внешние файлы. В этом репозитории находятся Rust-исходники, Cargo-манифесты и встроенное описание панели; прошивка, банки, подготовленные программы и исследовательские записи остаются отдельно.
+**Direct synthesis** (`radias-synth-*`) runs the recovered oscillator, filter, envelope, amplifier, pan, LFO, modulation and voice-management algorithms in Rust. Desktop uses a 24-slot voice pool with four independently controlled timbres, generating samples in the audio callback.
 
-| Файл относительно каталога данных | Для чего нужен |
+**Original firmware** (`radias-domain`, `radias-application`) runs in modeled SH3/C55 processors with board memory, buses and peripherals. It is used for investigation, tracing and comparison. Instruction interpretation is slower than real time. The CLI uses this interpreter; desktop selects direct synthesis when its data and audio device are available.
+
+## External desktop data
+
+Building and ordinary unit tests do not require firmware. The firmware interpreter and ROM-backed desktop profile need external files. The browser profile is self-contained.
+
+| Path relative to the data directory | Purpose |
 | --- | --- |
-| `firmware/RADIAS_SYS_0200.bin` | Образ SYS 2.00; обязателен для интерпретатора и извлечения таблиц нативного синтеза |
-| `firmware/Radias-backup.rdl` | Банк программ; обязателен для нативного desktop-режима, в CLI подключается через `--backup` |
-| `firmware/dsp-master-host-stream.bin` | Поток загрузки Master DSP с таблицами для нативного синтеза |
-| `assets/native-va/saw.json`, `pulse.json`, `triangle.json`, `sine.json` | Подготовленные параметры нативных голосов; все четыре файла находятся в `assets/native-va/` |
-| `assets/native-va/filter-controls.json` | Карта управляющих параметров фильтра для нативного режима |
-| `runs/alternative-pcm/alternative-pcm.bin` | Необязательный альтернативный PCM-банк для интерпретатора |
+| `firmware/RADIAS_SYS_0200.bin` | SYS 2.00 image; required by the interpreter and desktop native table extraction |
+| `firmware/Radias-backup.rdl` | Program bank; required by native desktop and optional in CLI through `--backup` |
+| `firmware/dsp-master-host-stream.bin` | Master DSP upload stream containing native synthesis tables |
+| `assets/native-va/saw.json`, `pulse.json`, `triangle.json`, `sine.json` | Prepared native voice parameters; all four files live in `assets/native-va/` |
+| `assets/native-va/filter-controls.json` | Native desktop filter control map |
+| `runs/alternative-pcm/alternative-pcm.bin` | Optional alternative PCM bank for the interpreter |
 
-Каталог данных может быть корнем этого репозитория или отдельной папкой с той же структурой. Для продолжения работы с полным исходным проектом передайте его каталог через `--workspace`; копировать данные не требуется.
+The data directory can be this checkout or a separate directory with the same layout. Point desktop at the full original project with `--workspace` to use existing data directly.
 
 ## Desktop
 
 ```sh
-# Данные расположены в корне Rustias
 cargo run --release --locked -p radias-desktop
-
-# Данные расположены в отдельном каталоге
+# External data directory:
 cargo run --release --locked -p radias-desktop -- \
   --workspace /absolute/path/to/radias-data
-
-# Проверка интерфейса в узком окне без аудиовыхода
+# Narrow window, no audio output:
 cargo run --release --locked -p radias-desktop -- \
   --workspace /absolute/path/to/radias-data --no-audio --size 390x780
 ```
 
-Панель содержит регуляторы и переключатели RADIAS, выбор программ и экранную клавиатуру. MIDI поступает через виртуальный вход `RADIAS Rust`. Внешние MIDI-байты направляются в выбранный движок.
+The native panel provides physical controls, program selection and an on-screen keyboard. External MIDI arrives through the virtual `RADIAS Rust` input and is forwarded to the selected engine.
 
-`--workspace` задаёт каталог исходных данных и рабочих файлов. `--no-audio` отключает аудиовыход и загрузку нативного аудиодвижка; интерпретатору по-прежнему нужен SYS-образ. `--size WIDTHxHEIGHT` задаёт начальный размер окна.
+`--workspace` sets the data and working-file directory. `--no-audio` disables audio output and native audio-engine initialization; the interpreter still requires the SYS image. `--size WIDTHxHEIGHT` sets the initial window size.
 
-В режиме прошивки рабочий Flash сохраняется в `runs/rust-desktop/working-flash.bin`, а прослушивание — в `runs/rust-desktop/last-preview.wav` и соседние файлы каналов. Flash сохраняет завершённые записи NOR, но не состояние процессоров, RAM и звучащих голосов. Повторный запуск с тем же каталогом данных использует этот рабочий образ.
+The firmware engine keeps completed NOR writes in `runs/rust-desktop/working-flash.bin`. Offline audition produces `runs/rust-desktop/last-preview.wav` and adjacent native channel files. Flash persistence does not save processor state, RAM, pending operations or live voices. Launching with the same data directory reuses the working image.
 
-## Консольный эмулятор
+## Headless interpreter
 
-Пути CLI разрешаются относительно текущего каталога; расположение файлов можно указать явно:
+CLI paths are relative to the current directory. External files can be supplied explicitly:
 
 ```sh
 cargo run --release --locked -p radias-cli -- \
   --firmware /absolute/path/to/radias-data/firmware/RADIAS_SYS_0200.bin \
   --backup /absolute/path/to/radias-data/firmware/Radias-backup.rdl \
-  --interactive \
-  --dry-audio runs/cli/dry.wav \
-  --mix-audio runs/cli/mix
+  --interactive --dry-audio runs/cli/dry.wav --mix-audio runs/cli/mix
 ```
 
-Интерактивный режим принимает одну команду на строку и отвечает строками JSON. Пример сеанса:
+Interactive mode accepts one command per line and returns JSON lines:
 
 ```text
 state
@@ -95,60 +113,61 @@ runframes 4800
 quit
 ```
 
-`run` задаёт число шагов интерпретатора, `runframes` — число кадров платы с частотой 48 кГц. Байты `midi` записываются шестнадцатерично; в примере это нажатие и отпускание C4 на первом канале. До отправки нот прошивка должна завершить загрузку; один вызов `run` не гарантирует готовность.
+`run` advances interpreter steps; `runframes` advances board audio frames at 48 kHz. MIDI bytes are hexadecimal: the example presses/releases C4 on channel 1. Allow firmware boot to finish before sending notes; one `run` command does not guarantee readiness.
 
-| Опция | Назначение |
+| Option | Purpose |
 | --- | --- |
-| `--steps N` | Выполнить заданное число шагов без интерактивного сеанса |
-| `--backup-global RDL` | Импортировать только Global-настройки из банка |
-| `--pcm-bank BIN` | Подключить банк в native Flash-разметке |
-| `--flash-image BIN` | Создать или загрузить отдельный рабочий Flash-образ размером 4 МиБ |
-| `--input-wave WAV` | Подать mono/stereo WAVE 48 кГц: PCM16/24/32 или float32 |
-| `--input-loop` | Повторять входной WAVE |
-| `--dry-audio WAV` | Сохранить сухой звуковой поток |
-| `--mix-audio PREFIX` | Сохранить native Master/Slave в `PREFIX-master.wav` и `PREFIX-slave.wav` |
-| `--vocoder-audio PREFIX` | Сохранить доступные vocoder-потоки |
-| `--dump JSON` | Записать диагностическое состояние |
-| `--trace PATH`, `--fxd-trace PATH`, `--fxd-link-trace PATH` | Записать диагностические трассы |
+| `--steps N` | Run a fixed instruction budget without an interactive session |
+| `--backup-global RDL` | Import Global settings only |
+| `--pcm-bank BIN` | Mount a bank using native Flash layout |
+| `--flash-image BIN` | Load or create a separate 4 MiB working Flash image |
+| `--input-wave WAV`, `--input-loop` | Feed mono/stereo 48 kHz PCM16/24/32 or float32 WAVE; optionally loop it |
+| `--dry-audio WAV` | Capture the dry audio stream |
+| `--mix-audio PREFIX` | Capture `PREFIX-master.wav` and `PREFIX-slave.wav` |
+| `--vocoder-audio PREFIX` | Capture available vocoder streams |
+| `--dump JSON` | Save diagnostic state |
+| `--trace PATH`, `--fxd-trace PATH`, `--fxd-link-trace PATH` | Record diagnostic traces |
 
-Исходные SYS/RDL/PCM/WAVE защищены от перезаписи через выходные пути и их файловые алиасы. Рабочие данные и записи игнорируются Git.
+Output-path and file-alias guards protect original SYS/RDL/PCM/WAVE inputs from overwrite. Working files and captures are ignored by Git.
 
-## Устройство workspace
+## Workspace structure
 
-| Крейт | Ответственность |
+| Crate | Responsibility |
 | --- | --- |
-| [`radias-synth-domain`](crates/radias-synth-domain) | Fixed-point алгоритмы прямого синтеза; `no_std`, без зависимостей |
-| [`radias-synth-application`](crates/radias-synth-application) | Рендер голосов, полифония, часы сэмплов, события управления; `no_std` |
-| [`radias-synth-infrastructure`](crates/radias-synth-infrastructure) | Чтение таблиц прошивки и RDL, подготовка программ, сравнение с эталоном, CPAL-выход |
-| [`radias-domain`](crates/radias-domain) | SH3/C55, память и периферия платы, NOR, codec, программы и backup; без внешних зависимостей |
-| [`radias-application`](crates/radias-application) | Жизненный цикл машины, команды, бюджеты исполнения и политика PCM |
-| [`radias-infrastructure`](crates/radias-infrastructure) | WAV, PCM, Flash-файлы, диагностические записи; аудио и MIDI через feature `desktop-io` |
-| [`radias-cli`](crates/radias-cli) | Консольное приложение и строковый JSON-протокол |
-| [`radias-desktop`](crates/radias-desktop) | egui-интерфейс, панель, клавиатура и соединение с движками |
+| [`radias-synth-domain`](crates/radias-synth-domain) | Fixed-point synthesis algorithms; `no_std`, no dependencies |
+| [`radias-synth-application`](crates/radias-synth-application) | Voice rendering, polyphony, sample clocks and control events; `no_std` |
+| [`radias-synth-infrastructure`](crates/radias-synth-infrastructure) | Shared device-independent generator, standalone tables, native program/table adapters and optional CPAL output |
+| [`radias-domain`](crates/radias-domain) | SH3/C55, board memory/peripherals, NOR, codec and backup/program objects; no external dependencies |
+| [`radias-application`](crates/radias-application) | Machine lifecycle, commands, execution budgets and PCM policy |
+| [`radias-infrastructure`](crates/radias-infrastructure) | WAV/PCM/Flash files and diagnostic captures; optional `desktop-io` audio/MIDI |
+| [`radias-cli`](crates/radias-cli) | Headless composition and JSON-line protocol |
+| [`radias-desktop`](crates/radias-desktop) | egui panel, keyboard and native/firmware engine composition |
+| [`radias-web`](crates/radias-web) | Standalone profile C ABI for WebAssembly/AudioWorklet |
 
-Доменные слои не зависят от интерфейса и файловой системы. Application-слои управляют доменными объектами; infrastructure подключает внешние данные и устройства. CLI и desktop собирают эти слои в приложения.
+Domain layers do not depend on the UI or filesystem. Application layers manage domain objects. Infrastructure supplies external data and device adapters; desktop, CLI and the browser compose these layers.
 
-## Проверки
-
-Из корня репозитория:
+## Verification
 
 ```sh
 cargo test --workspace --all-features --locked
 cargo check --workspace --all-targets --all-features --locked
+bash scripts/build-web.sh
+node scripts/verify-web.mjs
 ```
 
-Unit-тесты проверяют маршрутизацию программ, форматы WAVE, защиту исходных файлов, аудиобуферы и взаимодействие с регуляторами, клавиатурой и меню панели. Тест реального аудиовыхода помечен `ignored`: ему нужны исходные данные и устройство вывода.
+Unit tests cover program routing, WAVE formats, source-file guards, audio buffering, panel interaction and firmware-free rendering/release/allocation. The real audio-device test is ignored by default because it needs original data and an output device.
 
-Rust-примеры в `crates/*/examples/` сохранены вместе с кодом. Многие `*_parity`-программы читают эталонные записи, полные WAV и состояния из внешнего исследовательского workspace. Такие сравнения требуют соответствующих данных и C++-оракулов исходного проекта; они не входят в обычный запуск unit-тестов. В примерах, которые принимают каталог данных первым аргументом, передавайте его явно.
+Rust examples in `crates/*/examples/` are retained. Many `*_parity` programs need complete reference recordings, WAV files and observed states from the full research workspace. Those comparisons require its data and C++ oracles; ordinary unit tests do not run them. Pass a data directory explicitly to examples that accept one.
 
-Сгенерированные декодеры SH3/C55 включены в исходники и собираются обычным Cargo. Для их регенерации нужны C++-источники и генераторы из полного проекта; этот репозиторий содержит готовый Rust-результат.
+Generated SH3/C55 decoders are included and compile with Cargo. Regeneration requires the C++ sources and generators from the full project.
 
-## Текущие ограничения
+## Current limits
 
-- Полное исполнение произвольных RDL-программ и всех сочетаний параметров ещё не завершено.
-- Эффекты FXD03, конечный codec/DAC-тракт и аппаратные тайминги требуют дальнейшей проверки. Записи до FXD/codec не следует считать окончательным выходом физического RADIAS.
-- Некоторые контроллерные сценарии, политики голосов, секвенсор, vocoder и аппаратные органы управления остаются неполными.
-- Режим прошивки может давать underrun при прослушивании; он предназначен для диагностики. Скорость отдельных нативных алгоритмов не подтверждает готовность всего инструмента к работе в реальном времени.
-- Заводской PCM-ROM в репозиторий не входит. Альтернативный PCM-банк не воспроизводит отсутствующий заводской банк.
+- Arbitrary RDL compilation and complete parameter combinations remain unfinished.
+- FXD03 effects, the final codec/DAC path and hardware timing require further work. Pre-FXD/codec captures are intermediate outputs.
+- Some controller/voice policies, sequencer/vocoder behavior and physical controls remain incomplete.
+- The firmware interpreter can underrun during monitoring. The speed of individual native algorithms does not establish readiness of the entire instrument for real-time performance.
+- Factory PCM ROM is external. An alternative bank does not reproduce the missing factory bank.
+- The browser uses its own firmware-free table profile and exposes the controls listed above; it does not reproduce the full desktop feature set or factory programs.
 
-Совпадение с программным эталоном подтверждает только проверенный сценарий и наблюдаемую границу. Полная аппаратная эквивалентность остаётся целью проекта.
+Software parity confirms only the observed boundary and tested scenario. Full hardware equivalence remains a project goal.

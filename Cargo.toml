@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/radias-domain", "crates/radias-application", "crates/radias-infrastructure", "crates/radias-cli", "crates/radias-desktop", "crates/radias-synth-domain", "crates/radias-synth-application", "crates/radias-synth-infrastructure"]
+members = ["crates/radias-domain", "crates/radias-application", "crates/radias-infrastructure", "crates/radias-cli", "crates/radias-desktop", "crates/radias-synth-domain", "crates/radias-synth-application", "crates/radias-synth-infrastructure", "crates/radias-web"]
 
 [workspace.package]
 edition = "2024"

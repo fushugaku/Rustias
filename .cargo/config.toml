@@ -1,0 +1,4 @@
+[target.wasm32-unknown-unknown]
+# The native renderer owns fixed voice/filter buffers; initialization needs a
+# larger stack than wasm-ld's default. Audio rendering itself does not allocate.
+rustflags = ["-C", "link-arg=-zstack-size=16777216"]
