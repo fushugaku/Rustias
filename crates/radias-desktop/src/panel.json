@@ -1,0 +1,1136 @@
+{
+  "knobs": [
+    {
+      "id": "input1",
+      "label": "1 / INST",
+      "section": "Audio in",
+      "x": 48,
+      "y": 76,
+      "analog": true
+    },
+    {
+      "id": "input2",
+      "label": "2 / VOICE",
+      "section": "Audio in",
+      "x": 116,
+      "y": 76,
+      "analog": true
+    },
+    {
+      "id": "volume",
+      "label": "VOLUME",
+      "section": "Volume",
+      "x": 116,
+      "y": 159,
+      "analog": true
+    },
+    {
+      "id": "osc1-control1",
+      "label": "CONTROL 1",
+      "section": "Oscillator 1",
+      "x": 187,
+      "y": 285,
+      "channel": 0,
+      "mux": 7
+    },
+    {
+      "id": "osc1-control2",
+      "label": "CONTROL 2",
+      "section": "Oscillator 1",
+      "x": 257,
+      "y": 285,
+      "channel": 0,
+      "mux": 6
+    },
+    {
+      "id": "osc2-semitone",
+      "label": "SEMITONE",
+      "section": "Oscillator 2",
+      "x": 326,
+      "y": 215,
+      "channel": 0,
+      "mux": 5
+    },
+    {
+      "id": "osc2-tune",
+      "label": "TUNE",
+      "section": "Oscillator 2",
+      "x": 396,
+      "y": 215,
+      "channel": 0,
+      "mux": 4
+    },
+    {
+      "id": "mixer-osc1",
+      "label": "OSC 1",
+      "sub": "SRC 1",
+      "section": "Mixer",
+      "x": 465,
+      "y": 65,
+      "channel": 0,
+      "mux": 3
+    },
+    {
+      "id": "mixer-osc2",
+      "label": "OSC 2",
+      "sub": "SRC 2",
+      "section": "Mixer",
+      "x": 465,
+      "y": 142,
+      "channel": 0,
+      "mux": 2
+    },
+    {
+      "id": "mixer-noise",
+      "label": "NOISE",
+      "section": "Mixer",
+      "x": 465,
+      "y": 215,
+      "channel": 0,
+      "mux": 1
+    },
+    {
+      "id": "filter1-cutoff",
+      "label": "CUTOFF",
+      "sub": "FC OFFSET",
+      "section": "Filter 1",
+      "x": 535,
+      "y": 142,
+      "channel": 0,
+      "mux": 0
+    },
+    {
+      "id": "filter1-resonance",
+      "label": "RESONANCE",
+      "section": "Filter 1",
+      "x": 535,
+      "y": 215,
+      "channel": 1,
+      "mux": 5
+    },
+    {
+      "id": "filter1-type",
+      "label": "TYPE",
+      "section": "Filter 1",
+      "x": 535,
+      "y": 295,
+      "channel": 4,
+      "mux": 3
+    },
+    {
+      "id": "filter-eg1",
+      "label": "EG 1 INT",
+      "sub": "FC MOD INT",
+      "section": "Filter common",
+      "x": 606,
+      "y": 142,
+      "channel": 1,
+      "mux": 7
+    },
+    {
+      "id": "filter-keytrack",
+      "label": "KEY TRACK",
+      "sub": "E.F. SENS",
+      "section": "Filter common",
+      "x": 606,
+      "y": 215,
+      "channel": 1,
+      "mux": 4
+    },
+    {
+      "id": "filter2-cutoff",
+      "label": "CUTOFF",
+      "sub": "THRESHOLD",
+      "section": "Filter 2",
+      "x": 676,
+      "y": 142,
+      "channel": 1,
+      "mux": 6
+    },
+    {
+      "id": "filter2-resonance",
+      "label": "RESONANCE",
+      "sub": "HPF LEVEL",
+      "section": "Filter 2",
+      "x": 676,
+      "y": 215,
+      "channel": 1,
+      "mux": 3
+    },
+    {
+      "id": "amp-level",
+      "label": "LEVEL",
+      "sub": "VC LEVEL",
+      "section": "Amp",
+      "x": 747,
+      "y": 65,
+      "channel": 1,
+      "mux": 2
+    },
+    {
+      "id": "amp-pan",
+      "label": "PAN",
+      "sub": "DIRECT LEVEL",
+      "section": "Amp",
+      "x": 747,
+      "y": 142,
+      "channel": 1,
+      "mux": 1
+    },
+    {
+      "id": "amp-depth",
+      "label": "DEPTH",
+      "section": "Amp",
+      "x": 747,
+      "y": 215,
+      "channel": 1,
+      "mux": 0
+    },
+    {
+      "id": "arp-gate",
+      "label": "GATE",
+      "section": "Arpeggiator / step sequencer",
+      "x": 606,
+      "y": 367,
+      "channel": 4,
+      "mux": 2
+    },
+    {
+      "id": "arp-tempo",
+      "label": "TEMPO",
+      "section": "Arpeggiator / step sequencer",
+      "x": 676,
+      "y": 367,
+      "channel": 4,
+      "mux": 1
+    },
+    {
+      "id": "portamento",
+      "label": "TIME",
+      "section": "Portamento",
+      "x": 187,
+      "y": 443,
+      "channel": 2,
+      "mux": 7
+    },
+    {
+      "id": "eg1-attack",
+      "label": "ATTACK",
+      "section": "EG 1",
+      "x": 257,
+      "y": 443,
+      "channel": 2,
+      "mux": 6
+    },
+    {
+      "id": "eg1-decay",
+      "label": "DECAY",
+      "section": "EG 1",
+      "x": 326,
+      "y": 443,
+      "channel": 2,
+      "mux": 5
+    },
+    {
+      "id": "eg1-sustain",
+      "label": "SUSTAIN",
+      "section": "EG 1",
+      "x": 396,
+      "y": 443,
+      "channel": 2,
+      "mux": 4
+    },
+    {
+      "id": "eg1-release",
+      "label": "RELEASE",
+      "section": "EG 1",
+      "x": 465,
+      "y": 443,
+      "channel": 2,
+      "mux": 3
+    },
+    {
+      "id": "eg2-attack",
+      "label": "ATTACK",
+      "section": "EG 2",
+      "x": 535,
+      "y": 443,
+      "channel": 2,
+      "mux": 2
+    },
+    {
+      "id": "eg2-decay",
+      "label": "DECAY",
+      "section": "EG 2",
+      "x": 606,
+      "y": 443,
+      "channel": 2,
+      "mux": 1
+    },
+    {
+      "id": "eg2-sustain",
+      "label": "SUSTAIN",
+      "section": "EG 2",
+      "x": 676,
+      "y": 443,
+      "channel": 2,
+      "mux": 0
+    },
+    {
+      "id": "eg2-release",
+      "label": "RELEASE",
+      "section": "EG 2",
+      "x": 747,
+      "y": 443,
+      "channel": 3,
+      "mux": 7
+    },
+    {
+      "id": "patch-intensity",
+      "label": "INTENSITY",
+      "section": "Virtual patch",
+      "x": 818,
+      "y": 443,
+      "channel": 3,
+      "mux": 6
+    },
+    {
+      "id": "lfo1-frequency",
+      "label": "FREQ",
+      "section": "LFO 1",
+      "x": 891,
+      "y": 443,
+      "channel": 3,
+      "mux": 5
+    },
+    {
+      "id": "lfo2-frequency",
+      "label": "FREQ",
+      "section": "LFO 2",
+      "x": 960,
+      "y": 443,
+      "channel": 3,
+      "mux": 4
+    },
+    {
+      "id": "eq-hi",
+      "label": "HI",
+      "section": "EQ",
+      "x": 1031,
+      "y": 367,
+      "channel": 4,
+      "mux": 0
+    },
+    {
+      "id": "eq-low",
+      "label": "LO",
+      "section": "EQ",
+      "x": 1031,
+      "y": 443,
+      "channel": 3,
+      "mux": 3
+    },
+    {
+      "id": "fx-edit1",
+      "label": "EDIT 1",
+      "section": "Insert FX",
+      "x": 1102,
+      "y": 443,
+      "channel": 3,
+      "mux": 2
+    },
+    {
+      "id": "fx-edit2",
+      "label": "EDIT 2",
+      "section": "Insert FX",
+      "x": 1173,
+      "y": 443,
+      "channel": 3,
+      "mux": 1
+    },
+    {
+      "id": "master-edit",
+      "label": "EDIT",
+      "section": "Master FX",
+      "x": 1243,
+      "y": 443,
+      "channel": 3,
+      "mux": 0
+    }
+  ],
+  "switches": [
+    {
+      "id": "oct-down",
+      "label": "DOWN",
+      "x": 48,
+      "y": 248,
+      "row": 0,
+      "column": 0
+    },
+    {
+      "id": "oct-up",
+      "label": "UP",
+      "x": 116,
+      "y": 248,
+      "row": 0,
+      "column": 1
+    },
+    {
+      "id": "osc1-wave-up",
+      "label": "▲",
+      "x": 187,
+      "y": 144,
+      "row": 0,
+      "column": 4
+    },
+    {
+      "id": "osc1-wave-down",
+      "label": "▼",
+      "x": 257,
+      "y": 144,
+      "row": 0,
+      "column": 2
+    },
+    {
+      "id": "osc1-mod",
+      "label": "OSC MOD",
+      "x": 187,
+      "y": 211,
+      "row": 0,
+      "column": 3
+    },
+    {
+      "id": "osc2-wave",
+      "label": "WAVE",
+      "x": 326,
+      "y": 144,
+      "row": 0,
+      "column": 5
+    },
+    {
+      "id": "osc2-mod",
+      "label": "OSC MOD",
+      "x": 396,
+      "y": 144,
+      "row": 0,
+      "column": 6
+    },
+    {
+      "id": "unison",
+      "label": "UNISON",
+      "x": 326,
+      "y": 293,
+      "row": 2,
+      "column": 2
+    },
+    {
+      "id": "filter-routing",
+      "label": "ROUTING",
+      "x": 396,
+      "y": 293,
+      "row": 2,
+      "column": 3
+    },
+    {
+      "id": "filter-select",
+      "label": "SELECT",
+      "x": 606,
+      "y": 52,
+      "row": 0,
+      "column": 7
+    },
+    {
+      "id": "filter2-type",
+      "label": "TYPE",
+      "x": 676,
+      "y": 293,
+      "row": 2,
+      "column": 4
+    },
+    {
+      "id": "amp-drive",
+      "label": "DRIVE / WS",
+      "x": 747,
+      "y": 293,
+      "row": 2,
+      "column": 5
+    },
+    {
+      "id": "patch-select",
+      "label": "SELECT",
+      "x": 818,
+      "y": 239,
+      "row": 5,
+      "column": 0
+    },
+    {
+      "id": "patch-source",
+      "label": "SOURCE",
+      "x": 818,
+      "y": 305,
+      "row": 5,
+      "column": 1
+    },
+    {
+      "id": "patch-destination",
+      "label": "DESTINATION",
+      "x": 818,
+      "y": 374,
+      "row": 5,
+      "column": 2
+    },
+    {
+      "id": "lfo1-select",
+      "label": "SELECT",
+      "x": 891,
+      "y": 374,
+      "row": 5,
+      "column": 3
+    },
+    {
+      "id": "lfo2-select",
+      "label": "SELECT",
+      "x": 960,
+      "y": 374,
+      "row": 5,
+      "column": 4
+    },
+    {
+      "id": "write",
+      "label": "WRITE",
+      "x": 891,
+      "y": 215,
+      "row": 3,
+      "column": 0
+    },
+    {
+      "id": "compare",
+      "label": "COMPARE",
+      "x": 960,
+      "y": 215,
+      "row": 3,
+      "column": 2
+    },
+    {
+      "id": "page-minus",
+      "label": "−",
+      "x": 1031,
+      "y": 215,
+      "row": 3,
+      "column": 4
+    },
+    {
+      "id": "page-plus",
+      "label": "+",
+      "x": 1102,
+      "y": 215,
+      "row": 3,
+      "column": 6
+    },
+    {
+      "id": "cursor-up",
+      "label": "▲ / ◀",
+      "x": 1173,
+      "y": 215,
+      "row": 4,
+      "column": 0
+    },
+    {
+      "id": "cursor-down",
+      "label": "▼ / ▶",
+      "x": 1243,
+      "y": 215,
+      "row": 4,
+      "column": 2
+    },
+    {
+      "id": "program",
+      "label": "PROGRAM",
+      "x": 891,
+      "y": 262,
+      "row": 3,
+      "column": 1
+    },
+    {
+      "id": "drum",
+      "label": "DRUM",
+      "x": 960,
+      "y": 262,
+      "row": 3,
+      "column": 3
+    },
+    {
+      "id": "global",
+      "label": "GLOBAL",
+      "x": 1031,
+      "y": 262,
+      "row": 3,
+      "column": 5
+    },
+    {
+      "id": "edit",
+      "label": "EDIT / YES",
+      "x": 1102,
+      "y": 262,
+      "row": 3,
+      "column": 7
+    },
+    {
+      "id": "exit",
+      "label": "EXIT / NO",
+      "x": 1173,
+      "y": 262,
+      "row": 4,
+      "column": 1
+    },
+    {
+      "id": "vocoder",
+      "label": "VOCODER",
+      "x": 1243,
+      "y": 262,
+      "row": 4,
+      "column": 3
+    },
+    {
+      "id": "timbre1",
+      "label": "1",
+      "x": 1031,
+      "y": 309,
+      "row": 4,
+      "column": 4
+    },
+    {
+      "id": "timbre2",
+      "label": "2",
+      "x": 1102,
+      "y": 309,
+      "row": 4,
+      "column": 5
+    },
+    {
+      "id": "timbre3",
+      "label": "3",
+      "x": 1173,
+      "y": 309,
+      "row": 4,
+      "column": 6
+    },
+    {
+      "id": "timbre4",
+      "label": "4",
+      "x": 1243,
+      "y": 309,
+      "row": 4,
+      "column": 7
+    },
+    {
+      "id": "fx-select",
+      "label": "FX 1 – FX 2",
+      "x": 1102,
+      "y": 374,
+      "row": 5,
+      "column": 5
+    },
+    {
+      "id": "fx-on",
+      "label": "ON",
+      "x": 1173,
+      "y": 374,
+      "row": 5,
+      "column": 6
+    },
+    {
+      "id": "master-on",
+      "label": "ON",
+      "x": 1243,
+      "y": 374,
+      "row": 5,
+      "column": 7
+    },
+    {
+      "id": "arp-on",
+      "label": "ON",
+      "x": 257,
+      "y": 373,
+      "row": 1,
+      "column": 6
+    },
+    {
+      "id": "arp-latch",
+      "label": "LATCH",
+      "x": 326,
+      "y": 373,
+      "row": 1,
+      "column": 7
+    },
+    {
+      "id": "arp-type",
+      "label": "TYPE / STEP REC",
+      "x": 396,
+      "y": 373,
+      "row": 2,
+      "column": 0
+    },
+    {
+      "id": "arp-select",
+      "label": "SELECT",
+      "x": 465,
+      "y": 373,
+      "row": 2,
+      "column": 1
+    },
+    {
+      "id": "arp-tap",
+      "label": "TAP / REST / TIE",
+      "x": 747,
+      "y": 373,
+      "row": 2,
+      "column": 6
+    },
+    {
+      "id": "mod-on",
+      "label": "ON",
+      "x": 48,
+      "y": 310,
+      "row": 1,
+      "column": 0
+    },
+    {
+      "id": "mod-rec",
+      "label": "REC",
+      "x": 116,
+      "y": 310,
+      "row": 1,
+      "column": 1
+    },
+    {
+      "id": "keys-select",
+      "label": "SELECT",
+      "x": 48,
+      "y": 443,
+      "row": 1,
+      "column": 3
+    },
+    {
+      "id": "mod-select",
+      "label": "SELECT",
+      "x": 116,
+      "y": 443,
+      "row": 1,
+      "column": 2
+    },
+    {
+      "id": "bank-down",
+      "label": "DOWN",
+      "x": 48,
+      "y": 513,
+      "row": 1,
+      "column": 4
+    },
+    {
+      "id": "bank-up",
+      "label": "UP",
+      "x": 116,
+      "y": 513,
+      "row": 1,
+      "column": 5
+    }
+  ],
+  "stepKeys": [
+    {
+      "id": "step-1",
+      "label": "NAME",
+      "x": 187,
+      "y": 511,
+      "row": 6,
+      "column": 0,
+      "number": 1
+    },
+    {
+      "id": "step-2",
+      "label": "COMMON",
+      "x": 257.4,
+      "y": 511,
+      "row": 6,
+      "column": 1,
+      "number": 2
+    },
+    {
+      "id": "step-3",
+      "label": "TIMBRE",
+      "x": 327.8,
+      "y": 511,
+      "row": 6,
+      "column": 2,
+      "number": 3
+    },
+    {
+      "id": "step-4",
+      "label": "VOICE / UNISON",
+      "x": 398.20000000000005,
+      "y": 511,
+      "row": 6,
+      "column": 3,
+      "number": 4
+    },
+    {
+      "id": "step-5",
+      "label": "PITCH",
+      "x": 468.6,
+      "y": 511,
+      "row": 6,
+      "column": 4,
+      "number": 5
+    },
+    {
+      "id": "step-6",
+      "label": "OSC / MIXER",
+      "x": 539,
+      "y": 511,
+      "row": 6,
+      "column": 5,
+      "number": 6
+    },
+    {
+      "id": "step-7",
+      "label": "FILTER",
+      "x": 609.4000000000001,
+      "y": 511,
+      "row": 6,
+      "column": 6,
+      "number": 7
+    },
+    {
+      "id": "step-8",
+      "label": "AMP",
+      "x": 679.8000000000001,
+      "y": 511,
+      "row": 6,
+      "column": 7,
+      "number": 8
+    },
+    {
+      "id": "step-9",
+      "label": "EG",
+      "x": 750.2,
+      "y": 511,
+      "row": 7,
+      "column": 0,
+      "number": 9
+    },
+    {
+      "id": "step-10",
+      "label": "LFO",
+      "x": 820.6,
+      "y": 511,
+      "row": 7,
+      "column": 1,
+      "number": 10
+    },
+    {
+      "id": "step-11",
+      "label": "PATCH",
+      "x": 891,
+      "y": 511,
+      "row": 7,
+      "column": 2,
+      "number": 11
+    },
+    {
+      "id": "step-12",
+      "label": "MOD SEQ",
+      "x": 961.4000000000001,
+      "y": 511,
+      "row": 7,
+      "column": 3,
+      "number": 12
+    },
+    {
+      "id": "step-13",
+      "label": "EQ / FX",
+      "x": 1031.8000000000002,
+      "y": 511,
+      "row": 7,
+      "column": 4,
+      "number": 13
+    },
+    {
+      "id": "step-14",
+      "label": "ARPEGGIATOR",
+      "x": 1102.2,
+      "y": 511,
+      "row": 7,
+      "column": 5,
+      "number": 14
+    },
+    {
+      "id": "step-15",
+      "label": "STEP SEQ",
+      "x": 1172.6000000000001,
+      "y": 511,
+      "row": 7,
+      "column": 6,
+      "number": 15
+    },
+    {
+      "id": "step-16",
+      "label": "UTILITY",
+      "x": 1243,
+      "y": 511,
+      "row": 7,
+      "column": 7,
+      "number": 16
+    }
+  ],
+  "groups": [
+    [
+      "AUDIO IN",
+      82,
+      12
+    ],
+    [
+      "OCTAVE",
+      82,
+      211
+    ],
+    [
+      "OSCILLATOR 1",
+      222,
+      12
+    ],
+    [
+      "OSCILLATOR 2",
+      361,
+      12
+    ],
+    [
+      "MIXER",
+      465,
+      10
+    ],
+    [
+      "FILTER 1",
+      535,
+      12
+    ],
+    [
+      "FILTER 2",
+      676,
+      12
+    ],
+    [
+      "AMP",
+      747,
+      10
+    ],
+    [
+      "V. PATCH",
+      818,
+      94
+    ],
+    [
+      "LFO 1",
+      891,
+      291
+    ],
+    [
+      "LFO 2",
+      960,
+      291
+    ],
+    [
+      "TIMBRE SELECT",
+      1137,
+      288
+    ],
+    [
+      "EQ",
+      1005,
+      339
+    ],
+    [
+      "INSERT FX",
+      1137,
+      334
+    ],
+    [
+      "MASTER FX",
+      1243,
+      334
+    ],
+    [
+      "ARPEGGIATOR / STEP SEQUENCER",
+      457,
+      328
+    ],
+    [
+      "PORTAMENTO",
+      187,
+      390
+    ],
+    [
+      "EG 1 (FILTER)",
+      361,
+      390
+    ],
+    [
+      "EG 2 (AMP)",
+      641,
+      390
+    ],
+    [
+      "MOD SEQUENCER",
+      82,
+      266
+    ],
+    [
+      "16 KEYS",
+      48,
+      348
+    ],
+    [
+      "PROGRAM BANK / TRIGGER",
+      82,
+      474
+    ],
+    [
+      "PAGE",
+      1066,
+      185
+    ],
+    [
+      "CURSOR",
+      1208,
+      185
+    ]
+  ],
+  "leds": [
+    [
+      168,
+      56,
+      [
+        "╱",
+        "┌─┐",
+        "△",
+        "∿"
+      ]
+    ],
+    [
+      246,
+      41,
+      [
+        "FORMANT",
+        "NOISE",
+        "SYNTH PCM",
+        "DRUM PCM",
+        "AUDIO IN"
+      ]
+    ],
+    [
+      243,
+      182,
+      [
+        "WAVEFORM",
+        "CROSS",
+        "UNISON",
+        "VPM"
+      ]
+    ],
+    [
+      308,
+      56,
+      [
+        "╱",
+        "┌─┐",
+        "△",
+        "∿"
+      ]
+    ],
+    [
+      377,
+      89,
+      [
+        "RING",
+        "SYNC"
+      ]
+    ],
+    [
+      798,
+      121,
+      [
+        "PATCH 1",
+        "PATCH 2",
+        "PATCH 3",
+        "PATCH 4",
+        "PATCH 5",
+        "PATCH 6"
+      ]
+    ],
+    [
+      440,
+      258,
+      [
+        "SINGLE",
+        "SERIAL",
+        "PARALLEL",
+        "INDIVIDUAL"
+      ]
+    ],
+    [
+      704,
+      255,
+      [
+        "LPF",
+        "HPF",
+        "BPF",
+        "COMB"
+      ]
+    ],
+    [
+      503,
+      345,
+      [
+        "ARPEGGIATOR",
+        "STEP SEQ 1",
+        "STEP SEQ 2"
+      ]
+    ],
+    [
+      871,
+      319,
+      [
+        "╱     △",
+        "┌─┐   S/H"
+      ]
+    ],
+    [
+      939,
+      319,
+      [
+        "∿     ∿",
+        "┌─┐   S/H"
+      ]
+    ],
+    [
+      28,
+      368,
+      [
+        "PROGRAM",
+        "TRIGGER",
+        "PAGE",
+        "KEYBOARD"
+      ]
+    ],
+    [
+      97,
+      355,
+      [
+        "EDIT",
+        "MOD 1 LEVEL",
+        "MOD 2 PAN",
+        "MOD 3"
+      ]
+    ]
+  ],
+  "path": "M7 23V198H155V331H776 M155 23V481H1271 M287 23V323H155 M430 23V245H500 M500 23V82H570V242H640V82H711V323 M570 82V23H711 M777 23V481 M847 23V281H993V334H1271 M1021 281V334 M7 208H155 M7 277H155 M7 338H155 M83 338V471 M155 332H777 M222 332V399H777 M222 399V481 M501 399V481 M7 481H1271 M847 285V481 M917 285V481 M993 334V481 M1067 334V481 M1208 334V481"
+}

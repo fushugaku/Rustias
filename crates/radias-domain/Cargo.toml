@@ -1,0 +1,4 @@
+[package]
+name = "radias-domain"
+version.workspace = true
+edition.workspace = true

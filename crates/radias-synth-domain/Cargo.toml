@@ -1,0 +1,4 @@
+[package]
+name = "radias-synth-domain"
+version.workspace = true
+edition.workspace = true

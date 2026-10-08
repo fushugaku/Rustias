@@ -1,0 +1,15 @@
+[package]
+name = "radias-synth-infrastructure"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+radias-synth-domain = { path = "../radias-synth-domain" }
+radias-synth-application = { path = "../radias-synth-application" }
+serde_json = "=1.0.151"
+serde = { version = "=1.0.229", features = ["derive"] }
+cpal = { version = "=0.18.2", optional = true }
+
+[features]
+default = []
+desktop-io = ["dep:cpal"]

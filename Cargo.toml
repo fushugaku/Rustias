@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = ["crates/radias-domain", "crates/radias-application", "crates/radias-infrastructure", "crates/radias-cli", "crates/radias-desktop", "crates/radias-synth-domain", "crates/radias-synth-application", "crates/radias-synth-infrastructure"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "unwind"

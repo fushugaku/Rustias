@@ -1,0 +1,18 @@
+# Cargo output
+/target/
+
+# External firmware, prepared programs and local research artifacts
+/firmware/
+/assets/
+/runs/
+/build/
+/output/
+/tmp/
+*.bin
+*.rdl
+*.wav
+
+# Local settings
+.DS_Store
+.env
+.env.*

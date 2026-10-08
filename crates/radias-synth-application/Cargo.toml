@@ -1,0 +1,7 @@
+[package]
+name = "radias-synth-application"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+radias-synth-domain = { path = "../radias-synth-domain" }

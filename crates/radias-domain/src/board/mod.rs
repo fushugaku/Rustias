@@ -1,0 +1,11 @@
+pub mod codec;
+pub mod fxd;
+mod machine;
+pub mod nor;
+pub mod registers;
+pub mod scif;
+pub use machine::{Board, Lcd};
+pub const CPU_HZ: u64 = 144_000_000;
+pub const DSP_HZ: u64 = 300_000_000;
+pub const SAMPLE_HZ: u32 = 48_000;
+pub const BUS_WORDS_PER_SAMPLE: u32 = 16;
