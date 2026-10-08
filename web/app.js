@@ -22,7 +22,7 @@ const held = new Map(), noteCounts = new Map(), knobs = new Map(), fields = new 
 const send = message => node?.port.postMessage(message);
 const global = id => timbres[0].values[id];
 const isDrum = () => global(140) !== 0 && global(141) === selected;
-const instrumentParameter = id => parameters[id].scope !== "global" && !(id >= 59 && id <= 72 || id >= 114 && id <= 120 || id >= 137 && id <= 139 || id >= 150 && id <= 151);
+const instrumentParameter = id => parameters[id].scope !== "global" && !(id >= 59 && id <= 72 || id >= 114 && id <= 120 || id >= 137 && id <= 139 || id >= 150 && id <= 151 || id === 153);
 const values = () => parameters.map(p => p.id === 118 ? (timbres[selected].values[67] ? timbres[selected].values[68] - 1 : 0) : isDrum() && instrumentParameter(p.id) ? drums[global(142)][p.id] : timbres[selected].values[p.id]);
 function format(id, value) {
   const p = parameters[id];
@@ -174,7 +174,7 @@ $("#preset").addEventListener("change", event => {
   const preset = event.target.value; if (!(preset in presets)) return;
   releaseAll();
   for (const p of parameters) {
-    if (p.scope === "global" || p.readonly || [71, 72, 119, 120, 137, 138, 139, 146, 147, 150, 151].includes(p.id) || isDrum() && !instrumentParameter(p.id)) continue;
+    if (p.scope === "global" || p.readonly || [71, 72, 119, 120, 137, 138, 139, 146, 147, 150, 151, 153].includes(p.id) || isDrum() && !instrumentParameter(p.id)) continue;
     const value = presets[preset][p.id] ?? p.default;
     (isDrum() ? drums[global(142)] : timbres[selected].values)[p.id] = value;
   }
@@ -201,6 +201,7 @@ $("#program-file").addEventListener("change", async event => {
     const program = JSON.parse(await file.text());
     if (program.version !== 1 || program.timbres?.length !== 4 || program.drums?.length !== 16) throw new Error("Choose a Rustias program JSON file.");
     for (const v of [...program.timbres, ...program.drums]) {
+      if (Array.isArray(v) && v.length === 153) v.push(v[151]);
       if (v.length !== parameters.length || parameters.some(p => !Number.isInteger(v[p.id]) || v[p.id] < p.min || v[p.id] > p.max || p.values && !p.values.includes(v[p.id])) || v[0] >= 4 && v[10] !== 0 || v[119] > v[120]) throw new Error("The program contains invalid parameters.");
     }
     if (parameters.some(p => p.scope === "global" && program.timbres.some(v => v[p.id] !== program.timbres[0][p.id]))) throw new Error("Global settings must agree across timbres.");

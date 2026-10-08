@@ -72,6 +72,8 @@ api.rustias_midi(0xb0,11,127);assert.ok(rms(render())>0.0001,"Expression restore
 api.rustias_midi(0xe0,0,96);assert.equal(api.rustias_value(0,137),4096);
 api.rustias_midi(0xb0,1,93);assert.equal(api.rustias_value(0,138),93);
 api.rustias_midi(0xb0,65,127);assert.equal(api.rustias_value(0,139),1);
+control(151,0);control(153,1);control(149,0);api.rustias_midi(0xb0,11,0);assert.ok(rms(render())>0.0001,"mode 0 receive flag disables Expression");
+control(149,1);assert.ok(rms(render().slice(3000))<0.00001,"mode 1 uses its independent Expression flag");
 features.push("MIDI bend, wheel, Expression, portamento switch");
 api.rustias_init();control(72,16);control(148,7);api.rustias_midi(0x97,69,100);assert.equal(api.rustias_voices(),1,"Global channel inheritance");
 api.rustias_midi(0xb7,11,45);assert.equal(api.rustias_value(0,150),45);render();

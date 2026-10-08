@@ -39,7 +39,7 @@ use radias_synth_domain::{
 };
 
 pub const SAMPLE_RATE: u32 = 48_000;
-pub const PARAMETER_COUNT: usize = 153;
+pub const PARAMETER_COUNT: usize = 154;
 pub const PARAMETER_SCHEMA: &str = include_str!("parameters.json");
 pub type Values = [i32; PARAMETER_COUNT];
 #[derive(serde::Deserialize)]
@@ -349,7 +349,7 @@ impl StandaloneSynth {
         }
         if self.spec[id].scope != "global"
             && self.active_drums(t)
-            && !matches!(id,59..=72|114..=118|119..=120|137..=139|150..=151)
+            && !matches!(id,59..=72|114..=118|119..=120|137..=139|150..=151|153)
         {
             self.drum_settings[self.settings[0][142] as usize][id]
         } else {
@@ -375,9 +375,11 @@ impl StandaloneSynth {
         if is(&[119, 120]) {
             self.engine.set_key_window(t, [v[119] as u8, v[120] as u8]);
         }
-        if is(&[151]) {
-            self.engine
-                .set_receive_flags(t, if v[151] != 0 { 255 } else { 159 });
+        if is(&[151, 153]) {
+            self.engine.set_receive_flags(
+                t,
+                159 | if v[151] != 0 { 64 } else { 0 } | if v[153] != 0 { 32 } else { 0 },
+            );
         }
         if is(&[0, 10, 11, 12]) {
             self.engine.apply(Command::Primary(t, c.primary()));
@@ -413,13 +415,13 @@ impl StandaloneSynth {
                 .apply(Command::Auxiliary(t, [c.envelope[0], c.envelope[2]]));
         }
         if is(&[
-            3, 4, 5, 6, 7, 44, 45, 46, 47, 52, 114, 115, 116, 117, 118, 151,
+            3, 4, 5, 6, 7, 44, 45, 46, 47, 52, 114, 115, 116, 117, 118, 151, 153,
         ]) {
             if self.active_drums(t) {
                 if is(&[115]) && v[152] == 0 {
                     self.engine.set_source_gain(t, v[115] as u16);
                 }
-                if is(&[151]) {
+                if is(&[151, 153]) {
                     self.engine
                         .apply(Command::Expression(self.channel(t), v[150] as u8));
                 }
@@ -574,7 +576,8 @@ impl StandaloneSynth {
             }
             return true;
         }
-        if self.active_drums(t) && !matches!(id,59..=72|114..=118|119..=120|137..=139|150..=151) {
+        if self.active_drums(t) && !matches!(id,59..=72|114..=118|119..=120|137..=139|150..=151|153)
+        {
             return self.drum_control(self.settings[0][142] as u8, id, value);
         }
         self.settings[t as usize][id] = value;
@@ -615,7 +618,7 @@ impl StandaloneSynth {
             || value > p.max
             || p.values.as_ref().is_some_and(|v| !v.contains(&value))
             || p.scope == "global"
-            || matches!(id,59..=72|114..=120|137..=139|150..=151)
+            || matches!(id,59..=72|114..=120|137..=139|150..=151|153)
         {
             return false;
         }
@@ -692,7 +695,12 @@ impl StandaloneSynth {
         .unwrap()
     }
     pub fn load(bytes: &[u8]) -> Option<Self> {
-        let p: ProgramState = serde_json::from_slice(bytes).ok()?;
+        let mut p: ProgramState = serde_json::from_slice(bytes).ok()?;
+        for v in p.timbres.iter_mut().chain(&mut p.drums) {
+            if v.len() == 153 {
+                v.push(v[151]);
+            }
+        }
         if p.version != 1 || p.timbres.len() != 4 || p.drums.len() != 16 {
             return None;
         }
