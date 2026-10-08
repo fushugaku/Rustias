@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|_| "Invalid original patch route")?;
         // These declared shared instrument inputs match the controlled source
         // scene. They are not compiled voice/target observations.
-        let program = controls.amplifier(0x7f00, None, 0);
+        let mut program = controls.amplifier(0x7f00, None, 0);
         let raw = fs::read(out.join(format!("{name}-voice-va-inputs.bin")))?;
         let plan = PreparedVoice::from_reference_va_parameters(&raw)?;
         let mut events: Vec<Value> =
@@ -48,6 +48,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect::<Result<_, _>>()?;
         let key_path = out.join(format!("{name}-native-amplifier-key-events.jsonl"));
         let native_key = label.starts_with("amp-key-");
+        let native_expression = label.starts_with("amp-expression-");
+        let native_common = label.starts_with("drum-common-");
+        let common = radias_synth_domain::program_binding::ProgramCommon {
+            level: stored.bytes()[25],
+            pan: stored.bytes()[26],
+        };
+        let pan_tables = firmware::pan_tables(&system)?;
+        let mut common_application = 0u8;
+        if native_common {
+            for suffix in ["native-pan-events.jsonl", "program-binding-events.jsonl"] {
+                events.extend(
+                    fs::read_to_string(out.join(format!("{name}-{suffix}")))?
+                        .lines()
+                        .map(serde_json::from_str::<Value>)
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+            }
+            events.sort_by_key(|e| (e["frame"].as_u64().unwrap(), e["order"].as_u64().unwrap()));
+        }
+        let global = radias_synth_infrastructure::rdl::global_performance(&fs::read(
+            root.join("firmware/Radias-backup.rdl"),
+        )?)?;
+        let channel = stored.timbre(0).unwrap().channel(global.channel);
+        let receive_flags = stored.timbre(0).unwrap().bytes()[5];
+        let mut expression = radias_synth_domain::performance::ExpressionState::default();
+        let mut cached_expression = expression;
+        if native_expression {
+            let context: Value = serde_json::from_slice(&fs::read(
+                out.join(format!("{name}-performance-context.json")),
+            )?)?;
+            if context["amplitude_receive_mode"].as_u64()
+                != Some(global.amplitude_receive_mode as u64)
+                || context["global_channel"].as_u64() != Some(global.channel as u64)
+            {
+                return Err("Stored Global context differs from Source runtime".into());
+            }
+            program.source_gain = expression.gain(channel, receive_flags, global);
+            events.extend(
+                fs::read_to_string(out.join(format!("{name}-native-performance-events.jsonl")))?
+                    .lines()
+                    .map(serde_json::from_str::<Value>)
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+            events.sort_by_key(|e| (e["frame"].as_u64().unwrap(), e["order"].as_u64().unwrap()));
+        }
         if native_key {
             events.extend(
                 fs::read_to_string(key_path)?
@@ -63,6 +108,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut output = vec![[Sample(0); 8]; (original.len() - 44) / 32];
         let mut renderer = VoiceRenderer::new(plan.initial, plan.parameters);
+        if native_common {
+            let raw_word = |i: usize| u32::from_le_bytes(raw[4 * i..4 * i + 4].try_into().unwrap());
+            renderer.initialize_pan(
+                radias_synth_domain::pan::PanSmoother {
+                    current: raw_word(129) as i16,
+                    target: 0,
+                },
+                radias_synth_domain::control_slew::SlewWeights {
+                    target: raw_word(163) as i16,
+                    memory: raw_word(164) as i16,
+                },
+            );
+        }
         let mut inactive = radias_synth_domain::stereo_cache::StereoCache::default();
         let mut controller = None::<AmplifierController>;
         let mut event_index = 0;
@@ -73,7 +131,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut compiled_controls = 0;
         let mut key_modulation = 0i16;
         let mut key_compilations = 0;
-        for (frame, sample) in output.iter_mut().enumerate() {
+        let mut expression_events = 0;
+        let mut expression_cache_events = 0;
+        let mut binding_events = 0;
+        let mut pan_compilations = 0;
+        let mut pan_commits = 0;
+        let mut pan_target = 0u16;
+        // Observe the controller boundary immediately after the last recorded
+        // audio frame as well. Its assertions add no frame to either WAV.
+        let mut closing_boundary = [Sample(0); 8];
+        for (frame, sample) in output
+            .iter_mut()
+            .chain(core::iter::once(&mut closing_boundary))
+            .enumerate()
+        {
             while let Some(event) = events.get(event_index) {
                 if event["frame"].as_u64().ok_or("Source clock missing")? > frame as u64 {
                     break;
@@ -122,6 +193,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 match kind {
+                    "program_binding" => {
+                        common_application = u8::from(
+                            event["alternate"]
+                                .as_bool()
+                                .ok_or("Source binding kind missing")?,
+                        );
+                        if event["expected_common_flag"].as_u64() != Some(common_application as u64)
+                        {
+                            return Err("Native actor binding flag differs".into());
+                        }
+                        program.midi_volume = common.level_for(common_application);
+                        if let Some(ctrl) = &mut controller {
+                            ctrl.program_common(program.midi_volume, &tables);
+                        }
+                        binding_events += 1;
+                    }
+                    "pan_target" => {
+                        let input = event["control"]
+                            .as_array()
+                            .filter(|r| r.len() == 6)
+                            .ok_or("Pan context missing")?;
+                        let p = |i: usize| input[i].as_u64().unwrap() as u32;
+                        if p(0) != controls.pan as u32
+                            || p(4) != common_application as u32
+                            || p(5) != common.pan as u32
+                        {
+                            return Err("Stored common pan binding differs".into());
+                        }
+                        let pan = radias_synth_domain::controller_pan::PanControl {
+                            position: controls.pan,
+                            manual_offset: p(1) as i16,
+                            modulation: p(2) as i16,
+                            timbre_offset: p(3) as i8,
+                            midi_pan: common.pan_for(common_application),
+                        };
+                        if event["expected_target"].as_u64() != Some(pan.target() as u64) {
+                            return Err("Native common pan target differs".into());
+                        }
+                        pan_target = pan_tables.compile(pan.target());
+                        pan_compilations += 1;
+                    }
+                    "pan_commit" => {
+                        let value = if event["pc"].as_u64() == Some(0xd534) {
+                            0
+                        } else {
+                            pan_target
+                        };
+                        if event["expected_target"].as_u64() != Some(value as u64) {
+                            return Err("Native common pan DSP commit differs".into());
+                        }
+                        renderer.set_pan_target(value as i16);
+                        pan_commits += 1;
+                    }
+                    "expression" => {
+                        expression.set(
+                            event["channel"].as_u64().unwrap() as u8,
+                            event["value"].as_u64().unwrap() as u8,
+                        );
+                        expression_events += 1;
+                    }
+                    "expression_cache" => {
+                        let ch = event["channel"].as_u64().unwrap() as u8;
+                        let value = event["value"].as_u64().unwrap() as u8;
+                        if expression.value(ch) != value {
+                            return Err(
+                                "Native Expression state differs from Source cache input".into()
+                            );
+                        }
+                        cached_expression.set(ch, value);
+                        expression_cache_events += 1;
+                    }
                     "amplifier_key" => {
                         if event["tracking"].as_u64() != Some(program.key_tracking as u64) {
                             return Err("Stored AMP key tracking differs".into());
@@ -153,6 +295,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .ok_or("Source amplifier inputs truncated")?;
                         let p = |i: usize| input[i].as_u64().unwrap() as u32;
                         let ctrl = controller.as_mut().unwrap();
+                        if native_expression {
+                            program.source_gain =
+                                cached_expression.gain(channel, receive_flags, global);
+                            ctrl.source_gain(program.source_gain, &tables);
+                        }
                         target = ctrl.modulations(
                             [
                                 if native_key {
@@ -179,6 +326,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             u32::from(native.program_volume),
                         ];
                         if actual != core::array::from_fn::<_, 11, _>(p) {
+                            if errors < 3 {
+                                eprintln!(
+                                    "{name} amplifier frame{frame}: {actual:?} != {:?}",
+                                    core::array::from_fn::<_, 11, _>(p)
+                                );
+                            }
                             errors += 1;
                         }
                         compiled_controls += 1;
@@ -234,9 +387,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &output,
         )?;
         let passed = errors == 0 && services > 10 && commits > 10 && event_index == events.len();
+        // These static drum-pan fixtures have one composition and two original
+        // HPI commits (initial zero, then target), with no later pan changes.
+        let passed = passed
+            && (!native_common
+                || (binding_events == 1 && pan_compilations == 1 && pan_commits == 2));
         let report = serde_json::json!({"name":name,"passed":passed,"errors":errors,"services":services,
+            "processed_events":event_index,"source_events":events.len(),
             "commits":commits,"compiled_controls":compiled_controls,"frames":output.len(),
             "native_AMP_key_tracking":native_key,"native_AMP_key_compilations":key_compilations,
+            "native_Expression_state":native_expression,"native_Expression_events":expression_events,
+            "native_Expression_cache_events":expression_cache_events,
+            "native_program_common_binding":native_common,"native_binding_events":binding_events,
+            "native_common_pan_compilations":pan_compilations,"native_common_pan_commits":pan_commits,
             "stored_EG2_eight_fields_and_amp_level_used":true,"native_AmplifierProgram_controller_used":true,
             "velocity_time_sensitivity":program.envelope.velocity_time_sensitivity,
             "velocity_level_sensitivity":program.envelope.velocity_level_sensitivity,

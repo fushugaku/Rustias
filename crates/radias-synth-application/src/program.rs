@@ -43,6 +43,16 @@ pub struct TimbreControls {
     pub modulation: ModulationProgram,
 }
 impl TimbreControls {
+    /// A drum instrument supplies the complete104-byte synthesis control body;
+    /// the owning timbre retains channel, receive, allocation and sustain data.
+    pub fn from_drum_instrument(
+        owner: Timbre<'_>,
+        instrument: &[u8; radias_synth_domain::drum::DRUM_INSTRUMENT_BYTES],
+    ) -> Result<Self, InvalidPatchDestination> {
+        let mut raw = *owner.bytes();
+        raw[16..120].copy_from_slice(instrument);
+        Self::from_timbre(Timbre::from_bytes(&raw))
+    }
     /// Shared instrument gain/volume are explicit inputs rather than patched
     /// fixture constants. All eight EG2 fields come from this timbre's bytes.
     pub fn amplifier(
@@ -184,6 +194,7 @@ pub struct StoredTimbre {
     pub enabled: bool,
     pub channel: u8,
     pub key_window: [u8; 2],
+    pub receive_flags: u8,
     pub controls: TimbreControls,
 }
 impl StoredTimbre {
@@ -201,6 +212,7 @@ pub struct StoredProgram {
     pub timbres: [StoredTimbre; 4],
     pub tempo_tenths: u16,
     pub drum_timbre: u8,
+    pub drum: radias_synth_domain::drum::DrumProgram,
     pub arpeggiator_flags: u8,
     pub vocoder_flags: u8,
 }
@@ -220,6 +232,7 @@ impl StoredProgram {
                 enabled: t.enabled(),
                 channel: t.channel(global_channel),
                 key_window: t.key_window(),
+                receive_flags: t.bytes()[5],
                 controls: TimbreControls::from_timbre(t).map_err(|patch| InvalidStoredProgram {
                     timbre: index as u8,
                     patch,
@@ -230,6 +243,7 @@ impl StoredProgram {
             timbres: [bind(0)?, bind(1)?, bind(2)?, bind(3)?],
             tempo_tenths: program.tempo_tenths(),
             drum_timbre: program.drum_timbre(),
+            drum: program.drum_program(),
             arpeggiator_flags: program.arpeggiator_flags(),
             vocoder_flags: program.vocoder_flags(),
         })

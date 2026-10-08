@@ -11,6 +11,7 @@ fi
   --config 'profile.release.panic="abort"'
 mkdir -p dist
 cp web/index.html web/styles.css web/app.js web/worklet.js web/favicon.svg dist/
+cp crates/radias-synth-infrastructure/src/parameters.json dist/parameters.json
 cp "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/radias_web.wasm" dist/rustias.wasm
 touch dist/.nojekyll
 printf 'Web build ready: %s/dist\n' "$PWD"

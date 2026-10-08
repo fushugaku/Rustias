@@ -208,6 +208,20 @@ impl AmplifierController {
         self.control.level = level;
         self.compile(tables);
     }
+    pub fn source_gain(&mut self, gain: u16, tables: &ControllerTables) {
+        self.control.source_gain = gain;
+        self.compile(tables);
+    }
+    pub fn program_common(&mut self, level: Option<u8>, tables: &ControllerTables) {
+        self.control.midi_volume = level;
+        self.compile(tables);
+    }
+    pub fn set_program_common(&mut self, level: Option<u8>) {
+        if self.control.midi_volume != level {
+            self.control.midi_volume = level;
+            self.pending_compile = true;
+        }
+    }
     pub fn relative_pitch(&mut self, pitch: i16, tables: &ControllerTables) {
         self.relative_pitch = pitch;
         let modulation = tables.amplifier.key_modulation(self.key_tracking, pitch);

@@ -1,39 +1,69 @@
-//! Small C ABI for a firmware-free native synth in an AudioWorklet.
-//! No filesystem, network, CPU interpreter or JavaScript sound generation.
-use radias_synth_infrastructure::{standalone::StandaloneSynth, synthesizer::Command};
+//! Firmware-free native synthesizer C ABI for an AudioWorklet.
+use radias_synth_infrastructure::standalone::{PARAMETER_COUNT, StandaloneSynth};
 use std::cell::RefCell;
 
+const PRESET_CAPACITY: usize = 65536;
 struct WebEngine {
     synth: StandaloneSynth,
     output: [f32; 256],
+    preset: Vec<u8>,
     frames: u32,
     peak: f32,
 }
 thread_local! {
     static ENGINE: RefCell<Option<Box<WebEngine>>> = const { RefCell::new(None) };
 }
-
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_init() {
     ENGINE.with(|state| {
         *state.borrow_mut() = Some(Box::new(WebEngine {
             synth: StandaloneSynth::new(),
             output: [0.0; 256],
+            preset: vec![0; PRESET_CAPACITY],
             frames: 0,
             peak: 0.0,
-        }))
+        }));
     });
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn rustias_control(timbre: u32, parameter: u32, value: u32) -> u32 {
-    if timbre >= 4 || value > 127 {
+pub extern "C" fn rustias_parameter_count() -> u32 {
+    PARAMETER_COUNT as u32
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_control(timbre: u32, parameter: u32, value: i32) -> u32 {
+    if timbre >= 4 {
         return 0;
     }
     ENGINE.with(|state| {
         state
             .borrow_mut()
             .as_mut()
-            .is_some_and(|engine| engine.synth.control(timbre as u8, parameter, value as u8))
+            .is_some_and(|e| e.synth.control(timbre as u8, parameter as usize, value))
+            as u32
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_value(timbre: u32, parameter: u32) -> i32 {
+    if timbre >= 4 || parameter as usize >= PARAMETER_COUNT {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        state
+            .borrow()
+            .as_ref()
+            .map_or(0, |e| e.synth.value(timbre as u8, parameter as usize))
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_drum_control(index: u32, parameter: u32, value: i32) -> u32 {
+    if index >= 16 {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        state
+            .borrow_mut()
+            .as_mut()
+            .is_some_and(|e| e.synth.drum_control(index as u8, parameter as usize, value))
             as u32
     })
 }
@@ -46,8 +76,19 @@ pub extern "C" fn rustias_note(timbre: u32, note: u32, velocity: u32) -> u32 {
         state
             .borrow_mut()
             .as_mut()
-            .is_some_and(|engine| engine.synth.note(timbre as u8, note as u8, velocity as u8))
-            as u32
+            .is_some_and(|e| e.synth.note(timbre as u8, note as u8, velocity as u8)) as u32
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_drum_pad(index: u32, velocity: u32) -> u32 {
+    if index >= 16 || velocity > 127 {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        state
+            .borrow_mut()
+            .as_mut()
+            .is_some_and(|e| e.synth.drum_pad(index as u8, velocity as u8)) as u32
     })
 }
 #[unsafe(no_mangle)]
@@ -56,46 +97,82 @@ pub extern "C" fn rustias_midi(status: u32, first: u32, second: u32) {
         return;
     }
     ENGINE.with(|state| {
-        if let Some(engine) = state.borrow_mut().as_mut() {
-            let channel = (status & 15) as u8;
-            let command = match status & 0xf0 {
-                0x90 => Command::Midi(channel, first as u8, second as u8),
-                0x80 => Command::Midi(channel, first as u8, 0),
-                0xb0 if first == 64 => Command::Sustain(channel, second as u8),
-                0xb0 if first == 120 => Command::AllSoundOff(channel),
-                0xb0 if first == 123 => Command::AllNotesOff(channel),
-                _ => return,
-            };
-            engine.synth.engine.apply(command);
+        if let Some(e) = state.borrow_mut().as_mut() {
+            e.synth.midi(status as u8, first as u8, second as u8);
         }
     });
+}
+/// Shared input/output buffer for complete JSON programs. No external data is loaded.
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_preset_buffer() -> *mut u8 {
+    ENGINE.with(|state| {
+        state
+            .borrow_mut()
+            .as_mut()
+            .map_or(std::ptr::null_mut(), |e| e.preset.as_mut_ptr())
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_preset_capacity() -> u32 {
+    PRESET_CAPACITY as u32
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_save() -> u32 {
+    ENGINE.with(|state| {
+        let mut state = state.borrow_mut();
+        let Some(e) = state.as_mut() else {
+            return 0;
+        };
+        let bytes = e.synth.save();
+        if bytes.len() > PRESET_CAPACITY {
+            return 0;
+        }
+        e.preset[..bytes.len()].copy_from_slice(&bytes);
+        bytes.len() as u32
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_load(length: u32) -> u32 {
+    if length as usize > PRESET_CAPACITY {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        let mut state = state.borrow_mut();
+        let Some(e) = state.as_mut() else {
+            return 0;
+        };
+        let Some(synth) = StandaloneSynth::load(&e.preset[..length as usize]) else {
+            return 0;
+        };
+        e.synth = synth;
+        1
+    })
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_stop() {
     ENGINE.with(|state| {
-        if let Some(engine) = state.borrow_mut().as_mut() {
-            engine.synth.stop();
+        if let Some(e) = state.borrow_mut().as_mut() {
+            e.synth.stop();
         }
     });
 }
-/// Always fills 128 interleaved stereo frames at 48 kHz. The pointer remains
-/// valid until reinitialization; JavaScript rereads memory after each call.
+/// 128 interleaved stereo frames at 48 kHz; reread memory after each render.
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_render() -> *const f32 {
     ENGINE.with(|state| {
         let mut state = state.borrow_mut();
-        let Some(engine) = state.as_mut() else {
+        let Some(e) = state.as_mut() else {
             return std::ptr::null();
         };
-        engine.peak = 0.0;
-        for frame in engine.output.chunks_exact_mut(2) {
-            let sample = engine.synth.engine.sample();
+        e.peak = 0.0;
+        for frame in e.output.chunks_exact_mut(2) {
+            let sample = e.synth.engine.sample();
             frame[0] = sample.left.0 as f32 / 2147483648.0;
             frame[1] = sample.right.0 as f32 / 2147483648.0;
-            engine.peak = engine.peak.max(frame[0].abs()).max(frame[1].abs());
+            e.peak = e.peak.max(frame[0].abs()).max(frame[1].abs());
         }
-        engine.frames = engine.frames.wrapping_add(128);
-        engine.output.as_ptr()
+        e.frames = e.frames.wrapping_add(128);
+        e.output.as_ptr()
     })
 }
 #[unsafe(no_mangle)]
@@ -104,14 +181,14 @@ pub extern "C" fn rustias_voices() -> u32 {
         state
             .borrow()
             .as_ref()
-            .map_or(0, |engine| engine.synth.engine.active_count() as u32)
+            .map_or(0, |e| e.synth.engine.active_count() as u32)
     })
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_frames() -> u32 {
-    ENGINE.with(|state| state.borrow().as_ref().map_or(0, |engine| engine.frames))
+    ENGINE.with(|state| state.borrow().as_ref().map_or(0, |e| e.frames))
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_peak() -> f32 {
-    ENGINE.with(|state| state.borrow().as_ref().map_or(0.0, |engine| engine.peak))
+    ENGINE.with(|state| state.borrow().as_ref().map_or(0.0, |e| e.peak))
 }

@@ -33,6 +33,10 @@ pub struct NativePanel {
     tempo: u16,
     comb_configured: bool,
     bank: Vec<radias_synth_domain::program::Program>,
+    global_performance: radias_synth_domain::performance::GlobalPerformance,
+    drum_kits: Vec<radias_synth_domain::drum::DrumKit>,
+    drum_editor: Option<DrumEditor>,
+    suppress_parameter_commands: bool,
     stored_program_selected: Option<usize>,
     #[cfg(test)]
     comb_updates: Vec<(u8, u8, CombProgram)>,
@@ -56,6 +60,13 @@ pub struct NativePanel {
     envelope_header: Option<egui::Rect>,
     #[cfg(test)]
     envelope_targets: Vec<(usize, usize, egui::Id, egui::Rect)>,
+}
+struct DrumEditor {
+    source: radias_synth_domain::program::Program,
+    kit: radias_synth_domain::drum::DrumKit,
+    owner: usize,
+    selected: usize,
+    views: [TimbreControls; 16],
 }
 
 pub const TEMPO_DIVISION_LABELS: [&str; 17] = [
@@ -100,6 +111,69 @@ struct TimbreControls {
 }
 
 impl TimbreControls {
+    fn write_drum_body(self, body: &mut [u8; 104]) {
+        body[0x13] = self.pitch.transpose;
+        body[0x14] = self.pitch.fine_tune;
+        body[0x15] = self.pitch.vibrato_intensity;
+        body[0x16] = (body[0x16] & 0xc0) | (self.primary_selection() & 63);
+        body[0x17..0x19].copy_from_slice(&self.primary_controls);
+        body[0x1b] = self.secondary.selection;
+        body[0x1c] = self.secondary.pitch.semitone;
+        body[0x1d] = self.secondary.pitch.fine_tune;
+        body[0x1e..0x21].copy_from_slice(&self.mixer_levels);
+        body[0x21] = (body[0x21] & 0x4c)
+            | (self.filter_route & 3)
+            | ((self.filter2_type & 3) << 4)
+            | if self.filter2_link { 128 } else { 0 };
+        body[0x22] = self.filter_type;
+        body[0x23] = self.cutoff;
+        body[0x24] = self.resonance;
+        body[0x25] = self.eg1_intensity;
+        body[0x26] = self.key_tracking;
+        body[0x28] = self.filter2_cutoff;
+        body[0x29] = self.filter2_resonance;
+        body[0x2a] = self.filter2_eg1_intensity;
+        body[0x2b] = self.filter2_key_tracking;
+        body[0x2d] = self.amplifier.level;
+        body[0x2e] = (body[0x2e] & !0x13)
+            | self.shaper_mode.min(2)
+            | if self.shaper_position != 0 { 16 } else { 0 };
+        if self.shaper_mode >= 2 {
+            body[0x2f] = (body[0x2f] & 0xf0) | (self.shaper_mode - 2);
+        }
+        body[0x30] = self.shaper_depth;
+        body[0x31] = self.pan_position;
+        body[0x32] = self.amplifier.key_tracking;
+        for (i, eg) in [
+            self.auxiliary[0],
+            self.amplifier.envelope,
+            self.auxiliary[1],
+        ]
+        .iter()
+        .enumerate()
+        {
+            let b = 0x34 + 8 * i;
+            body[b..b + 4].copy_from_slice(&eg.adsr);
+            body[b + 4] = eg.curve;
+            body[b + 5] = eg.velocity_level_sensitivity;
+            body[b + 6] = eg.velocity_time_sensitivity;
+            body[b + 7] = eg.key_tracking;
+        }
+        for (i, lfo) in self.modulation.lfo.iter().enumerate() {
+            let b = 0x4c + 5 * i;
+            body[b] = lfo.waveform;
+            body[b + 1] = lfo.shape;
+            body[b + 2] = lfo.frequency;
+            body[b + 3] = lfo.phase_sync;
+            body[b + 4] = self.modulation.tempo_divisions[i];
+        }
+        for (i, route) in self.modulation.routes.iter().enumerate() {
+            let b = 0x56 + 3 * i;
+            body[b] = route.source;
+            body[b + 1] = route.destination.index() as u8;
+            body[b + 2] = route.intensity;
+        }
+    }
     fn from_stored(source: radias_synth_application::program::StoredTimbre) -> Self {
         let c = source.controls;
         let shaper =
@@ -268,7 +342,84 @@ impl NativePanel {
     }
     pub fn select_timbre(&mut self, index: usize) {
         if index < self.timbres.len() {
+            self.flush_drum_edits();
             self.selected = index;
+            self.suppress_parameter_commands =
+                self.drum_editor.as_ref().is_some_and(|e| e.owner == index);
+        }
+    }
+    pub fn has_drum_program(&self) -> bool {
+        self.drum_editor.is_some()
+    }
+    pub fn select_drum_instrument(&mut self, index: usize) {
+        if index >= 16 {
+            return;
+        }
+        self.flush_drum_edits();
+        let Some(editor) = &mut self.drum_editor else {
+            return;
+        };
+        let (enabled, channel) = (
+            self.timbres[editor.owner].enabled,
+            self.timbres[editor.owner].channel,
+        );
+        editor.selected = index;
+        self.selected = editor.owner;
+        self.timbres[editor.owner] = editor.views[index];
+        self.timbres[editor.owner].enabled = enabled;
+        self.timbres[editor.owner].channel = channel;
+        self.suppress_parameter_commands = true;
+    }
+    pub fn drum_pad(&mut self, index: u8, on: bool) {
+        if on {
+            self.select_drum_instrument(index as usize);
+        }
+        if let Some(player) = &self.player
+            && let Err(error) = player.drum_pad(index, if on { 100 } else { 0 })
+        {
+            self.error = error;
+        }
+    }
+    pub fn flush_drum_edits(&mut self) {
+        if !self.suppress_parameter_commands {
+            return;
+        }
+        let Some(editor) = &mut self.drum_editor else {
+            return;
+        };
+        let current = self.timbres[editor.owner];
+        let mut body = *editor.kit.instrument(editor.selected).unwrap();
+        current.write_drum_body(&mut body);
+        if editor.kit.instrument(editor.selected) == Some(&body) {
+            return;
+        }
+        let mut changed = editor.kit.clone();
+        changed.replace_instrument(editor.selected, &body).unwrap();
+        let (Some(map), Some(mix), Some(base)) = (&self.controls, &self.mix_table, self.base)
+        else {
+            return;
+        };
+        match radias_synth_infrastructure::stored_program::compile_drum_kit(
+            &editor.source,
+            changed.clone(),
+            map,
+            mix,
+            base,
+        ) {
+            Ok(compiled) => {
+                if let Some(player) = &self.player
+                    && let Err(error) = player.edit_drum_instrument(
+                        editor.selected as u8,
+                        compiled.instruments[editor.selected],
+                    )
+                {
+                    self.error = error;
+                    return;
+                }
+                editor.kit = changed;
+                editor.views[editor.selected] = current;
+            }
+            Err(error) => self.error = error,
         }
     }
     pub fn set_timbre_enabled(&mut self, index: usize, enabled: bool) {
@@ -350,7 +501,9 @@ impl NativePanel {
             #[cfg(test)]
             self.comb_updates
                 .push((self.selected as u8, t.filter_route, program));
-            if let Some(player) = &self.player
+            if !self.suppress_parameter_commands
+                && !self.suppress_parameter_commands
+                && let Some(player) = &self.player
                 && let Err(error) = player.timbre_comb(self.selected as u8, t.filter_route, program)
             {
                 self.error = error;
@@ -388,7 +541,9 @@ impl NativePanel {
         if let Some(program) = self.timbres[self.selected].primary_program() {
             #[cfg(test)]
             self.primary_updates.push((self.selected as u8, program));
-            if let Some(player) = &self.player
+            if !self.suppress_parameter_commands
+                && !self.suppress_parameter_commands
+                && let Some(player) = &self.player
                 && let Err(error) = player.timbre_primary_control(self.selected as u8, program)
             {
                 self.error = error;
@@ -438,6 +593,7 @@ impl NativePanel {
     }
     fn update_shaper(&mut self) {
         if let Some((mode, position, depth)) = self.timbres[self.selected].shaper_parameters()
+            && !self.suppress_parameter_commands
             && let Some(player) = &self.player
             && let Err(error) = player.timbre_shaper(self.selected as u8, mode, position, depth)
         {
@@ -455,7 +611,8 @@ impl NativePanel {
         self.update_secondary();
     }
     fn update_secondary(&mut self) {
-        if let Some(player) = &self.player
+        if !self.suppress_parameter_commands
+            && let Some(player) = &self.player
             && let Err(error) =
                 player.timbre_secondary(self.selected as u8, self.timbres[self.selected].secondary)
         {
@@ -528,6 +685,10 @@ impl NativePanel {
             tempo: 1200,
             comb_configured: false,
             bank: Vec::new(),
+            global_performance: Default::default(),
+            drum_kits: Vec::new(),
+            drum_editor: None,
+            suppress_parameter_commands: false,
             stored_program_selected: None,
             #[cfg(test)]
             comb_updates: Vec::new(),
@@ -560,10 +721,16 @@ impl NativePanel {
         panel
     }
     fn load(&mut self, root: &Path) -> Result<(), String> {
-        self.bank = radias_synth_infrastructure::rdl::programs(
-            &fs::read(root.join("firmware/Radias-backup.rdl")).map_err(|e| e.to_string())?,
-        )
-        .map_err(str::to_owned)?;
+        let backup =
+            fs::read(root.join("firmware/Radias-backup.rdl")).map_err(|e| e.to_string())?;
+        self.global_performance =
+            radias_synth_infrastructure::rdl::global_performance(&backup).map_err(str::to_owned)?;
+        self.drum_kits =
+            radias_synth_infrastructure::rdl::drum_kits(&backup).map_err(str::to_owned)?;
+        self.bank = radias_synth_infrastructure::rdl::programs(&backup).map_err(str::to_owned)?;
+        for timbre in &mut self.timbres {
+            timbre.channel = self.global_performance.channel;
+        }
         let bytes = fs::read(root.join("assets/native-va/saw.json")).map_err(|e| e.to_string())?;
         let plan = PreparedVoice::from_program_json(&bytes)?;
         self.base = Some(plan.parameters.filter);
@@ -604,6 +771,10 @@ impl NativePanel {
             Some(lfo_tempo_tables(&system).map_err(str::to_owned)?),
         )?);
         self.mix_table = Some(tables.filter_mix().map_err(str::to_owned)?);
+        self.player
+            .as_ref()
+            .unwrap()
+            .configure_performance(self.global_performance)?;
         self.player.as_ref().unwrap().configure_noise(
             tables.pitch().map_err(str::to_owned)?,
             tables.noise_pitch().map_err(str::to_owned)?,
@@ -701,7 +872,11 @@ impl NativePanel {
     }
     pub fn note(&mut self, note: u8, on: bool) {
         if let Some(player) = &self.player
-            && let Err(error) = player.input().midi(&[0x90, note, if on { 100 } else { 0 }])
+            && let Err(error) = player.input().midi(&[
+                0x90 | self.global_performance.channel,
+                note,
+                if on { 100 } else { 0 },
+            ])
         {
             self.error = error;
         }
@@ -713,13 +888,56 @@ impl NativePanel {
             _ => return Err("Native program tables absent".into()),
         };
         let compiled = radias_synth_infrastructure::stored_program::compile_program(
-            program, 0, controls, mix, base,
+            program,
+            self.global_performance.channel,
+            controls,
+            mix,
+            base,
         )?;
         let player = self.player.as_ref().ok_or("Native output absent")?;
-        player.load_program(compiled)?;
+        let drums = if compiled.stored.drum.timbre.is_some() {
+            Some(
+                radias_synth_infrastructure::stored_program::compile_drum_kit(
+                    program,
+                    self.drum_kits
+                        .get(compiled.stored.drum.kit as usize)
+                        .ok_or("Stored drum kit is missing")?
+                        .clone(),
+                    controls,
+                    mix,
+                    base,
+                )?,
+            )
+        } else {
+            None
+        };
+        let editor = drums.as_ref().map(|d| {
+            let owner = d.program.timbre.unwrap() as usize;
+            DrumEditor {
+                source: program.clone(),
+                kit: d.kit.clone(),
+                owner,
+                selected: 0,
+                views: core::array::from_fn(|i| {
+                    TimbreControls::from_stored(radias_synth_application::program::StoredTimbre {
+                        controls: d.instruments[i].controls,
+                        ..compiled.stored.timbres[owner]
+                    })
+                }),
+            }
+        });
+        player.load_program_with_drums(compiled, drums)?;
         self.timbres = compiled.stored.timbres.map(TimbreControls::from_stored);
+        self.drum_editor = editor;
+        if let Some(editor) = &self.drum_editor {
+            self.timbres[editor.owner] = editor.views[0];
+        }
         self.tempo = compiled.stored.tempo_tenths;
         self.selected = 0;
+        self.suppress_parameter_commands = self
+            .drum_editor
+            .as_ref()
+            .is_some_and(|e| e.owner == self.selected);
         self.stored_program_selected = Some(index);
         Ok(())
     }
@@ -809,7 +1027,9 @@ impl NativePanel {
                 let program = settings.mixer_program();
                 #[cfg(test)]
                 self.mixer_updates.push((self.selected as u8, program));
-                if let Some(player) = &self.player
+                if !self.suppress_parameter_commands
+                    && !self.suppress_parameter_commands
+                    && let Some(player) = &self.player
                     && let Err(error) = player.timbre_mixer(self.selected as u8, program)
                 {
                     self.error = error;
@@ -828,7 +1048,9 @@ impl NativePanel {
             }
             (1, 1) => {
                 settings.pan_position = (value >> 3).min(127) as u8;
-                if let Some(player) = &self.player
+                if !self.suppress_parameter_commands
+                    && !self.suppress_parameter_commands
+                    && let Some(player) = &self.player
                     && let Err(error) = player.timbre_pan(
                         self.selected as u8,
                         radias_synth_domain::controller_pan::PanControl {
@@ -843,7 +1065,9 @@ impl NativePanel {
             }
             (1, 2) => {
                 settings.amplifier.level = (value >> 3).min(127) as u8;
-                if let Some(player) = &self.player
+                if !self.suppress_parameter_commands
+                    && !self.suppress_parameter_commands
+                    && let Some(player) = &self.player
                     && let Err(error) =
                         player.timbre_amplifier_level(self.selected as u8, settings.amplifier.level)
                 {
@@ -858,7 +1082,9 @@ impl NativePanel {
             (1, 4) => settings.key_tracking = (value >> 3).min(127) as u8,
             (2, 6) | (2, 5) | (2, 4) | (2, 3) => {
                 settings.auxiliary[0].adsr[6 - mux] = (value >> 3).min(127) as u8;
-                if let Some(player) = &self.player
+                if !self.suppress_parameter_commands
+                    && !self.suppress_parameter_commands
+                    && let Some(player) = &self.player
                     && let Err(error) =
                         player.timbre_auxiliary(self.selected as u8, settings.auxiliary)
                 {
@@ -873,7 +1099,9 @@ impl NativePanel {
                 } else {
                     settings.modulation.lfo[index].frequency = (value >> 3).min(127) as u8;
                 }
-                if let Some(player) = &self.player
+                if !self.suppress_parameter_commands
+                    && !self.suppress_parameter_commands
+                    && let Some(player) = &self.player
                     && let Err(error) =
                         player.timbre_modulation(self.selected as u8, settings.modulation)
                 {
@@ -889,7 +1117,9 @@ impl NativePanel {
                     _ => 3,
                 };
                 settings.amplifier.envelope.adsr[index] = (value >> 3).min(127) as u8;
-                if let Some(player) = &self.player
+                if !self.suppress_parameter_commands
+                    && !self.suppress_parameter_commands
+                    && let Some(player) = &self.player
                     && let Err(error) =
                         player.timbre_adsr(self.selected as u8, settings.amplifier.envelope.adsr)
                 {
@@ -1298,13 +1528,16 @@ impl NativePanel {
             #[cfg(test)]
             self.modulation_updates
                 .push((self.selected as u8, t.modulation));
-            if let Some(player) = &self.player
+            if !self.suppress_parameter_commands
+                && !self.suppress_parameter_commands
+                && let Some(player) = &self.player
                 && let Err(error) = player.timbre_modulation(self.selected as u8, t.modulation)
             {
                 self.error = error;
             }
         }
         if previous_auxiliary != t.auxiliary
+            && !self.suppress_parameter_commands
             && let Some(player) = &self.player
             && let Err(error) = player.timbre_auxiliary(self.selected as u8, t.auxiliary)
         {
@@ -1315,7 +1548,8 @@ impl NativePanel {
         let program = self.timbres[self.selected].amplifier;
         #[cfg(test)]
         self.amplifier_updates.push((self.selected as u8, program));
-        if let Some(player) = &self.player
+        if !self.suppress_parameter_commands
+            && let Some(player) = &self.player
             && let Err(error) = player.timbre_amplifier_program(self.selected as u8, program)
         {
             self.error = error;
@@ -1370,11 +1604,14 @@ impl NativePanel {
                         });
                     });
                 }
-                ui.add(
+                let _response = ui.add(
                     egui::DragValue::new(&mut t.amplifier.key_tracking)
                         .range(0..=127)
                         .prefix("AMP Key Track "),
                 );
+                #[cfg(test)]
+                self.envelope_targets
+                    .push((1, 4, _response.id, _response.rect));
             });
         #[cfg(test)]
         {
@@ -1385,6 +1622,7 @@ impl NativePanel {
         }
         let auxiliary = self.timbres[self.selected].auxiliary;
         if previous_aux != auxiliary
+            && !self.suppress_parameter_commands
             && let Some(player) = &self.player
             && let Err(error) = player.timbre_auxiliary(self.selected as u8, auxiliary)
         {
@@ -1452,7 +1690,9 @@ impl NativePanel {
         }
     }
     fn update_filter(&mut self) {
-        if let (Some(player), Some(map), Some(base)) = (&self.player, &self.controls, self.base) {
+        if !self.suppress_parameter_commands
+            && let (Some(player), Some(map), Some(base)) = (&self.player, &self.controls, self.base)
+        {
             let t = self.timbres[self.selected];
             match map.filter(base, t.cutoff, t.resonance) {
                 Ok(mut coefficients) => {
@@ -1666,6 +1906,7 @@ mod tests {
                 (1, 32 + timbre as u8 * 16),
                 (2, 96 - timbre as u8 * 16),
                 (3, 40 + timbre as u8 * 16),
+                (4, 52 + timbre as u8 * 8),
             ] {
                 frame(&ctx, &mut native, vec![]);
                 let (_, _, id, rect) = *native
@@ -1699,6 +1940,7 @@ mod tests {
                     program.envelope.velocity_level_sensitivity,
                     program.envelope.velocity_time_sensitivity,
                     program.envelope.key_tracking,
+                    program.key_tracking,
                 ];
                 assert_eq!(actual[field], value);
             }
@@ -1721,6 +1963,10 @@ mod tests {
                 ]
             );
             assert_eq!(p.adsr, [0, 0, 127, 10]);
+            assert_eq!(
+                native.timbres[timbre].amplifier.key_tracking,
+                52 + timbre as u8 * 8
+            );
         }
     }
 

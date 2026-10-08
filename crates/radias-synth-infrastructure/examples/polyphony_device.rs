@@ -1270,7 +1270,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     report["native_shaper_target_and_feedback_computed"] = shaper.into();
     report["original_shaper_live_mode_change_lifecycle_qualified"] = false.into();
     fs::write(
-        root.join(if voice_groups {
+        root.join(if amp_key {
+            "runs/native-clone/amplifier-key-device.json"
+        } else if voice_groups {
             "runs/native-clone/voice-groups-device.json"
         } else if note_groups {
             "runs/native-clone/note-groups-device.json"
@@ -1282,8 +1284,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "runs/native-clone/portamento-device.json"
         } else if pitch_controls {
             "runs/native-clone/note-pitch-device.json"
-        } else if amp_key {
-            "runs/native-clone/amplifier-key-device.json"
         } else if amp_program {
             "runs/native-clone/amplifier-program-device.json"
         } else if noise {

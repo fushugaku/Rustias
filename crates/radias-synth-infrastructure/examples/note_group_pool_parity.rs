@@ -31,6 +31,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 slot,
                 0,
                 ActiveVoice {
+                    uses_program_common: false,
+                    drum_pitch: None,
+                    drum_instrument: None,
+                    drum_filter2: None,
                     renderer: VoiceRenderer::new(plan.initial, plan.parameters),
                     amplifier: None,
                     modulation: None,

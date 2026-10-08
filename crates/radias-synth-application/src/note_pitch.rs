@@ -77,6 +77,20 @@ pub struct VoiceNotePitch {
     pub note: InitializedNote,
 }
 impl VoiceNotePitch {
+    pub fn drum_base(
+        self,
+        program: PitchProgram,
+        tables: &NotePitchTables,
+        master_tune: i32,
+    ) -> i32 {
+        NotePitchController {
+            program,
+            note: self.note,
+            assigned_note_q16: (self.note.wrapped as i32) << 16,
+            tuning_q16: program.tuning_q16(tables, master_tune, 0, 0),
+        }
+        .base(MidiPitch::default(), 0, true)
+    }
     /// Non-portamento 014d48 assigns the wrapped note, not the clamped Q8
     /// controller destination. Portamento supplies its separate Q16 offset.
     pub fn base(

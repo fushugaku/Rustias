@@ -57,6 +57,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pool.set_portamento_switch(timbre, true);
             let note = [48, 55, 64, 72][timbre as usize];
             let voice = ActiveVoice {
+                uses_program_common: false,
+                drum_pitch: None,
+                drum_instrument: None,
+                drum_filter2: None,
                 renderer: VoiceRenderer::new(plan.initial, plan.parameters),
                 amplifier: Some(AmplifierController::from_program(
                     AmplifierProgram::default(),

@@ -6,7 +6,10 @@ pub mod oracle;
 pub mod prepared;
 pub mod program;
 pub mod rdl;
-pub mod standalone;
 pub mod stored_program;
-pub mod synthesizer;
 pub mod wav;
+
+pub mod standalone;
+pub mod synthesizer;
+
+pub mod standalone_tables;

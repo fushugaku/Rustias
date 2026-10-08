@@ -1,4 +1,4 @@
-//! Device-independent native generator shared by CPAL and Web Audio.
+//! Shared native generator; devices supply commands and sample-clock calls.
 use crate::prepared::PreparedVoice;
 use radias_synth_application::VoiceRenderer;
 use radias_synth_application::amplifier::{
@@ -20,14 +20,25 @@ use radias_synth_domain::{
     waveform::WaveformTable,
 };
 
+pub struct NativeProgramLoad {
+    pub compiled: crate::stored_program::CompiledProgram,
+    pub drums: Option<Box<radias_synth_application::drum_program::CompiledDrumKit>>,
+}
 pub enum Command {
-    Program(Box<crate::stored_program::CompiledProgram>),
+    Program(Box<NativeProgramLoad>),
     Start,
     Stop,
     Note(u8, u8, u8),
+    DrumPad(u8, u8),
+    DrumInstrument(
+        u8,
+        Box<radias_synth_application::drum_program::DrumInstrumentProgram>,
+    ),
     Midi(u8, u8, u8),
     Bend(u8, u16),
     Wheel(u8, u8),
+    Expression(u8, u8),
+    Performance(radias_synth_domain::performance::GlobalPerformance),
     PortamentoSwitch(u8, bool),
     Sustain(u8, u8),
     SustainProgram(u8, radias_synth_domain::sustain::SustainProgram),
@@ -82,13 +93,12 @@ pub enum Command {
     AllNotesOff(u8),
     AllSoundOff(u8),
 }
-
 pub struct Synthesizer {
     plans: Box<[PreparedVoice]>,
-    timbres: [Timbre; TIMBRE_COUNT],
+    pub(crate) timbres: [Timbre; TIMBRE_COUNT],
     voice_costs: Option<VoiceCostTables>,
     table: WaveformTable,
-    pool: Box<PolyphonicRenderer>,
+    pub(crate) pool: Box<PolyphonicRenderer>,
     buffer: [StereoFrame; 128],
     position: usize,
     tuning: Option<(PitchTable, BandwidthTable)>,
@@ -96,10 +106,17 @@ pub struct Synthesizer {
     modulation_tables: Option<VoiceModulationTables>,
     midi_pitch: [radias_synth_application::note_pitch::MidiPitch; 16],
     portamento_switches: [bool; 16],
+    expression: radias_synth_domain::performance::ExpressionState,
+    performance: radias_synth_domain::performance::GlobalPerformance,
+    performance_enabled: bool,
+    drums: Option<Box<radias_synth_application::drum_program::CompiledDrumKit>>,
+    pub(crate) unsupported_drum_notes: u64,
+    drum_pads: radias_synth_domain::drum_pad::DrumPadState,
 }
 
 #[derive(Clone, Copy)]
-struct Timbre {
+pub(crate) struct Timbre {
+    receive_flags: u8,
     key_window: [u8; 2],
     pitch: radias_synth_domain::note_pitch::PitchProgram,
     portamento: radias_synth_domain::portamento::PortamentoProgram,
@@ -111,7 +128,7 @@ struct Timbre {
         Option<radias_synth_domain::filter_routing::FilterRouting>,
         radias_synth_domain::filter_routing::Filter2Coefficients,
     )>,
-    amplifier: AmplifierProgram,
+    pub(crate) amplifier: AmplifierProgram,
     pan: radias_synth_domain::controller_pan::PanControl,
     mixer: MixerProgram,
     secondary: SecondaryProgram,
@@ -121,6 +138,13 @@ struct Timbre {
     modulation: ModulationProgram,
     auxiliary: [ModEnvelopeProgram; 2],
     dynamic_filter: Option<DynamicFilter>,
+}
+#[derive(Clone, Copy)]
+struct DrumNoteControls {
+    pitch: radias_synth_domain::note_pitch::PitchProgram,
+    group: u8,
+    filter2: Option<radias_synth_application::filter2::Filter2Program>,
+    instrument: u8,
 }
 impl Synthesizer {
     pub fn new(
@@ -136,10 +160,10 @@ impl Synthesizer {
             return Err("Native voice programs absent".into());
         }
         if modulation_tables.is_some() && controller_tables.is_none() {
-            return Err("Live modulation requires native controller tables".into());
+            return Err("Controller tables absent".into());
         }
         if tempo_tables.is_some() && modulation_tables.is_none() {
-            return Err("Tempo LFO requires native modulation tables".into());
+            return Err("Modulation tables absent".into());
         }
         let mut pool = Box::new(PolyphonicRenderer::default());
         if let Some(tables) = tempo_tables {
@@ -148,6 +172,7 @@ impl Synthesizer {
         Ok(Self {
             plans: plans.into_boxed_slice(),
             timbres: core::array::from_fn(|i| Timbre {
+                receive_flags: 255,
                 key_window: [0, 127],
                 pitch: Default::default(),
                 portamento: Default::default(),
@@ -177,6 +202,12 @@ impl Synthesizer {
             modulation_tables,
             midi_pitch: [Default::default(); 16],
             portamento_switches: [false; 16],
+            expression: Default::default(),
+            performance: Default::default(),
+            performance_enabled: false,
+            drums: None,
+            unsupported_drum_notes: 0,
+            drum_pads: Default::default(),
         })
     }
     pub fn active_count(&self) -> usize {
@@ -185,19 +216,98 @@ impl Synthesizer {
     pub fn held_count(&self) -> usize {
         self.pool.held_count()
     }
-    #[cfg(feature = "desktop-io")]
-    pub(crate) fn pool(&self) -> &PolyphonicRenderer {
-        &self.pool
+    pub fn set_key_window(&mut self, timbre: u8, window: [u8; 2]) {
+        self.timbres[timbre as usize].key_window = window;
+    }
+    pub fn set_receive_flags(&mut self, timbre: u8, flags: u8) {
+        self.timbres[timbre as usize].receive_flags = flags;
+    }
+    pub fn drum_kit(&mut self, kit: Box<radias_synth_application::drum_program::CompiledDrumKit>) {
+        self.pool.stop();
+        self.buffer.fill(StereoFrame::default());
+        self.drum_pads = Default::default();
+        self.drums = Some(kit);
+        self.position = 128;
+        if let (Some(kit), Some(tables)) = (&self.drums, &self.controller_tables) {
+            self.pool.edit_program_common(
+                radias_synth_domain::program_binding::ProgramCommon {
+                    level: kit.program.level,
+                    pan: kit.program.pan,
+                },
+                tables,
+            );
+        }
+    }
+    pub fn update_drum_mapping(&mut self, index: usize, note: u8, group: u8) {
+        if let Some(kit) = &mut self.drums {
+            let mut raw = *kit.kit.bytes();
+            raw[36 + index] = note;
+            raw[18 + index] = group;
+            kit.kit = radias_synth_domain::drum::DrumKit::from_bytes(&raw).unwrap();
+        }
+    }
+    pub fn update_drum_common(&mut self, level: u8, pan: u8, transpose: u8) {
+        if let Some(kit) = &mut self.drums {
+            kit.program.level = level;
+            kit.program.pan = pan;
+            kit.program.transpose = transpose;
+            if let Some(tables) = &self.controller_tables {
+                self.pool.edit_program_common(
+                    radias_synth_domain::program_binding::ProgramCommon { level, pan },
+                    tables,
+                );
+            }
+        }
+    }
+    pub fn clear_drums(&mut self) {
+        self.pool.stop();
+        self.buffer.fill(StereoFrame::default());
+        self.drum_pads = Default::default();
+        self.drums = None;
+        self.position = 128;
     }
 
+    pub fn set_performance_enabled(&mut self, enabled: bool) {
+        self.performance_enabled = enabled;
+    }
+    pub fn set_source_gain(&mut self, timbre: u8, gain: u16) {
+        self.timbres[timbre as usize].amplifier.source_gain = gain;
+        if let Some(tables) = &self.controller_tables {
+            self.pool.edit_source_gain(timbre, gain, tables);
+        }
+    }
+    fn update_expression_gains(&mut self) {
+        for (index, timbre) in self.timbres.iter_mut().enumerate() {
+            let gain = self
+                .expression
+                .gain(timbre.channel, timbre.receive_flags, self.performance);
+            if timbre.amplifier.source_gain != gain {
+                timbre.amplifier.source_gain = gain;
+                if let Some(tables) = &self.controller_tables {
+                    self.pool.edit_source_gain(index as u8, gain, tables);
+                }
+            }
+        }
+    }
     fn note_on(&mut self, timbre: u8, note: u8, velocity: u8, retrigger: bool) {
         let settings = self.timbres[timbre as usize];
+        self.note_on_program(timbre, note, velocity, retrigger, settings, None);
+    }
+    fn note_on_program(
+        &mut self,
+        timbre: u8,
+        note: u8,
+        velocity: u8,
+        retrigger: bool,
+        settings: Timbre,
+        drum: Option<DrumNoteControls>,
+    ) {
         if !settings.enabled {
             return;
         }
         let plan = &self.plans[settings.waveform];
         let synthesis_note = radias_synth_domain::note_pitch::fold_note(
-            note as i32 + settings.pitch.transpose as i32 - 64,
+            if drum.is_some() { 60 } else { note as i32 } + settings.pitch.transpose as i32 - 64,
         );
         let pitch_code = synthesis_note as u16 * 256;
         let mut renderer = VoiceRenderer::new(plan.initial, plan.parameters);
@@ -288,6 +398,10 @@ impl Synthesizer {
             })
             .unwrap_or(4283) as u16;
         let voice = ActiveVoice {
+            uses_program_common: drum.is_some(),
+            drum_pitch: drum.map(|d| d.pitch),
+            drum_instrument: drum.map(|d| d.instrument),
+            drum_filter2: drum.and_then(|d| d.filter2),
             renderer,
             amplifier,
             modulation: None,
@@ -306,7 +420,10 @@ impl Synthesizer {
             bus: VoiceBus::new(timbre).unwrap(),
         };
         if self.modulation_tables.is_some() {
-            if retrigger {
+            if let Some(drum) = drum {
+                self.pool
+                    .trigger_drum_modulated(voice, cost, settings.modulation, drum.group);
+            } else if retrigger {
                 self.pool
                     .retrigger_modulated(voice, cost, settings.modulation);
             } else {
@@ -318,19 +435,34 @@ impl Synthesizer {
         }
         self.position = 128;
     }
-    /// Apply one validated adapter command before generating the next block.
     pub fn apply(&mut self, command: Command) {
         match command {
             Command::Program(program) => {
+                let NativeProgramLoad {
+                    compiled: program,
+                    drums,
+                } = *program;
+                self.drums = drums;
+                self.performance_enabled = true;
                 self.pool.stop();
                 self.buffer.fill(StereoFrame::default());
                 self.position = 128;
                 self.pool.set_tempo(program.stored.tempo_tenths);
+                if let Some(tables) = &self.controller_tables {
+                    self.pool.edit_program_common(
+                        radias_synth_domain::program_binding::ProgramCommon {
+                            level: program.stored.drum.level,
+                            pan: program.stored.drum.pan,
+                        },
+                        tables,
+                    );
+                }
                 for timbre in 0..TIMBRE_COUNT {
                     let source = program.stored.timbres[timbre];
                     let c = source.controls;
                     let compiled = program.timbres[timbre];
                     self.timbres[timbre] = Timbre {
+                        receive_flags: source.receive_flags,
                         key_window: source.key_window,
                         pitch: c.pitch,
                         portamento: c.portamento,
@@ -339,7 +471,15 @@ impl Synthesizer {
                         shaper: c.shaper,
                         comb_program: compiled.comb,
                         filter_routing: Some((compiled.filter_routing, compiled.filter2)),
-                        amplifier: c.amplifier(0x7f00, None, 0),
+                        amplifier: c.amplifier(
+                            self.expression.gain(
+                                source.channel,
+                                source.receive_flags,
+                                self.performance,
+                            ),
+                            None,
+                            0,
+                        ),
                         pan: radias_synth_domain::controller_pan::PanControl {
                             position: c.pan,
                             ..Default::default()
@@ -372,6 +512,46 @@ impl Synthesizer {
             }
             Command::Start => {
                 self.note(0, 60, 100);
+            }
+            Command::DrumPad(instrument, velocity) => {
+                if let Some(kit) = &self.drums {
+                    let owner = kit.program.timbre.unwrap();
+                    let Some(event) = self.drum_pads.input(
+                        kit.program,
+                        radias_synth_domain::drum_pad::DrumPadInput {
+                            instrument,
+                            velocity,
+                            owning_timbre_enabled: self.timbres[owner as usize].enabled,
+                            owning_channel: self.timbres[owner as usize].channel,
+                            key: kit.kit.bytes()[36 + instrument as usize],
+                        },
+                    ) else {
+                        return;
+                    };
+                    self.drum_instrument_event(
+                        event.timbre,
+                        event.instrument as usize,
+                        event.event,
+                    );
+                }
+            }
+            Command::DrumInstrument(index, next) => {
+                if let (Some(drums), Some(tables), Some(modulation)) = (
+                    &mut self.drums,
+                    &self.controller_tables,
+                    &self.modulation_tables,
+                ) {
+                    let previous = drums.instruments[index as usize];
+                    self.pool.edit_drum_instrument(
+                        drums.program.timbre.unwrap(),
+                        index,
+                        previous,
+                        *next,
+                        tables,
+                        modulation,
+                    );
+                    drums.instruments[index as usize] = *next;
+                }
             }
             Command::Waveform(timbre, index) => {
                 if index < self.plans.len() {
@@ -428,6 +608,17 @@ impl Synthesizer {
                             .set_midi_pitch(timbre as u8, self.midi_pitch[channel as usize]);
                     }
                 }
+            }
+            Command::Expression(channel, value) => {
+                self.expression.set(channel, value);
+                if self.performance_enabled {
+                    self.update_expression_gains();
+                }
+            }
+            Command::Performance(global) => {
+                self.performance = global;
+                self.performance_enabled = true;
+                self.update_expression_gains();
             }
             Command::Pitch(timbre, program) => {
                 self.timbres[timbre as usize].pitch = program;
@@ -513,7 +704,13 @@ impl Synthesizer {
                     self.pool.edit_amplifier_level(timbre, level, tables);
                 }
             }
-            Command::AmplifierProgram(timbre, program) => {
+            Command::AmplifierProgram(timbre, mut program) => {
+                if self.performance_enabled {
+                    let t = self.timbres[timbre as usize];
+                    program.source_gain =
+                        self.expression
+                            .gain(t.channel, t.receive_flags, self.performance);
+                }
                 self.timbres[timbre as usize].amplifier = program;
                 if let Some(tables) = &self.controller_tables {
                     self.pool.edit_amplifier_program(timbre, program, tables);
@@ -592,6 +789,9 @@ impl Synthesizer {
                 let old_channel = self.timbres[timbre as usize].channel;
                 self.timbres[timbre as usize].enabled = enabled;
                 self.timbres[timbre as usize].channel = channel;
+                if self.performance_enabled {
+                    self.update_expression_gains();
+                }
                 self.pool
                     .set_midi_pitch(timbre, self.midi_pitch[channel as usize]);
                 self.pool
@@ -624,6 +824,29 @@ impl Synthesizer {
         }
         let window = self.timbres[timbre as usize].key_window;
         if note < window[0] || note > window[1] {
+            return;
+        }
+        if self
+            .drums
+            .as_ref()
+            .is_some_and(|d| d.program.timbre == Some(timbre))
+        {
+            let mask = self
+                .drums
+                .as_ref()
+                .unwrap()
+                .kit
+                .trigger_mask(note, self.drums.as_ref().unwrap().program.transpose);
+            for index in 0..16 {
+                if mask & (1 << index) == 0 {
+                    continue;
+                }
+                let event = ((0x10 | self.timbres[timbre as usize].channel as u32) << 24)
+                    | ((velocity as u32) << 8)
+                    | note as u32
+                    | if velocity != 0 { 128 } else { 0 };
+                self.drum_instrument_event(timbre, index, event);
+            }
             return;
         }
         let event = ((0x10 | self.timbres[timbre as usize].channel as u32) << 24)
@@ -659,6 +882,68 @@ impl Synthesizer {
                 .release_note(timbre, note, self.controller_tables.as_ref());
         } else {
             self.note_on(timbre, note, velocity, false);
+        }
+        self.pool.finish_note_event();
+    }
+    fn drum_instrument_event(&mut self, timbre: u8, index: usize, event: u32) {
+        let note = event as u8 & 127;
+        let velocity = ((event >> 8) & 127) as u8;
+        let kit = self.drums.as_ref().unwrap();
+        let instrument = kit.instruments[index];
+        let c = instrument.controls;
+        let graph = instrument.graph;
+        let common = kit.program;
+        let group = kit.kit.exclusive_group(index).unwrap();
+        self.pool.begin_note_event((event >> 24) as u8);
+        if event as u8 & 128 == 0 {
+            self.pool
+                .release_drum_note(timbre, note, self.controller_tables.as_ref());
+        } else {
+            let selection = c.oscillator_selection & 63;
+            if selection & 15 >= 6 || (selection & 15 >= 4 && selection & 48 != 0) {
+                self.unsupported_drum_notes += 1;
+                self.pool.finish_note_event();
+                return;
+            }
+            let owner = self.timbres[timbre as usize];
+            let settings = Timbre {
+                pitch: c.pitch,
+                waveform: if selection & 15 < 4 {
+                    (selection & 3) as usize
+                } else {
+                    0
+                },
+                filter: Some(graph.filter),
+                shaper: c.shaper,
+                comb_program: graph.comb,
+                filter_routing: Some((graph.filter_routing, graph.filter2)),
+                amplifier: c.amplifier(owner.amplifier.source_gain, Some(common.level), 0),
+                pan: radias_synth_domain::controller_pan::PanControl {
+                    position: c.pan,
+                    midi_pan: Some(common.pan),
+                    ..Default::default()
+                },
+                mixer: c.mixer,
+                secondary: c.secondary,
+                primary: c.primary(),
+                modulation: c.modulation,
+                auxiliary: [c.envelope[0], c.envelope[2]],
+                dynamic_filter: Some(graph.dynamic_filter),
+                ..owner
+            };
+            self.note_on_program(
+                timbre,
+                note,
+                velocity,
+                false,
+                settings,
+                Some(DrumNoteControls {
+                    pitch: c.pitch,
+                    group,
+                    filter2: graph.dynamic_filter2,
+                    instrument: index as u8,
+                }),
+            );
         }
         self.pool.finish_note_event();
     }

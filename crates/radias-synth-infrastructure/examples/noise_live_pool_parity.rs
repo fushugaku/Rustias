@@ -65,6 +65,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     0,
                     0,
                     ActiveVoice {
+                        uses_program_common: false,
+                        drum_pitch: None,
+                        drum_instrument: None,
+                        drum_filter2: None,
                         renderer,
                         amplifier: None,
                         modulation: None,

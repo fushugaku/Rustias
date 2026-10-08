@@ -12,17 +12,27 @@ The project is under development. Individual algorithms and recorded scenarios a
 
 The browser instrument runs **without firmware**. The shared Rust generator in `radias-synth-infrastructure::synthesizer` produces audio inside a Web Audio `AudioWorklet`. JavaScript forwards controls and plays the generated samples. The web build does not use the SH3/C55 interpreter, SYS images, RDL banks, PCM ROM or audio recordings.
 
-Available controls:
+The complete native synthesis editor is available below the performance panel. Its parameter definitions come from the same [schema](crates/radias-synth-infrastructure/src/parameters.json) that Rust uses to validate controls.
 
-- Four timbres and a pool of 24 voice slots.
-- Saw, pulse, triangle and sine oscillators.
-- Low-pass, high-pass and band-pass filtering, cutoff and resonance.
-- Amplifier ADSR, timbre level and stereo pan.
-- On-screen pads, computer keyboard and Web MIDI where supported. MIDI note on/off, sustain and all notes/sound off are supported; timbres receive MIDI on channels 1–4.
+| Section | Available controls |
+| --- | --- |
+| OSC1 | Saw, Pulse, Triangle, Sine, Noise, Formant; Waveform, Cross, oscillator Unison and VPM; CTRL1/CTRL2. Noise/Formant use Waveform mode. |
+| OSC2 / Mixer | Four waveforms; Normal, Ring, Sync and Ring+Sync; semitone/fine tuning; OSC1, OSC2 and noise levels |
+| Filters | Filter1 type morph, cutoff, resonance, EG1 intensity and key tracking; Single, Serial, Parallel and Individual routing; Filter2 LP/HP/BP/Comb, link, cutoff, resonance and envelope/key controls |
+| Drive / Waveshaper | Drive, Hard Clip, Decimator, OctSaw, MultiTri, MultiSin, four SubOSC waves, Pickup and Level Boost; depth and position |
+| EG1 / EG2 / EG3 | Independent ADSR, eight curves, velocity level/time sensitivity and key tracking |
+| Amplifier | Level, stereo pan, key tracking, level offset, source gain/Expression routing and optional MIDI volume; automatic Unison gain bank |
+| LFO1 / LFO2 | Waveform, shape, frequency, phase, Free/Timbre/Voice sync, tempo sync, division and rate offset |
+| Virtual patches | Six source/destination/intensity routes, manual offsets and patch feedback destinations |
+| Voice / Pitch | Four timbres, 24 voice slots, Mono/Poly, retrigger/priority, instrument Unison with 2–8 members, detune/spread, portamento curve/time/CC65, transpose, fine tune, bend and vibrato |
+| Tuning / MIDI | Eleven scales, root, master tune and custom cents; per-timbre or Global MIDI channel, key windows, receive flags; note on/off, bend, wheel, CC11 Expression, CC64 sustain, CC65 and all notes/sound off |
+| Drum Kit | Sixteen independently editable synthesis instruments, owning timbre, kit level/pan/transpose, trigger notes and exclusive groups; pads retain the note used for release |
 
-Click **Start audio** to enable playback. Monitor volume is separate from each timbre's level. Dials support vertical drag, Shift for fine adjustment, mouse wheel and arrow keys. Pads support multiple pointers; held notes are released when the page loses focus.
+Click **Start audio** to enable playback. Choose a parameter group to edit the selected timbre. When **Drum mode** is enabled, select its owning timbre and an instrument; the synthesis editor edits that instrument and the keyboard becomes sixteen drum pads. Selecting another instrument does not stop sounding voices. **Save** and **Open** store or restore the complete four-timbre/16-instrument program as local JSON.
 
-The standalone profile generates its own tuning, envelope, velocity and pan tables mathematically. Its waveform interpolation correction is zero. These are independent parameters for our DSP code, not factory ROM tables or a claim of hardware sound parity. ROM-dependent controller tables and the full desktop interface are outside this browser build.
+Monitor volume is separate from timbre level. Dials support vertical drag, Shift for fine adjustment, wheel and arrow keys. Pads support multiple pointers; held notes are released when the page loses focus. The editor adapts to mobile screens.
+
+The standalone profile supplies every native controller with mathematically generated tables, including filters, Comb, envelopes, LFO/tempo, modulation, noise, tuning, pan and voice groups. Waveform interpolation correction remains zero. These are independent data for the shared DSP algorithms; they do not copy factory ROM or reproduce its factory programs. PCM/Audio In generators, FXD03 effects, vocoder and sequencers are still unfinished in the native engine and are not presented as working controls.
 
 Build and serve locally:
 
@@ -155,7 +165,7 @@ bash scripts/build-web.sh
 node scripts/verify-web.mjs
 ```
 
-Unit tests cover program routing, WAVE formats, source-file guards, audio buffering, panel interaction and firmware-free rendering/release/allocation. The real audio-device test is ignored by default because it needs original data and an output device.
+Unit tests cover program routing, WAVE formats, source-file guards, audio buffering, panel interaction and firmware-free rendering/release/allocation. The Wasm check renders every supported oscillator mode, Filter2 route and waveshaper type; it also checks live modulation, mono/unison, MIDI Expression, drum edits and complete program round trips. The real audio-device test is ignored by default because it needs original data and an output device.
 
 Rust examples in `crates/*/examples/` are retained. Many `*_parity` programs need complete reference recordings, WAV files and observed states from the full research workspace. Those comparisons require its data and C++ oracles; ordinary unit tests do not run them. Pass a data directory explicitly to examples that accept one.
 
@@ -168,6 +178,6 @@ Generated SH3/C55 decoders are included and compile with Cargo. Regeneration req
 - Some controller/voice policies, sequencer/vocoder behavior and physical controls remain incomplete.
 - The firmware interpreter can underrun during monitoring. The speed of individual native algorithms does not establish readiness of the entire instrument for real-time performance.
 - Factory PCM ROM is external. An alternative bank does not reproduce the missing factory bank.
-- The browser uses its own firmware-free table profile and exposes the controls listed above; it does not reproduce the full desktop feature set or factory programs.
+- The browser exposes the implemented native synthesis controls through a firmware-free table profile. Factory programs and hardware sound parity require the original data and separate validation.
 
 Software parity confirms only the observed boundary and tested scenario. Full hardware equivalence remains a project goal.

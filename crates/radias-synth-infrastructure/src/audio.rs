@@ -4,15 +4,23 @@ use cpal::{
     FromSample, SizedSample,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
-use radias_synth_application::amplifier::{AmplifierProgram, ControllerTables};
+use radias_synth_application::amplifier::{
+    AmplifierProgram, ControllerTables,
+};
 use radias_synth_application::mixer::MixerProgram;
 use radias_synth_application::modulation::{ModulationProgram, VoiceModulationTables};
 use radias_synth_application::polyphony::TIMBRE_COUNT;
 use radias_synth_application::secondary::SecondaryProgram;
-use radias_synth_application::voice_envelopes::{DynamicFilter, ModEnvelopeProgram};
+use radias_synth_application::voice_envelopes::{
+    DynamicFilter, ModEnvelopeProgram,
+};
 use radias_synth_domain::{
-    bandlimit::BandwidthTable, filter::FilterCoefficients, pan::StereoFrame, pitch::PitchTable,
-    voice_allocation::VoiceCostTables, waveform::WaveformTable,
+    bandlimit::BandwidthTable,
+    filter::FilterCoefficients,
+    pan::StereoFrame,
+    pitch::PitchTable,
+    voice_allocation::VoiceCostTables,
+    waveform::WaveformTable,
 };
 use std::{
     sync::{
@@ -23,7 +31,7 @@ use std::{
     time::Instant,
 };
 
-use crate::synthesizer::Command;
+use crate::synthesizer::{Command, NativeProgramLoad};
 #[derive(Default)]
 struct Counters {
     callbacks: AtomicU64,
@@ -38,6 +46,9 @@ struct Counters {
     held_notes: [AtomicU32; TIMBRE_COUNT],
     sustain_flags: [AtomicU32; TIMBRE_COUNT],
     output_peak: AtomicU32,
+    source_gains: [AtomicU32; TIMBRE_COUNT],
+    unsupported_drum_notes: AtomicU64,
+    actor_pitch_codes: [AtomicU32; 24],
 }
 
 #[derive(Clone, Debug)]
@@ -86,6 +97,7 @@ impl NativeInput {
                 message[1] as u16 | ((message[2] as u16) << 7),
             ),
             0xb0 if message[1] == 1 => Command::Wheel(message[0] & 15, message[2]),
+            0xb0 if message[1] == 11 => Command::Expression(message[0] & 15, message[2]),
             0xb0 if message[1] == 65 => {
                 Command::PortamentoSwitch(message[0] & 15, message[2] & 64 != 0)
             }
@@ -101,22 +113,13 @@ impl NativeInput {
     }
 }
 
-struct Generator {
-    synth: crate::synthesizer::Synthesizer,
-    commands: Receiver<Command>,
-}
+struct Generator { synth: crate::synthesizer::Synthesizer, commands: Receiver<Command> }
+impl std::ops::Deref for Generator { type Target = crate::synthesizer::Synthesizer;
+    fn deref(&self) -> &Self::Target { &self.synth } }
+impl std::ops::DerefMut for Generator { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.synth } }
 impl Generator {
-    fn service(&mut self) {
-        for _ in 0..64 {
-            let Ok(command) = self.commands.try_recv() else {
-                break;
-            };
-            self.synth.apply(command);
-        }
-    }
-    fn sample(&mut self) -> StereoFrame {
-        self.synth.sample()
-    }
+    fn service(&mut self) { for _ in 0..64 { let Ok(command) = self.commands.try_recv() else { break }; self.synth.apply(command); } }
+    fn sample(&mut self) -> StereoFrame { self.synth.sample() }
 }
 
 impl NativePlayer {
@@ -167,6 +170,15 @@ impl NativePlayer {
         NativeInput {
             commands: self.commands.clone(),
         }
+    }
+    pub fn source_gains(&self) -> [u16; TIMBRE_COUNT] {
+        core::array::from_fn(|i| self.counters.source_gains[i].load(Ordering::Relaxed) as u16)
+    }
+    pub fn unsupported_drum_notes(&self) -> u64 {
+        self.counters.unsupported_drum_notes.load(Ordering::Relaxed)
+    }
+    pub fn actor_pitch_codes(&self) -> [u32; 24] {
+        core::array::from_fn(|i| self.counters.actor_pitch_codes[i].load(Ordering::Relaxed))
     }
     pub fn new(plan: PreparedVoice, table: WaveformTable) -> Result<Self, String> {
         Self::with_tuning(plan, table, None)
@@ -257,16 +269,8 @@ impl NativePlayer {
         let counters = Arc::new(Counters::default());
         counters.gain.store(0.2f32.to_bits(), Ordering::Relaxed);
         let generator = Generator {
-            synth: crate::synthesizer::Synthesizer::new(
-                plans,
-                table,
-                tuning,
-                controller_tables,
-                voice_costs,
-                modulation_tables,
-                tempo_tables,
-            )?,
-            commands: rx,
+            synth: crate::synthesizer::Synthesizer::new(plans, table, tuning, controller_tables,
+                voice_costs, modulation_tables, tempo_tables)?, commands: rx,
         };
         let stream = match format {
             cpal::SampleFormat::F32 => stream::<f32>(&device, &config, generator, counters.clone()),
@@ -298,21 +302,47 @@ impl NativePlayer {
         &self,
         program: crate::stored_program::CompiledProgram,
     ) -> Result<(), String> {
-        program.validate_native_generators().map_err(|e| match e {
-            radias_synth_application::stored_program::ProgramCompilationError::Generator {
-                timbre,
-                selection,
-            } => {
-                let kind = match selection & 15 {
-                    6 => "Synth PCM",
-                    7 => "Drum PCM",
-                    8 => "Audio In",
-                    _ => "режим OSC1",
-                };
-                format!("Тембр {}: {kind} ещё переносится", timbre + 1)
+        self.load_program_with_drums(program, None)
+    }
+    pub fn load_program_with_drums(
+        &self,
+        program: crate::stored_program::CompiledProgram,
+        drums: Option<radias_synth_application::drum_program::CompiledDrumKit>,
+    ) -> Result<(), String> {
+        if program.stored.drum.timbre.is_some() && drums.is_none() {
+            return Err("Stored drum program requires its compiled drum kit".into());
+        }
+        if let Some(drums) = &drums
+            && drums.program != program.stored.drum
+        {
+            return Err("Drum owner/program context differs".into());
+        }
+        if let Some(drums) = &drums {
+            for instrument in &drums.instruments {
+                instrument
+                    .controls
+                    .modulation
+                    .validate_with_clock(true)
+                    .map_err(|_| "Drum instrument modulation is unsupported".to_owned())?;
             }
-            other => format!("Не удалось прочитать программу: {other:?}"),
-        })?;
+        }
+        program
+            .validate_native_generators_except(drums.as_ref().and_then(|d| d.program.timbre))
+            .map_err(|e| match e {
+                radias_synth_application::stored_program::ProgramCompilationError::Generator {
+                    timbre,
+                    selection,
+                } => {
+                    let kind = match selection & 15 {
+                        6 => "Synth PCM",
+                        7 => "Drum PCM",
+                        8 => "Audio In",
+                        _ => "режим OSC1",
+                    };
+                    format!("Тембр {}: {kind} ещё переносится", timbre + 1)
+                }
+                other => format!("Не удалось прочитать программу: {other:?}"),
+            })?;
         if !self.modulation_available || !self.tempo_available {
             return Err("Stored programs require native controller and tempo tables".into());
         }
@@ -326,7 +356,21 @@ impl NativePlayer {
                 .map_err(|_| "Stored program modulation is unsupported".to_string())?;
         }
         self.commands
-            .try_send(Command::Program(Box::new(program)))
+            .try_send(Command::Program(Box::new(NativeProgramLoad {
+                compiled: program,
+                drums: drums.map(Box::new),
+            })))
+            .map_err(|e| e.to_string())
+    }
+    pub fn configure_performance(
+        &self,
+        global: radias_synth_domain::performance::GlobalPerformance,
+    ) -> Result<(), String> {
+        if global.channel > 15 {
+            return Err("Invalid Global MIDI channel".into());
+        }
+        self.commands
+            .try_send(Command::Performance(global))
             .map_err(|e| e.to_string())
     }
     pub fn stop(&self) -> Result<(), String> {
@@ -343,6 +387,35 @@ impl NativePlayer {
         }
         self.commands
             .try_send(Command::Note(0, note, velocity))
+            .map_err(|e| e.to_string())
+    }
+    pub fn drum_pad(&self, instrument: u8, velocity: u8) -> Result<(), String> {
+        if instrument >= 16 || velocity > 127 {
+            return Err("Invalid drum pad input".into());
+        }
+        self.commands
+            .try_send(Command::DrumPad(instrument, velocity))
+            .map_err(|e| e.to_string())
+    }
+    pub fn edit_drum_instrument(
+        &self,
+        index: u8,
+        program: radias_synth_application::drum_program::DrumInstrumentProgram,
+    ) -> Result<(), String> {
+        if index >= 16 {
+            return Err("Invalid drum instrument".into());
+        }
+        let selection = program.controls.oscillator_selection & 63;
+        if selection & 15 >= 6 || (selection & 15 >= 4 && selection & 48 != 0) {
+            return Err("Drum instrument generator is not yet available".into());
+        }
+        program
+            .controls
+            .modulation
+            .validate_with_clock(true)
+            .map_err(|_| "Drum modulation is not yet available".to_owned())?;
+        self.commands
+            .try_send(Command::DrumInstrument(index, Box::new(program)))
             .map_err(|e| e.to_string())
     }
     pub fn filter(&self, coefficients: FilterCoefficients) -> Result<(), String> {
@@ -857,30 +930,39 @@ fn stream<T: SizedSample + FromSample<f32>>(
                     }
                 }
                 let elapsed = start.elapsed().as_nanos() as u64;
-                counters.active_voices.store(
-                    generator.synth.pool().active_count() as u32,
-                    Ordering::Relaxed,
-                );
-                counters.held_voices.store(
-                    generator.synth.pool().held_count() as u32,
-                    Ordering::Relaxed,
-                );
+                counters
+                    .active_voices
+                    .store(generator.pool.active_count() as u32, Ordering::Relaxed);
+                counters
+                    .held_voices
+                    .store(generator.pool.held_count() as u32, Ordering::Relaxed);
                 for timbre in 0..TIMBRE_COUNT {
+                    counters.source_gains[timbre].store(
+                        generator.timbres[timbre].amplifier.source_gain as u32,
+                        Ordering::Relaxed,
+                    );
                     counters.sustain_flags[timbre].store(
-                        generator
-                            .synth
-                            .pool()
-                            .sustain_state(timbre as u8)
-                            .unwrap()
-                            .flags as u32,
+                        generator.pool.sustain_state(timbre as u8).unwrap().flags as u32,
                         Ordering::Relaxed,
                     );
                     let note = (0..radias_synth_domain::voice_allocation::VOICE_COUNT)
-                        .filter_map(|slot| generator.synth.pool().active_voice(slot))
+                        .filter_map(|slot| generator.pool.active_voice(slot))
                         .find(|voice| voice.held && voice.timbre as usize == timbre)
                         .map_or(0, |voice| voice.note as u32 + 1);
                     counters.held_notes[timbre].store(note, Ordering::Relaxed);
                 }
+                for slot in 0..24 {
+                    counters.actor_pitch_codes[slot].store(
+                        generator
+                            .pool
+                            .active_voice(slot)
+                            .map_or(u32::MAX, |v| v.renderer.primary_pitch_code() as u32),
+                        Ordering::Relaxed,
+                    );
+                }
+                counters
+                    .unsupported_drum_notes
+                    .store(generator.unsupported_drum_notes, Ordering::Relaxed);
                 counters.callbacks.fetch_add(1, Ordering::Relaxed);
                 counters
                     .output_peak

@@ -1,0 +1,1912 @@
+[
+  {
+    "id": 0,
+    "label": "Waveform",
+    "group": "OSC 1",
+    "default": 0,
+    "min": 0,
+    "max": 5,
+    "options": [
+      "Saw",
+      "Pulse",
+      "Triangle",
+      "Sine",
+      "Noise",
+      "Formant"
+    ]
+  },
+  {
+    "id": 1,
+    "label": "Cutoff",
+    "group": "Filter 1",
+    "default": 100,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 2,
+    "label": "Resonance",
+    "group": "Filter 1",
+    "default": 20,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 3,
+    "label": "Attack",
+    "group": "EG 2",
+    "default": 12,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 4,
+    "label": "Decay",
+    "group": "EG 2",
+    "default": 48,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 5,
+    "label": "Sustain",
+    "group": "EG 2",
+    "default": 100,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 6,
+    "label": "Release",
+    "group": "EG 2",
+    "default": 48,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 7,
+    "label": "Level",
+    "group": "Amplifier",
+    "default": 100,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 8,
+    "label": "Pan",
+    "group": "Amplifier",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 9,
+    "label": "Type / morph",
+    "group": "Filter 1",
+    "default": 32,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 10,
+    "label": "Mode",
+    "group": "OSC 1",
+    "default": 0,
+    "min": 0,
+    "max": 3,
+    "options": [
+      "Waveform",
+      "Cross",
+      "Unison",
+      "VPM"
+    ]
+  },
+  {
+    "id": 11,
+    "label": "Control 1",
+    "group": "OSC 1",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 12,
+    "label": "Control 2",
+    "group": "OSC 1",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 13,
+    "label": "Waveform",
+    "group": "OSC 2",
+    "default": 0,
+    "min": 0,
+    "max": 3,
+    "options": [
+      "Saw",
+      "Pulse",
+      "Triangle",
+      "Sine"
+    ]
+  },
+  {
+    "id": 14,
+    "label": "Mode",
+    "group": "OSC 2",
+    "default": 0,
+    "min": 0,
+    "max": 3,
+    "options": [
+      "Normal",
+      "Ring",
+      "Sync",
+      "Ring + Sync"
+    ]
+  },
+  {
+    "id": 15,
+    "label": "Semitone",
+    "group": "OSC 2",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 16,
+    "label": "Fine tune",
+    "group": "OSC 2",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 17,
+    "label": "OSC 1",
+    "group": "Mixer",
+    "default": 127,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 18,
+    "label": "OSC 2",
+    "group": "Mixer",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 19,
+    "label": "Noise",
+    "group": "Mixer",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 20,
+    "label": "Routing",
+    "group": "Filters",
+    "default": 0,
+    "min": 0,
+    "max": 3,
+    "options": [
+      "Single",
+      "Serial",
+      "Parallel",
+      "Individual"
+    ]
+  },
+  {
+    "id": 21,
+    "label": "Type",
+    "group": "Filter 2",
+    "default": 0,
+    "min": 0,
+    "max": 3,
+    "options": [
+      "LPF",
+      "HPF",
+      "BPF",
+      "Comb"
+    ]
+  },
+  {
+    "id": 22,
+    "label": "Cutoff",
+    "group": "Filter 2",
+    "default": 127,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 23,
+    "label": "Resonance",
+    "group": "Filter 2",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 24,
+    "label": "Link to Filter 1",
+    "group": "Filter 2",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 25,
+    "label": "EG 1 intensity",
+    "group": "Filter 1",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 26,
+    "label": "Key track",
+    "group": "Filter 1",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 27,
+    "label": "EG 1 intensity",
+    "group": "Filter 2",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 28,
+    "label": "Key track",
+    "group": "Filter 2",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 29,
+    "label": "Type",
+    "group": "Drive / Waveshaper",
+    "default": 0,
+    "min": 0,
+    "max": 12,
+    "options": [
+      "Off",
+      "Drive",
+      "Hard Clip",
+      "Decimator",
+      "OctSaw",
+      "MultiTri",
+      "MultiSin",
+      "SubOSC Saw",
+      "SubOSC Square",
+      "SubOSC Triangle",
+      "SubOSC Sine",
+      "Pickup",
+      "Level Boost"
+    ]
+  },
+  {
+    "id": 30,
+    "label": "Position",
+    "group": "Drive / Waveshaper",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Pre filter",
+      "Pre amp"
+    ]
+  },
+  {
+    "id": 31,
+    "label": "Depth",
+    "group": "Drive / Waveshaper",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 32,
+    "label": "Attack",
+    "group": "EG 1",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 33,
+    "label": "Decay",
+    "group": "EG 1",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 34,
+    "label": "Sustain",
+    "group": "EG 1",
+    "default": 127,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 35,
+    "label": "Release",
+    "group": "EG 1",
+    "default": 10,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 36,
+    "label": "Attack",
+    "group": "EG 3",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 37,
+    "label": "Decay",
+    "group": "EG 3",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 38,
+    "label": "Sustain",
+    "group": "EG 3",
+    "default": 127,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 39,
+    "label": "Release",
+    "group": "EG 3",
+    "default": 10,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 40,
+    "label": "Curve",
+    "group": "EG 1",
+    "default": 3,
+    "min": 0,
+    "max": 7
+  },
+  {
+    "id": 41,
+    "label": "Velocity level",
+    "group": "EG 1",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 42,
+    "label": "Velocity time",
+    "group": "EG 1",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 43,
+    "label": "Key track",
+    "group": "EG 1",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 44,
+    "label": "Curve",
+    "group": "EG 2",
+    "default": 3,
+    "min": 0,
+    "max": 7
+  },
+  {
+    "id": 45,
+    "label": "Velocity level",
+    "group": "EG 2",
+    "default": 127,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 46,
+    "label": "Velocity time",
+    "group": "EG 2",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 47,
+    "label": "Key track",
+    "group": "EG 2",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 48,
+    "label": "Curve",
+    "group": "EG 3",
+    "default": 3,
+    "min": 0,
+    "max": 7
+  },
+  {
+    "id": 49,
+    "label": "Velocity level",
+    "group": "EG 3",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 50,
+    "label": "Velocity time",
+    "group": "EG 3",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 51,
+    "label": "Key track",
+    "group": "EG 3",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 52,
+    "label": "Key track",
+    "group": "Amplifier",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 53,
+    "label": "Transpose",
+    "group": "Pitch",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 54,
+    "label": "Fine tune",
+    "group": "Pitch",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 55,
+    "label": "Vibrato",
+    "group": "Pitch",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 56,
+    "label": "Bend range",
+    "group": "Pitch",
+    "default": 66,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 57,
+    "label": "Pitch bend",
+    "group": "Pitch",
+    "default": 1,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 58,
+    "label": "Mod wheel",
+    "group": "Pitch",
+    "default": 1,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 59,
+    "label": "Time",
+    "group": "Portamento",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 60,
+    "label": "Curve",
+    "group": "Portamento",
+    "default": 3,
+    "min": 0,
+    "max": 15
+  },
+  {
+    "id": 61,
+    "label": "Require CC65",
+    "group": "Portamento",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 62,
+    "label": "Mode",
+    "group": "Voice",
+    "default": 1,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Mono",
+      "Poly"
+    ]
+  },
+  {
+    "id": 63,
+    "label": "Multi trigger",
+    "group": "Voice",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 64,
+    "label": "Priority",
+    "group": "Voice",
+    "default": 0,
+    "min": 0,
+    "max": 2,
+    "options": [
+      "Last",
+      "Lowest",
+      "Highest"
+    ]
+  },
+  {
+    "id": 65,
+    "label": "Damper",
+    "group": "Voice",
+    "default": 1,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 66,
+    "label": "CC64 pedal",
+    "group": "Voice",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 67,
+    "label": "Unison",
+    "group": "Voice",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 68,
+    "label": "Unison voices",
+    "group": "Voice",
+    "default": 6,
+    "min": 2,
+    "max": 8
+  },
+  {
+    "id": 69,
+    "label": "Unison detune",
+    "group": "Voice",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 70,
+    "label": "Unison spread",
+    "group": "Voice",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 71,
+    "label": "Enabled",
+    "group": "Timbre",
+    "default": 1,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 72,
+    "label": "MIDI channel",
+    "group": "Timbre",
+    "default": 0,
+    "min": 0,
+    "max": 16,
+    "options": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+      "16",
+      "Global"
+    ]
+  },
+  {
+    "id": 73,
+    "label": "Waveform",
+    "group": "LFO 1",
+    "default": 0,
+    "min": 0,
+    "max": 3,
+    "options": [
+      "Saw",
+      "Square",
+      "Triangle",
+      "S&H"
+    ]
+  },
+  {
+    "id": 74,
+    "label": "Shape",
+    "group": "LFO 1",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 75,
+    "label": "Frequency",
+    "group": "LFO 1",
+    "default": 45,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 76,
+    "label": "Key sync",
+    "group": "LFO 1",
+    "default": 2,
+    "min": 0,
+    "max": 2,
+    "options": [
+      "Free",
+      "Timbre",
+      "Voice"
+    ]
+  },
+  {
+    "id": 77,
+    "label": "Phase",
+    "group": "LFO 1",
+    "default": 0,
+    "min": 0,
+    "max": 31
+  },
+  {
+    "id": 78,
+    "label": "Tempo sync",
+    "group": "LFO 1",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 79,
+    "label": "Division",
+    "group": "LFO 1",
+    "default": 8,
+    "min": 0,
+    "max": 16,
+    "options": [
+      "8/1",
+      "4/1",
+      "2/1",
+      "1/1",
+      "3/4",
+      "1/2",
+      "3/8",
+      "1/3",
+      "1/4",
+      "3/16",
+      "1/6",
+      "1/8",
+      "1/12",
+      "1/16",
+      "1/24",
+      "1/32",
+      "1/64"
+    ]
+  },
+  {
+    "id": 80,
+    "label": "Rate offset",
+    "group": "LFO 1",
+    "default": 0,
+    "min": -64,
+    "max": 63
+  },
+  {
+    "id": 81,
+    "label": "Waveform",
+    "group": "LFO 2",
+    "default": 0,
+    "min": 0,
+    "max": 3,
+    "options": [
+      "Saw",
+      "Square",
+      "Sine",
+      "S&H"
+    ]
+  },
+  {
+    "id": 82,
+    "label": "Shape",
+    "group": "LFO 2",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 83,
+    "label": "Frequency",
+    "group": "LFO 2",
+    "default": 45,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 84,
+    "label": "Key sync",
+    "group": "LFO 2",
+    "default": 2,
+    "min": 0,
+    "max": 2,
+    "options": [
+      "Free",
+      "Timbre",
+      "Voice"
+    ]
+  },
+  {
+    "id": 85,
+    "label": "Phase",
+    "group": "LFO 2",
+    "default": 0,
+    "min": 0,
+    "max": 31
+  },
+  {
+    "id": 86,
+    "label": "Tempo sync",
+    "group": "LFO 2",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 87,
+    "label": "Division",
+    "group": "LFO 2",
+    "default": 8,
+    "min": 0,
+    "max": 16,
+    "options": [
+      "8/1",
+      "4/1",
+      "2/1",
+      "1/1",
+      "3/4",
+      "1/2",
+      "3/8",
+      "1/3",
+      "1/4",
+      "3/16",
+      "1/6",
+      "1/8",
+      "1/12",
+      "1/16",
+      "1/24",
+      "1/32",
+      "1/64"
+    ]
+  },
+  {
+    "id": 88,
+    "label": "Rate offset",
+    "group": "LFO 2",
+    "default": 0,
+    "min": -64,
+    "max": 63
+  },
+  {
+    "id": 89,
+    "label": "BPM × 10",
+    "group": "Tempo",
+    "default": 1200,
+    "min": 100,
+    "max": 3000,
+    "scope": "global"
+  },
+  {
+    "id": 90,
+    "label": "Source",
+    "group": "Patch 1",
+    "default": 3,
+    "min": 0,
+    "max": 8,
+    "options": [
+      "EG 1",
+      "EG 2",
+      "EG 3",
+      "LFO 1",
+      "LFO 2",
+      "Velocity",
+      "Bend",
+      "Wheel",
+      "Key Track"
+    ]
+  },
+  {
+    "id": 91,
+    "label": "Destination",
+    "group": "Patch 1",
+    "default": 0,
+    "min": 0,
+    "max": 39,
+    "options": [
+      "Pitch",
+      "OSC 2 Pitch",
+      "OSC 1 Control 1",
+      "OSC 1 Control 2",
+      "OSC 1 Level",
+      "OSC 2 Level",
+      "Noise Level",
+      "Cutoff",
+      "Filter 2 Cutoff",
+      "Drive / WS Depth",
+      "AMP",
+      "Pan",
+      "LFO 1 Rate",
+      "LFO 2 Rate",
+      "Portamento Time",
+      "EG 1 INT",
+      "Key Track",
+      "Filter 2 Resonance",
+      "Filter 2 EG 1 Depth",
+      "Filter 2 Key Track",
+      "Patch 1 feedback",
+      "Patch 2 feedback",
+      "Patch 3 feedback",
+      "Patch 4 feedback",
+      "Patch 5 feedback",
+      "Patch 6 feedback"
+    ],
+    "values": [
+      0,
+      1,
+      2,
+      16,
+      3,
+      4,
+      5,
+      7,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      17,
+      18,
+      19,
+      20,
+      21,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39
+    ]
+  },
+  {
+    "id": 92,
+    "label": "Intensity",
+    "group": "Patch 1",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 93,
+    "label": "Manual offset",
+    "group": "Patch 1",
+    "default": 0,
+    "min": -63,
+    "max": 63
+  },
+  {
+    "id": 94,
+    "label": "Source",
+    "group": "Patch 2",
+    "default": 3,
+    "min": 0,
+    "max": 8,
+    "options": [
+      "EG 1",
+      "EG 2",
+      "EG 3",
+      "LFO 1",
+      "LFO 2",
+      "Velocity",
+      "Bend",
+      "Wheel",
+      "Key Track"
+    ]
+  },
+  {
+    "id": 95,
+    "label": "Destination",
+    "group": "Patch 2",
+    "default": 0,
+    "min": 0,
+    "max": 39,
+    "options": [
+      "Pitch",
+      "OSC 2 Pitch",
+      "OSC 1 Control 1",
+      "OSC 1 Control 2",
+      "OSC 1 Level",
+      "OSC 2 Level",
+      "Noise Level",
+      "Cutoff",
+      "Filter 2 Cutoff",
+      "Drive / WS Depth",
+      "AMP",
+      "Pan",
+      "LFO 1 Rate",
+      "LFO 2 Rate",
+      "Portamento Time",
+      "EG 1 INT",
+      "Key Track",
+      "Filter 2 Resonance",
+      "Filter 2 EG 1 Depth",
+      "Filter 2 Key Track",
+      "Patch 1 feedback",
+      "Patch 2 feedback",
+      "Patch 3 feedback",
+      "Patch 4 feedback",
+      "Patch 5 feedback",
+      "Patch 6 feedback"
+    ],
+    "values": [
+      0,
+      1,
+      2,
+      16,
+      3,
+      4,
+      5,
+      7,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      17,
+      18,
+      19,
+      20,
+      21,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39
+    ]
+  },
+  {
+    "id": 96,
+    "label": "Intensity",
+    "group": "Patch 2",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 97,
+    "label": "Manual offset",
+    "group": "Patch 2",
+    "default": 0,
+    "min": -63,
+    "max": 63
+  },
+  {
+    "id": 98,
+    "label": "Source",
+    "group": "Patch 3",
+    "default": 3,
+    "min": 0,
+    "max": 8,
+    "options": [
+      "EG 1",
+      "EG 2",
+      "EG 3",
+      "LFO 1",
+      "LFO 2",
+      "Velocity",
+      "Bend",
+      "Wheel",
+      "Key Track"
+    ]
+  },
+  {
+    "id": 99,
+    "label": "Destination",
+    "group": "Patch 3",
+    "default": 0,
+    "min": 0,
+    "max": 39,
+    "options": [
+      "Pitch",
+      "OSC 2 Pitch",
+      "OSC 1 Control 1",
+      "OSC 1 Control 2",
+      "OSC 1 Level",
+      "OSC 2 Level",
+      "Noise Level",
+      "Cutoff",
+      "Filter 2 Cutoff",
+      "Drive / WS Depth",
+      "AMP",
+      "Pan",
+      "LFO 1 Rate",
+      "LFO 2 Rate",
+      "Portamento Time",
+      "EG 1 INT",
+      "Key Track",
+      "Filter 2 Resonance",
+      "Filter 2 EG 1 Depth",
+      "Filter 2 Key Track",
+      "Patch 1 feedback",
+      "Patch 2 feedback",
+      "Patch 3 feedback",
+      "Patch 4 feedback",
+      "Patch 5 feedback",
+      "Patch 6 feedback"
+    ],
+    "values": [
+      0,
+      1,
+      2,
+      16,
+      3,
+      4,
+      5,
+      7,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      17,
+      18,
+      19,
+      20,
+      21,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39
+    ]
+  },
+  {
+    "id": 100,
+    "label": "Intensity",
+    "group": "Patch 3",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 101,
+    "label": "Manual offset",
+    "group": "Patch 3",
+    "default": 0,
+    "min": -63,
+    "max": 63
+  },
+  {
+    "id": 102,
+    "label": "Source",
+    "group": "Patch 4",
+    "default": 3,
+    "min": 0,
+    "max": 8,
+    "options": [
+      "EG 1",
+      "EG 2",
+      "EG 3",
+      "LFO 1",
+      "LFO 2",
+      "Velocity",
+      "Bend",
+      "Wheel",
+      "Key Track"
+    ]
+  },
+  {
+    "id": 103,
+    "label": "Destination",
+    "group": "Patch 4",
+    "default": 0,
+    "min": 0,
+    "max": 39,
+    "options": [
+      "Pitch",
+      "OSC 2 Pitch",
+      "OSC 1 Control 1",
+      "OSC 1 Control 2",
+      "OSC 1 Level",
+      "OSC 2 Level",
+      "Noise Level",
+      "Cutoff",
+      "Filter 2 Cutoff",
+      "Drive / WS Depth",
+      "AMP",
+      "Pan",
+      "LFO 1 Rate",
+      "LFO 2 Rate",
+      "Portamento Time",
+      "EG 1 INT",
+      "Key Track",
+      "Filter 2 Resonance",
+      "Filter 2 EG 1 Depth",
+      "Filter 2 Key Track",
+      "Patch 1 feedback",
+      "Patch 2 feedback",
+      "Patch 3 feedback",
+      "Patch 4 feedback",
+      "Patch 5 feedback",
+      "Patch 6 feedback"
+    ],
+    "values": [
+      0,
+      1,
+      2,
+      16,
+      3,
+      4,
+      5,
+      7,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      17,
+      18,
+      19,
+      20,
+      21,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39
+    ]
+  },
+  {
+    "id": 104,
+    "label": "Intensity",
+    "group": "Patch 4",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 105,
+    "label": "Manual offset",
+    "group": "Patch 4",
+    "default": 0,
+    "min": -63,
+    "max": 63
+  },
+  {
+    "id": 106,
+    "label": "Source",
+    "group": "Patch 5",
+    "default": 3,
+    "min": 0,
+    "max": 8,
+    "options": [
+      "EG 1",
+      "EG 2",
+      "EG 3",
+      "LFO 1",
+      "LFO 2",
+      "Velocity",
+      "Bend",
+      "Wheel",
+      "Key Track"
+    ]
+  },
+  {
+    "id": 107,
+    "label": "Destination",
+    "group": "Patch 5",
+    "default": 0,
+    "min": 0,
+    "max": 39,
+    "options": [
+      "Pitch",
+      "OSC 2 Pitch",
+      "OSC 1 Control 1",
+      "OSC 1 Control 2",
+      "OSC 1 Level",
+      "OSC 2 Level",
+      "Noise Level",
+      "Cutoff",
+      "Filter 2 Cutoff",
+      "Drive / WS Depth",
+      "AMP",
+      "Pan",
+      "LFO 1 Rate",
+      "LFO 2 Rate",
+      "Portamento Time",
+      "EG 1 INT",
+      "Key Track",
+      "Filter 2 Resonance",
+      "Filter 2 EG 1 Depth",
+      "Filter 2 Key Track",
+      "Patch 1 feedback",
+      "Patch 2 feedback",
+      "Patch 3 feedback",
+      "Patch 4 feedback",
+      "Patch 5 feedback",
+      "Patch 6 feedback"
+    ],
+    "values": [
+      0,
+      1,
+      2,
+      16,
+      3,
+      4,
+      5,
+      7,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      17,
+      18,
+      19,
+      20,
+      21,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39
+    ]
+  },
+  {
+    "id": 108,
+    "label": "Intensity",
+    "group": "Patch 5",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 109,
+    "label": "Manual offset",
+    "group": "Patch 5",
+    "default": 0,
+    "min": -63,
+    "max": 63
+  },
+  {
+    "id": 110,
+    "label": "Source",
+    "group": "Patch 6",
+    "default": 3,
+    "min": 0,
+    "max": 8,
+    "options": [
+      "EG 1",
+      "EG 2",
+      "EG 3",
+      "LFO 1",
+      "LFO 2",
+      "Velocity",
+      "Bend",
+      "Wheel",
+      "Key Track"
+    ]
+  },
+  {
+    "id": 111,
+    "label": "Destination",
+    "group": "Patch 6",
+    "default": 0,
+    "min": 0,
+    "max": 39,
+    "options": [
+      "Pitch",
+      "OSC 2 Pitch",
+      "OSC 1 Control 1",
+      "OSC 1 Control 2",
+      "OSC 1 Level",
+      "OSC 2 Level",
+      "Noise Level",
+      "Cutoff",
+      "Filter 2 Cutoff",
+      "Drive / WS Depth",
+      "AMP",
+      "Pan",
+      "LFO 1 Rate",
+      "LFO 2 Rate",
+      "Portamento Time",
+      "EG 1 INT",
+      "Key Track",
+      "Filter 2 Resonance",
+      "Filter 2 EG 1 Depth",
+      "Filter 2 Key Track",
+      "Patch 1 feedback",
+      "Patch 2 feedback",
+      "Patch 3 feedback",
+      "Patch 4 feedback",
+      "Patch 5 feedback",
+      "Patch 6 feedback"
+    ],
+    "values": [
+      0,
+      1,
+      2,
+      16,
+      3,
+      4,
+      5,
+      7,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      17,
+      18,
+      19,
+      20,
+      21,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39
+    ]
+  },
+  {
+    "id": 112,
+    "label": "Intensity",
+    "group": "Patch 6",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64
+  },
+  {
+    "id": 113,
+    "label": "Manual offset",
+    "group": "Patch 6",
+    "default": 0,
+    "min": -63,
+    "max": 63
+  },
+  {
+    "id": 114,
+    "label": "Level offset",
+    "group": "Amplifier",
+    "default": 0,
+    "min": -64,
+    "max": 63
+  },
+  {
+    "id": 115,
+    "label": "Source gain",
+    "group": "Amplifier",
+    "default": 32512,
+    "min": 0,
+    "max": 32767
+  },
+  {
+    "id": 116,
+    "label": "Volume control",
+    "group": "Amplifier",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 117,
+    "label": "MIDI volume",
+    "group": "Amplifier",
+    "default": 127,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 118,
+    "label": "Unison gain bank",
+    "group": "Amplifier",
+    "default": 0,
+    "min": 0,
+    "max": 7,
+    "readonly": true
+  },
+  {
+    "id": 119,
+    "label": "Key low",
+    "group": "Timbre",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 120,
+    "label": "Key high",
+    "group": "Timbre",
+    "default": 127,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 121,
+    "label": "Master tune (cents)",
+    "group": "Scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 122,
+    "label": "Scale",
+    "group": "Scale",
+    "default": 0,
+    "min": 0,
+    "max": 10,
+    "options": [
+      "Equal",
+      "Scaled 1",
+      "Scaled 2",
+      "Just major",
+      "Just minor",
+      "Pythagorean",
+      "Meantone",
+      "Quarter tone",
+      "Stretched",
+      "Custom",
+      "Random"
+    ],
+    "scope": "global"
+  },
+  {
+    "id": 123,
+    "label": "Root",
+    "group": "Scale",
+    "default": 0,
+    "min": 0,
+    "max": 11,
+    "scope": "global"
+  },
+  {
+    "id": 124,
+    "label": "Scale transpose",
+    "group": "Scale",
+    "default": 0,
+    "min": -12,
+    "max": 12,
+    "scope": "global"
+  },
+  {
+    "id": 125,
+    "label": "C cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 126,
+    "label": "C# cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 127,
+    "label": "D cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 128,
+    "label": "D# cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 129,
+    "label": "E cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 130,
+    "label": "F cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 131,
+    "label": "F# cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 132,
+    "label": "G cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 133,
+    "label": "G# cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 134,
+    "label": "A cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 135,
+    "label": "A# cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 136,
+    "label": "B cents",
+    "group": "Custom scale",
+    "default": 0,
+    "min": -100,
+    "max": 100,
+    "scope": "global"
+  },
+  {
+    "id": 137,
+    "label": "Bend",
+    "group": "Performance",
+    "default": 0,
+    "min": -8192,
+    "max": 8192
+  },
+  {
+    "id": 138,
+    "label": "Wheel",
+    "group": "Performance",
+    "default": 0,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 139,
+    "label": "CC65",
+    "group": "Performance",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 140,
+    "label": "Drum mode",
+    "group": "Drum Kit",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ],
+    "scope": "global"
+  },
+  {
+    "id": 141,
+    "label": "Owning timbre",
+    "group": "Drum Kit",
+    "default": 0,
+    "min": 0,
+    "max": 3,
+    "scope": "global"
+  },
+  {
+    "id": 142,
+    "label": "Instrument",
+    "group": "Drum Kit",
+    "default": 0,
+    "min": 0,
+    "max": 15,
+    "scope": "global"
+  },
+  {
+    "id": 143,
+    "label": "Level",
+    "group": "Drum Kit",
+    "default": 127,
+    "min": 0,
+    "max": 127,
+    "scope": "global"
+  },
+  {
+    "id": 144,
+    "label": "Pan",
+    "group": "Drum Kit",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64,
+    "scope": "global"
+  },
+  {
+    "id": 145,
+    "label": "Transpose",
+    "group": "Drum Kit",
+    "default": 64,
+    "min": 0,
+    "max": 127,
+    "center": 64,
+    "scope": "global"
+  },
+  {
+    "id": 146,
+    "label": "Trigger note",
+    "group": "Drum instrument",
+    "default": 60,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 147,
+    "label": "Exclusive group",
+    "group": "Drum instrument",
+    "default": 0,
+    "min": 0,
+    "max": 15
+  },
+  {
+    "id": 148,
+    "label": "Global channel",
+    "group": "Global MIDI",
+    "default": 0,
+    "min": 0,
+    "max": 15,
+    "scope": "global"
+  },
+  {
+    "id": 149,
+    "label": "Amplitude receive mode",
+    "group": "Global MIDI",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Mode 0",
+      "Mode 1"
+    ],
+    "scope": "global"
+  },
+  {
+    "id": 150,
+    "label": "Expression",
+    "group": "Performance",
+    "default": 127,
+    "min": 0,
+    "max": 127
+  },
+  {
+    "id": 151,
+    "label": "Receive expression",
+    "group": "Timbre",
+    "default": 1,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Off",
+      "On"
+    ]
+  },
+  {
+    "id": 152,
+    "label": "Expression routing",
+    "group": "Global MIDI",
+    "default": 1,
+    "min": 0,
+    "max": 1,
+    "options": [
+      "Manual gain",
+      "Expression"
+    ],
+    "scope": "global"
+  }
+]

@@ -67,82 +67,23 @@ impl CompiledProgram {
     ) -> Result<Self, ProgramCompilationError> {
         let stored = StoredProgram::from_program(program, global_channel)
             .map_err(ProgramCompilationError::Controls)?;
-        let compile = |index: usize| -> Result<CompiledTimbre, ProgramCompilationError> {
-            let c = stored.timbres[index].controls;
-            let mut filter = controls.filter(base, c.cutoff[0], c.resonance[0]);
-            filter.mix = controls.mix.weights((c.filter_type as u16) << 8);
-            let second = controls.filter(base, c.cutoff[1], c.resonance[1]);
-            let kind = (c.filter_route >> 4) & 3;
-            let filter2 = Filter2Coefficients {
-                input_gain: second.input_gain,
-                feedback: second.feedback,
-                integrator_gain: second.integrator_gain,
-                output: [
-                    Filter2Output::LowPass,
-                    Filter2Output::HighPass,
-                    Filter2Output::BandPass,
-                    Filter2Output::Comb,
-                ][kind as usize],
-            };
-            let route = match c.filter_route & 3 {
-                0 => None,
-                1 => Some(FilterRouting::Serial),
-                2 => Some(FilterRouting::Parallel),
-                _ => Some(FilterRouting::Individual),
-            };
-            let defaults = CombProgram::default();
-            let filter2_controls = CombProgram {
-                cutoff: radias_synth_domain::controller_comb::CombCutoffControl {
-                    cutoff: c.cutoff[1],
-                    linked_cutoff: c.cutoff[0],
-                    link: c.filter_route & 128 != 0,
-                    eg1_intensity: c.filter2_eg_intensity,
-                    linked_eg1_intensity: c.eg1_intensity,
-                    ..defaults.cutoff
-                },
-                resonance: radias_synth_domain::controller_comb::CombResonanceControl {
-                    resonance: c.resonance[1],
-                    linked_resonance: c.resonance[0],
-                    link: c.filter_route & 128 != 0,
-                    ..defaults.resonance
-                },
-                key_tracking: c.filter2_key_tracking,
-                linked_key_tracking: c.filter_key_tracking,
-                ..defaults
-            };
-            let comb = (kind == 3).then_some(filter2_controls);
-            Ok(CompiledTimbre {
-                filter,
-                dynamic_filter: DynamicFilter {
-                    input: ControllerFilter {
-                        cutoff: c.cutoff[0],
-                        eg1_intensity: c.eg1_intensity,
-                        key_tracking: c.filter_key_tracking,
-                        ..Default::default()
-                    },
-                    resonance: controls.resonances[(c.resonance[0] & 127) as usize],
-                    normalization: controls.normalization,
-                    base: filter,
-                },
-                filter_routing: route,
-                filter2,
-                comb,
-                dynamic_filter2: (kind != 3).then_some(crate::filter2::Filter2Program {
-                    route: c.filter_route,
-                    controls: filter2_controls,
-                    normalization: controls.normalization,
-                }),
-            })
-        };
+        let compile =
+            |index: usize| CompiledTimbre::compile(stored.timbres[index].controls, controls, base);
         Ok(Self {
             stored,
-            timbres: [compile(0)?, compile(1)?, compile(2)?, compile(3)?],
+            timbres: [compile(0), compile(1), compile(2), compile(3)],
         })
     }
     /// No silent oscillator substitution for a stored PCM/input timbre.
     pub fn validate_native_generators(&self) -> Result<(), ProgramCompilationError> {
+        self.validate_native_generators_except(None)
+    }
+    pub fn validate_native_generators_except(
+        &self,
+        replaced: Option<u8>,
+    ) -> Result<(), ProgramCompilationError> {
         for (index, t) in self.stored.timbres.iter().enumerate() {
-            if !t.enabled {
+            if !t.enabled || replaced == Some(index as u8) {
                 continue;
             }
             let selection = t.controls.oscillator_selection & 63;
@@ -154,5 +95,77 @@ impl CompiledProgram {
             }
         }
         Ok(())
+    }
+}
+impl CompiledTimbre {
+    pub fn compile(
+        c: crate::program::TimbreControls,
+        controls: &ProgramFilterTables<'_>,
+        base: FilterCoefficients,
+    ) -> Self {
+        let mut filter = controls.filter(base, c.cutoff[0], c.resonance[0]);
+        filter.mix = controls.mix.weights((c.filter_type as u16) << 8);
+        let second = controls.filter(base, c.cutoff[1], c.resonance[1]);
+        let kind = (c.filter_route >> 4) & 3;
+        let filter2 = Filter2Coefficients {
+            input_gain: second.input_gain,
+            feedback: second.feedback,
+            integrator_gain: second.integrator_gain,
+            output: [
+                Filter2Output::LowPass,
+                Filter2Output::HighPass,
+                Filter2Output::BandPass,
+                Filter2Output::Comb,
+            ][kind as usize],
+        };
+        let route = match c.filter_route & 3 {
+            0 => None,
+            1 => Some(FilterRouting::Serial),
+            2 => Some(FilterRouting::Parallel),
+            _ => Some(FilterRouting::Individual),
+        };
+        let defaults = CombProgram::default();
+        let filter2_controls = CombProgram {
+            cutoff: radias_synth_domain::controller_comb::CombCutoffControl {
+                cutoff: c.cutoff[1],
+                linked_cutoff: c.cutoff[0],
+                link: c.filter_route & 128 != 0,
+                eg1_intensity: c.filter2_eg_intensity,
+                linked_eg1_intensity: c.eg1_intensity,
+                ..defaults.cutoff
+            },
+            resonance: radias_synth_domain::controller_comb::CombResonanceControl {
+                resonance: c.resonance[1],
+                linked_resonance: c.resonance[0],
+                link: c.filter_route & 128 != 0,
+                ..defaults.resonance
+            },
+            key_tracking: c.filter2_key_tracking,
+            linked_key_tracking: c.filter_key_tracking,
+            ..defaults
+        };
+        let comb = (kind == 3).then_some(filter2_controls);
+        CompiledTimbre {
+            filter,
+            dynamic_filter: DynamicFilter {
+                input: ControllerFilter {
+                    cutoff: c.cutoff[0],
+                    eg1_intensity: c.eg1_intensity,
+                    key_tracking: c.filter_key_tracking,
+                    ..Default::default()
+                },
+                resonance: controls.resonances[(c.resonance[0] & 127) as usize],
+                normalization: controls.normalization,
+                base: filter,
+            },
+            filter_routing: route,
+            filter2,
+            comb,
+            dynamic_filter2: (kind != 3).then_some(crate::filter2::Filter2Program {
+                route: c.filter_route,
+                controls: filter2_controls,
+                normalization: controls.normalization,
+            }),
+        }
     }
 }

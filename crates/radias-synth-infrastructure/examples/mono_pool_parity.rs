@@ -89,6 +89,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         MonoAction::Release => pool.release_note(timbre, note, Some(&tables)),
                         MonoAction::Allocate | MonoAction::Retrigger => {
                             let voice = ActiveVoice {
+                                uses_program_common: false,
+                                drum_pitch: None,
+                                drum_instrument: None,
+                                drum_filter2: None,
                                 renderer: VoiceRenderer::new(plan.initial, plan.parameters),
                                 amplifier: Some(AmplifierController::from_program(
                                     AmplifierProgram::default(),

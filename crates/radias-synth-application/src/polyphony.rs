@@ -19,6 +19,12 @@ use radias_synth_domain::{
 pub const TIMBRE_COUNT: usize = 4;
 
 pub struct ActiveVoice {
+    /// SYS008448 sets this for an alternate synthesis body; SYS0083E8 clears it.
+    pub uses_program_common: bool,
+    /// A drum owns its synthesis pitch controls and receives source note60.
+    pub drum_pitch: Option<radias_synth_domain::note_pitch::PitchProgram>,
+    pub drum_instrument: Option<u8>,
+    pub drum_filter2: Option<crate::filter2::Filter2Program>,
     pub renderer: VoiceRenderer,
     pub amplifier: Option<AmplifierController>,
     pub modulation: Option<VoiceModulation>,
@@ -39,6 +45,10 @@ pub struct ActiveVoice {
 impl ActiveVoice {
     fn fresh_note(&self) -> Self {
         Self {
+            uses_program_common: self.uses_program_common,
+            drum_pitch: self.drum_pitch,
+            drum_instrument: self.drum_instrument,
+            drum_filter2: self.drum_filter2,
             renderer: self.renderer.fresh_note(),
             amplifier: self.amplifier,
             modulation: None,
@@ -110,6 +120,8 @@ pub struct PolyphonicRenderer {
     voice_group_timbre_banks: [u8; TIMBRE_COUNT],
     voice_group_offsets: [radias_synth_domain::voice_group::GroupOffsets; VOICE_COUNT],
     prepared_note_tag: Option<u8>,
+    program_common: Option<radias_synth_domain::program_binding::ProgramCommon>,
+    drum_groups: radias_synth_domain::drum_groups::DrumVoiceGroups,
 }
 impl Default for PolyphonicRenderer {
     fn default() -> Self {
@@ -161,15 +173,263 @@ impl Default for PolyphonicRenderer {
             voice_group_timbre_banks: [0; TIMBRE_COUNT],
             voice_group_offsets: [Default::default(); VOICE_COUNT],
             prepared_note_tag: None,
+            program_common: None,
+            drum_groups: Default::default(),
         }
     }
 }
 impl PolyphonicRenderer {
+    /// Bind the original exclusive group after alternate-body allocation.
+    /// The allocator already owns the declared processing cost.
+    pub fn bind_drum_group(&mut self, slot: usize, group: u8) {
+        if slot < VOICE_COUNT && self.voices[slot].is_some() {
+            self.drum_groups.groups[slot] = group;
+        }
+    }
+    pub fn drum_group(&self, slot: usize) -> Option<(u8, u16)> {
+        self.voices.get(slot)?.as_ref()?;
+        Some((
+            self.drum_groups.groups[slot],
+            self.allocator.budget.costs[slot],
+        ))
+    }
+    pub fn retire_drum_group(&mut self, timbre: u8, event: u32, group: u8) -> u32 {
+        if timbre as usize >= TIMBRE_COUNT {
+            return 0;
+        }
+        let selected = self.drum_groups.retire(
+            radias_synth_domain::drum_groups::DrumGroupRequest {
+                owner: AllocationOwner(timbre as u32 + 1),
+                event,
+                group,
+            },
+            &self.note_groups,
+            &mut self.allocator.claims,
+            &mut self.allocator.order,
+            &mut self.allocator.budget.costs,
+        );
+        for slot in 0..VOICE_COUNT {
+            if selected & (1 << slot) != 0 {
+                self.remove(slot);
+            }
+        }
+        selected
+    }
+    /// Change the original common level/pan context only on actors bound by
+    /// the alternate-body path. Envelopes, note ownership and phases persist.
+    pub fn edit_program_common(
+        &mut self,
+        common: radias_synth_domain::program_binding::ProgramCommon,
+        tables: &ControllerTables,
+    ) {
+        self.program_common = Some(common);
+        for (slot, voice) in self.voices.iter_mut().enumerate() {
+            let Some(voice) = voice.as_mut().filter(|v| v.uses_program_common) else {
+                continue;
+            };
+            if let Some(amplifier) = &mut voice.amplifier {
+                amplifier.program_common(Some(common.level), tables);
+            }
+            if let Some(pan) = &mut voice.pan {
+                pan.midi_pan = Some(common.pan);
+                if let Some((pan_tables, _)) = &self.pan_tables {
+                    let mut composed = *pan;
+                    composed.timbre_offset = composed
+                        .timbre_offset
+                        .wrapping_add(self.voice_group_offsets[slot].pan);
+                    composed.modulation = voice
+                        .modulation
+                        .as_ref()
+                        .map_or(0, |m| m.patches.targets.controls[10]);
+                    voice
+                        .renderer
+                        .set_pan_target(pan_tables.compile(composed.target()) as i16);
+                }
+            }
+        }
+    }
     pub fn configure_voice_groups(
         &mut self,
         tables: radias_synth_domain::voice_group::VoiceGroupTables,
     ) {
         self.voice_group_tables = Some(tables);
+    }
+    pub fn edit_source_gain(&mut self, timbre: u8, gain: u16, tables: &ControllerTables) {
+        for actor in self
+            .voices
+            .iter_mut()
+            .flatten()
+            .filter(|v| v.timbre == timbre)
+        {
+            if let Some(amplifier) = &mut actor.amplifier {
+                amplifier.source_gain(gain, tables);
+            }
+        }
+    }
+    /// Apply an instrument-body edit only to actors with that synthesis identity.
+    /// Note allocation, physical phases and unrelated instruments are retained.
+    pub fn edit_drum_instrument(
+        &mut self,
+        timbre: u8,
+        instrument: u8,
+        old: crate::drum_program::DrumInstrumentProgram,
+        new: crate::drum_program::DrumInstrumentProgram,
+        tables: &ControllerTables,
+        modulation_tables: &VoiceModulationTables,
+    ) {
+        let before = old.controls;
+        let c = new.controls;
+        let graph = new.graph;
+        for (slot, voice) in self.voices.iter_mut().enumerate() {
+            let Some(voice) = voice
+                .as_mut()
+                .filter(|v| v.timbre == timbre && v.drum_instrument == Some(instrument))
+            else {
+                continue;
+            };
+            if before.pitch != c.pitch {
+                voice.drum_pitch = Some(c.pitch);
+                if let Some(pitch_tables) = &self.note_pitch_tables {
+                    if before.pitch.transpose != c.pitch.transpose {
+                        self.note_pitches[slot] = c
+                            .pitch
+                            .initialize(
+                                60,
+                                self.scale_context,
+                                pitch_tables,
+                                &mut self.modulation_random,
+                            )
+                            .map(|note| crate::note_pitch::VoiceNotePitch { note });
+                    }
+                    if let (Some(pitch), Some(modulation)) =
+                        (self.note_pitches[slot], &mut voice.modulation)
+                    {
+                        modulation.base_pitch_q16 =
+                            pitch.drum_base(c.pitch, pitch_tables, self.master_tune);
+                        modulation.vibrato_depth = c.pitch.vibrato_depth(
+                            self.midi_pitch[timbre as usize].wheel,
+                            &pitch_tables.vibrato,
+                        );
+                    }
+                }
+            }
+            if before.envelope[1] != c.envelope[1]
+                || before.amplifier_level != c.amplifier_level
+                || before.amplifier_key_tracking != c.amplifier_key_tracking
+            {
+                if let Some(amp) = &mut voice.amplifier {
+                    let current = amp.control();
+                    amp.edit_program(
+                        c.amplifier(
+                            current.source_gain,
+                            current.midi_volume,
+                            current.program_volume,
+                        ),
+                        tables,
+                    );
+                }
+            }
+            if let Some(auxiliary) = &mut voice.auxiliary {
+                if before.envelope[0] != c.envelope[0] || before.envelope[2] != c.envelope[2] {
+                    auxiliary.edit([c.envelope[0], c.envelope[2]], tables);
+                }
+                auxiliary.filter = Some(graph.dynamic_filter);
+            }
+            if before.cutoff[0] != c.cutoff[0]
+                || before.resonance[0] != c.resonance[0]
+                || before.filter_type != c.filter_type
+            {
+                voice.renderer.set_filter(graph.filter);
+            }
+            voice.drum_filter2 = graph.dynamic_filter2;
+            voice.comb_program = graph.comb;
+            if before.filter_route != c.filter_route
+                || before.cutoff[1] != c.cutoff[1]
+                || before.resonance[1] != c.resonance[1]
+            {
+                voice
+                    .renderer
+                    .set_filter_routing(graph.filter_routing, graph.filter2);
+            }
+            if before.pan != c.pan
+                && let Some(pan) = &mut voice.pan
+            {
+                pan.position = c.pan;
+            }
+            if before.mixer != c.mixer {
+                voice.mixer = Some(c.mixer);
+            }
+            if before.secondary != c.secondary {
+                voice.secondary = Some(c.secondary);
+                voice.renderer.select_secondary(c.secondary);
+            }
+            if before.shaper != c.shaper {
+                voice.shaper = Some(c.shaper);
+                let mut shaper = c.shaper;
+                shaper.control.modulation = voice
+                    .modulation
+                    .as_ref()
+                    .map_or(0, |m| m.patches.targets.controls[8]);
+                voice
+                    .renderer
+                    .set_shaper(shaper.parameters_with_pitch(voice.renderer.primary_pitch_code()));
+            }
+            if before.modulation != c.modulation
+                && let Some(modulation) = &mut voice.modulation
+            {
+                modulation.pair.parameters = c.modulation.lfo;
+                modulation.patches.routes = c.modulation.routes;
+                modulation.patches.manual_offsets = c.modulation.manual_offsets;
+                modulation.tempo_divisions = c.modulation.tempo_divisions;
+                if let Some(clock) = &mut self.clock {
+                    clock.divisions.voices[slot] = c.modulation.tempo_divisions;
+                    for i in 0..2 {
+                        clock.bank.voices[slot][i].previous_increment = clock
+                            .tables
+                            .compile_increment(
+                                (c.modulation.tempo_divisions[i] & 31) as i32,
+                                0,
+                                clock.receiver.tempo.clock_rate(),
+                            )
+                            .1;
+                    }
+                }
+            }
+            if before.oscillator_selection != c.oscillator_selection
+                || before.oscillator_controls != c.oscillator_controls
+            {
+                let primary = c.primary();
+                let changed = voice
+                    .primary
+                    .is_none_or(|p| p.selection != primary.selection);
+                let code =
+                    radias_synth_domain::pitch::PitchCode::new(voice.renderer.primary_pitch_code())
+                        .unwrap();
+                let increment = modulation_tables.pitch.increment(code);
+                if changed
+                    && let Some(parameters) = primary.compile_waveform(
+                        increment,
+                        modulation_tables.bandwidth.coefficient(increment),
+                    )
+                {
+                    voice.renderer.select_primary(parameters);
+                    voice.program = if primary.selection & 15 < 4 {
+                        (primary.selection & 3) as usize
+                    } else {
+                        0
+                    };
+                }
+                if changed && primary.selection & 0x30 == 0x20 {
+                    voice
+                        .renderer
+                        .update_unison_phases(primary.control, primary.selection & 3 == 2);
+                }
+                voice.primary = Some(primary);
+                if changed && let Some(noise) = &self.noise_tables {
+                    Self::initialize_noise(noise, slot, voice);
+                }
+            }
+        }
     }
     pub fn edit_voice_group(
         &mut self,
@@ -643,9 +903,20 @@ impl PolyphonicRenderer {
         self.master_tune = master_tune;
         for (slot, voice) in self.voices.iter().enumerate() {
             if let Some(voice) = voice {
-                self.note_pitches[slot] = self.pitch_programs[voice.timbre as usize]
+                self.note_pitches[slot] = voice
+                    .drum_pitch
+                    .or(self.pitch_programs[voice.timbre as usize])
                     .and_then(|program| {
-                        program.initialize(voice.note, scale, &tables, &mut self.modulation_random)
+                        program.initialize(
+                            if voice.drum_pitch.is_some() {
+                                60
+                            } else {
+                                voice.note
+                            },
+                            scale,
+                            &tables,
+                            &mut self.modulation_random,
+                        )
                     })
                     .map(|note| crate::note_pitch::VoiceNotePitch { note });
             }
@@ -662,7 +933,10 @@ impl PolyphonicRenderer {
         let previous = current.replace(program);
         if let Some(tables) = &self.note_pitch_tables {
             for (slot, voice) in self.voices.iter().enumerate() {
-                let Some(voice) = voice.as_ref().filter(|v| v.timbre == timbre) else {
+                let Some(voice) = voice
+                    .as_ref()
+                    .filter(|v| v.timbre == timbre && v.drum_pitch.is_none())
+                else {
                     continue;
                 };
                 if self.note_pitches[slot].is_none()
@@ -698,19 +972,29 @@ impl PolyphonicRenderer {
         inherit_timbre: bool,
     ) {
         self.note_pitches[slot] = self.note_pitch_tables.as_ref().and_then(|tables| {
-            self.pitch_programs[voice.timbre as usize].and_then(|program| {
-                program
-                    .initialize(
-                        voice.note,
-                        self.scale_context,
-                        tables,
-                        &mut self.modulation_random,
-                    )
-                    .map(|note| crate::note_pitch::VoiceNotePitch { note })
-            })
+            voice
+                .drum_pitch
+                .or(self.pitch_programs[voice.timbre as usize])
+                .and_then(|program| {
+                    program
+                        .initialize(
+                            if voice.drum_pitch.is_some() {
+                                60
+                            } else {
+                                voice.note
+                            },
+                            self.scale_context,
+                            tables,
+                            &mut self.modulation_random,
+                        )
+                        .map(|note| crate::note_pitch::VoiceNotePitch { note })
+                })
         });
         let timbre = voice.timbre as usize;
         self.portamento_voices[slot] = self.portamento_tables.as_ref().and_then(|tables| {
+            if voice.drum_pitch.is_some() {
+                return None;
+            }
             self.portamento_programs[timbre].map(|program| {
                 let mut port = self.portamento_voices[slot]
                     .unwrap_or_else(|| crate::portamento::VoicePortamento::new(program));
@@ -731,15 +1015,20 @@ impl PolyphonicRenderer {
         self.assigned_pitch_slots[slot] = ((note as i32) << 16).wrapping_add(port_offset);
         if let (Some(pitch), Some(program), Some(tables), Some(modulation)) = (
             self.note_pitches[slot],
-            self.pitch_programs[voice.timbre as usize],
+            voice
+                .drum_pitch
+                .or(self.pitch_programs[voice.timbre as usize]),
             &self.note_pitch_tables,
             &mut voice.modulation,
         ) {
             let midi = self.midi_pitch[voice.timbre as usize];
-            modulation.base_pitch_q16 = pitch
-                .base(program, midi, tables, self.master_tune)
-                .wrapping_add(self.voice_group_offsets[slot].tuning_q16)
-                .wrapping_add(port_offset);
+            modulation.base_pitch_q16 = if voice.drum_pitch.is_some() {
+                pitch.drum_base(program, tables, self.master_tune)
+            } else {
+                pitch.base(program, midi, tables, self.master_tune)
+            }
+            .wrapping_add(self.voice_group_offsets[slot].tuning_q16)
+            .wrapping_add(port_offset);
             modulation.vibrato_depth = program.vibrato_depth(midi.wheel, &tables.vibrato);
         }
     }
@@ -929,6 +1218,12 @@ impl PolyphonicRenderer {
             .flatten()
             .filter(|v| v.timbre == timbre)
         {
+            let mut pan = pan;
+            if voice.uses_program_common
+                && let Some(common) = self.program_common
+            {
+                pan.midi_pan = Some(common.pan);
+            }
             voice.pan = Some(pan);
         }
     }
@@ -955,6 +1250,12 @@ impl PolyphonicRenderer {
                 continue;
             };
             if let Some(amplifier) = &mut voice.amplifier {
+                let mut program = program;
+                if voice.uses_program_common
+                    && let Some(common) = self.program_common
+                {
+                    program.midi_volume = Some(common.level);
+                }
                 amplifier.edit_program(program, tables);
                 if self.voice_group_tables.is_some() {
                     amplifier.set_group_gain_bank(self.voice_group_banks[slot]);
@@ -1084,6 +1385,40 @@ impl PolyphonicRenderer {
             return self.trigger_group_modulated(voice, cost, program);
         }
         self.trigger_modulated_with_inheritance(voice, cost, program, true)
+    }
+    /// SYS007DA8 uses fresh allocation for an independent drum body, including
+    /// exclusive retirement before allocation. Timbre Mono/Unison do not turn
+    /// this one-instrument assignment into the ordinary note path.
+    pub fn trigger_drum_modulated(
+        &mut self,
+        voice: ActiveVoice,
+        cost: u16,
+        program: ModulationProgram,
+        exclusive_group: u8,
+    ) -> Option<VoiceAssignment> {
+        if voice.timbre as usize >= TIMBRE_COUNT || voice.note > 127 || voice.drum_pitch.is_none() {
+            return None;
+        }
+        program.validate_with_clock(self.clock.is_some()).ok()?;
+        let tag = self.consume_note_event();
+        let event = ((tag as u32) << 24) | voice.note as u32 | 128;
+        self.shared_lfo[voice.timbre as usize].synthesis.parameters = program.lfo;
+        self.retire_drum_group(voice.timbre, event, exclusive_group);
+        let owner = AllocationOwner(voice.timbre as u32 + 1);
+        let previous_claims = self.allocator.claims;
+        let assignment = self.allocator.allocate_poly(owner, voice.note, cost)?;
+        self.repair_poly_allocation(
+            voice.timbre,
+            voice.primary.map_or(0, |p| p.selection),
+            1 << assignment.slot,
+            assignment.displaced,
+            &previous_claims,
+        );
+        self.note_groups.assign(1 << assignment.slot, event);
+        self.initialize_single_group(assignment.slot as usize, voice.timbre);
+        self.initialize_modulated_actor(voice, assignment, program, false);
+        self.bind_drum_group(assignment.slot as usize, exclusive_group);
+        Some(assignment)
     }
     fn trigger_group_modulated(
         &mut self,
@@ -1305,6 +1640,17 @@ impl PolyphonicRenderer {
         self.install(assignment.slot as usize, assignment.displaced, voice);
     }
     pub fn install(&mut self, slot: usize, displaced: u32, mut voice: ActiveVoice) {
+        self.drum_groups.groups[slot] = 0;
+        if voice.uses_program_common
+            && let Some(common) = self.program_common
+        {
+            if let Some(amplifier) = &mut voice.amplifier {
+                amplifier.set_program_common(Some(common.level));
+            }
+            if let Some(pan) = &mut voice.pan {
+                pan.midi_pan = Some(common.pan);
+            }
+        }
         for index in 0..VOICE_COUNT {
             if displaced & (1 << index) != 0 {
                 self.cache_retired_voice(index);
@@ -1404,6 +1750,7 @@ impl PolyphonicRenderer {
         self.portamento_voices.fill(None);
         self.mono_notes.fill(Default::default());
         self.prepared_note_tag = None;
+        self.drum_groups = Default::default();
         for state in &mut self.sustain_states {
             state.flags &= 127;
         }
@@ -1432,6 +1779,18 @@ impl PolyphonicRenderer {
         }
     }
     pub fn release_note(&mut self, timbre: u8, note: u8, tables: Option<&ControllerTables>) {
+        self.release_note_with_mode(timbre, note, tables, false);
+    }
+    pub fn release_drum_note(&mut self, timbre: u8, note: u8, tables: Option<&ControllerTables>) {
+        self.release_note_with_mode(timbre, note, tables, true);
+    }
+    fn release_note_with_mode(
+        &mut self,
+        timbre: u8,
+        note: u8,
+        tables: Option<&ControllerTables>,
+        drum: bool,
+    ) {
         if timbre as usize >= TIMBRE_COUNT {
             return;
         }
@@ -1445,7 +1804,7 @@ impl PolyphonicRenderer {
         let state = &mut self.sustain_states[timbre as usize];
         let program = self.sustain_programs[timbre as usize];
         let selector = self.release_selectors[timbre as usize];
-        if !self.voice_modes[timbre as usize].polyphonic {
+        if !drum && !self.voice_modes[timbre as usize].polyphonic {
             if state.mono_note_off(program, selector) {
                 self.release_mono_owner(timbre, tables);
             }
@@ -1846,15 +2205,18 @@ impl PolyphonicRenderer {
                 let relative_note = self.note_pitches[slot].map_or(active.note, |p| p.note.wrapped);
                 if let (Some(pitch), Some(program), Some(pitch_tables)) = (
                     self.note_pitches[slot],
-                    self.pitch_programs[active.timbre as usize],
+                    active
+                        .drum_pitch
+                        .or(self.pitch_programs[active.timbre as usize]),
                     &self.note_pitch_tables,
                 ) {
-                    modulation.base_pitch_q16 = pitch
-                        .base(program, midi, pitch_tables, self.master_tune)
-                        .wrapping_add(self.voice_group_offsets[slot].tuning_q16)
-                        .wrapping_add(
-                            self.portamento_voices[slot].map_or(0, |p| p.state.current_q16),
-                        );
+                    modulation.base_pitch_q16 = if active.drum_pitch.is_some() {
+                        pitch.drum_base(program, pitch_tables, self.master_tune)
+                    } else {
+                        pitch.base(program, midi, pitch_tables, self.master_tune)
+                    }
+                    .wrapping_add(self.voice_group_offsets[slot].tuning_q16)
+                    .wrapping_add(self.portamento_voices[slot].map_or(0, |p| p.state.current_q16));
                     modulation.vibrato_depth =
                         program.vibrato_depth(midi.wheel, &pitch_tables.vibrato);
                 }
@@ -2015,7 +2377,11 @@ impl PolyphonicRenderer {
             }
             if service
                 && let (Some(program), Some(filter2_tables), Some(filter_tables), Some(tables)) = (
-                    self.filter2_programs[active.timbre as usize],
+                    if active.drum_pitch.is_some() {
+                        active.drum_filter2
+                    } else {
+                        self.filter2_programs[active.timbre as usize]
+                    },
                     &self.filter2_tables,
                     &self.filter_tables,
                     tables,

@@ -3,6 +3,7 @@
 pub mod amplifier;
 pub mod clock;
 pub mod comb;
+pub mod drum_program;
 pub mod filter2;
 pub mod lfo;
 pub mod mixer;

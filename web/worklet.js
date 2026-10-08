@@ -14,13 +14,37 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.port.onmessage = ({ data }) => {
       try {
         if (data.type === "note") this.wasm.rustias_note(data.timbre, data.note, data.velocity);
-        else if (data.type === "control") this.wasm.rustias_control(data.timbre, data.parameter, data.value);
-        else if (data.type === "midi") this.wasm.rustias_midi(...data.bytes);
+        else if (data.type === "control") {
+          if (!this.wasm.rustias_control(data.timbre, data.parameter, data.value)) this.snapshot();
+        }
+        else if (data.type === "drum") this.wasm.rustias_drum_pad(data.instrument, data.velocity);
+        else if (data.type === "load") {
+          const json = JSON.stringify(data.program);
+          if (json.length > this.wasm.rustias_preset_capacity()) throw new Error("Program exceeds the engine buffer.");
+          const bytes = new Uint8Array(this.wasm.memory.buffer, this.wasm.rustias_preset_buffer(), json.length);
+          for (let i = 0; i < json.length; i++) bytes[i] = json.charCodeAt(i);
+          if (!this.wasm.rustias_load(json.length)) {
+            this.port.postMessage({type: "warning", message: "The Rust engine rejected this program."}); this.snapshot();
+          } else {
+            this.nativeIndex = 128; this.phase = 0;
+            this.currentLeft = this.currentRight = this.nextLeft = this.nextRight = 0;
+          }
+        }
+        else if (data.type === "midi") {
+          this.wasm.rustias_midi(...data.bytes);
+          if ((data.bytes[0] & 240) === 176 || (data.bytes[0] & 240) === 224) this.snapshot();
+        }
         else if (data.type === "stop") this.wasm.rustias_stop();
         else if (data.type === "gain") this.gain = Math.max(0, Math.min(1, data.value));
       } catch (error) { this.fail(error); }
     };
     this.port.postMessage({ type: "ready", sampleRate });
+  }
+  snapshot() {
+    const length = this.wasm.rustias_save(), pointer = this.wasm.rustias_preset_buffer();
+    const bytes = new Uint8Array(this.wasm.memory.buffer, pointer, length);
+    let json = ""; for (let i = 0; i < length; i++) json += String.fromCharCode(bytes[i]);
+    this.port.postMessage({type: "state", program: JSON.parse(json)});
   }
   fail(error) {
     this.failed = true;

@@ -32,16 +32,16 @@
         <section class="module oscillator">
           <h2>OSCILLATOR</h2>
           <div class="display"><span id="wave-name">SAW</span><svg id="wave-display" viewBox="0 0 240 72" role="img" aria-label="Saw waveform"><path id="wave-path" d="M0 60 L60 12 L60 60 L120 12 L120 60 L180 12 L180 60 L240 12"/></svg></div>
-          <div class="waveforms segmented" aria-label="Waveform"><button data-wave="0" aria-pressed="true">Saw</button><button data-wave="1" aria-pressed="false">Pulse</button><button data-wave="2" aria-pressed="false">Triangle</button><button data-wave="3" aria-pressed="false">Sine</button></div>
+          <div class="waveforms segmented" aria-label="Waveform"><button data-wave="0" aria-pressed="true">Saw</button><button data-wave="1" aria-pressed="false">Pulse</button><button data-wave="2" aria-pressed="false">Triangle</button><button data-wave="3" aria-pressed="false">Sine</button><button data-wave="4" aria-pressed="false">Noise</button><button data-wave="5" aria-pressed="false">Formant</button></div>
         </section>
         <section class="module filter">
-          <h2>FILTER</h2><div class="filter-types segmented" aria-label="Filter type"><button data-filter="0" aria-pressed="true">LP</button><button data-filter="1" aria-pressed="false">HP</button><button data-filter="2" aria-pressed="false">BP</button></div>
+          <h2>FILTER</h2><div class="filter-types segmented" aria-label="Filter type"><button data-filter="0" aria-pressed="false">LP24</button><button data-filter="32" aria-pressed="true">LP12</button><button data-filter="64" aria-pressed="false">BP</button><button data-filter="96" aria-pressed="false">HP</button></div>
           <div class="knob-row" id="filter-knobs"></div>
         </section>
         <section class="module envelope"><h2>AMP ENVELOPE</h2><div class="knob-row" id="envelope-knobs"></div></section>
         <section class="module output"><h2>OUTPUT</h2><div class="knob-row" id="output-knobs"></div></section>
       </div>
-      <div class="keybed-heading"><span>KEYBOARD</span><div class="octaves"><button id="octave-down" aria-label="Lower octave">−</button><span id="octave-label">C4–D♯5</span><button id="octave-up" aria-label="Higher octave">+</button></div></div>
+      <div class="keybed-heading"><span id="keybed-title">KEYBOARD</span><div class="octaves"><button id="octave-down" aria-label="Lower octave">−</button><span id="octave-label">C4–D♯5</span><button id="octave-up" aria-label="Higher octave">+</button></div></div>
       <div id="keys" class="keys" aria-label="Keyboard"></div>
     </section>
     <footer class="monitor">
@@ -50,6 +50,11 @@
     </footer>
     <p class="keyboard-hint">Play with the pads or <kbd>A W S E D F T G Y H U J K O L P</kbd><a href="https://github.com/fushugaku/Rustias#webassembly">About this build ↗</a></p>
     <p id="error" class="error" role="alert" hidden></p>
+    <section class="editor" aria-label="Complete program editor">
+      <div class="editor-heading"><h2 id="edit-context">Timbre 01</h2><div class="program-files"><a id="save-program" class="quiet file-button" role="button" href="#" download="rustias-program.json">Save</a><button id="load-program" class="quiet">Open</button><input id="program-file" type="file" accept=".json,application/json" hidden></div></div>
+      <div id="editor-tabs" class="editor-tabs" role="tablist" aria-label="Parameter groups"></div>
+      <div id="editor-panels"></div>
+    </section>
     <noscript>JavaScript is required to load the WebAssembly synthesizer.</noscript>
   </main>
 </body>

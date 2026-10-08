@@ -26,6 +26,7 @@ struct App {
     gain: f32,
     played_generation: u64,
     held: Vec<u8>,
+    held_drum_pads: Vec<u8>,
     working: Option<radias_application::Program>,
     pending_program: Option<radias_application::Program>,
     input_path: String,
@@ -167,6 +168,7 @@ impl App {
             gain: 0.3,
             played_generation: 0,
             held: Vec::new(),
+            held_drum_pads: Vec::new(),
             working: None,
             pending_program: None,
             input_path: String::new(),
@@ -235,6 +237,7 @@ impl eframe::App for App {
             self.working = current.clone();
         }
         let mut desired_notes = Vec::new();
+        let mut desired_drum_pads=Vec::new();
         egui::CentralPanel::default().show(ui,|ui|{
             egui::ScrollArea::vertical().id_salt("application").show(ui,|ui|{
             if ui.available_width()<760.0 {ui.spacing_mut().slider_width=80.0;}
@@ -265,7 +268,9 @@ impl eframe::App for App {
             if self.native.enabled{let(cutoff,resonance,filter_type)=self.native.filter_values();self.panel.native_filter_values(cutoff,resonance,filter_type,self.native.waveform_name());self.panel.native_envelope_values(self.native.envelope_values());self.panel.native_amplifier_level(self.native.amplifier_level());self.panel.native_pan_position(self.native.pan_position());self.panel.native_mixer_levels(self.native.mixer_levels());self.panel.native_secondary_pitch(self.native.secondary_pitch());self.panel.native_primary_controls(self.native.primary_controls());let(auxiliary,intensity,key_tracking)=self.native.auxiliary_values();self.panel.native_auxiliary_values(auxiliary,intensity,key_tracking);self.panel.native_lfo_values(self.native.lfo_values());self.panel.native_portamento_time(self.native.portamento_time());}
             let native_state=self.native.enabled.then(||self.native.panel_state());
             let panel_events=self.panel.show(ui,&self.engine,native_state);
-            desired_notes.extend(panel_events.notes);
+            if self.native.enabled && self.native.has_drum_program() {
+                desired_drum_pads.extend(panel_events.notes.into_iter().filter_map(|n|n.checked_sub(60)).filter(|n|*n<16));
+            } else {desired_notes.extend(panel_events.notes);}
             for(ch,mux,value)in panel_events.pots{self.native.pot(ch,mux,value);}
             for action in panel_events.actions{match action{
                 panel::PanelAction::SelectTimbre(index)=>self.native.select_timbre(index),
@@ -336,6 +341,12 @@ impl eframe::App for App {
         for (note, down) in controls::note_transitions(&previous, &desired_notes) {
             self.note(note, down);
         }
+        desired_drum_pads.sort_unstable();desired_drum_pads.dedup();
+        for (instrument,down) in controls::note_transitions(&self.held_drum_pads,&desired_drum_pads) {
+            self.native.drum_pad(instrument,down);
+        }
+        self.held_drum_pads=desired_drum_pads;
+        self.native.flush_drum_edits();
     }
 }
 fn main() -> eframe::Result {

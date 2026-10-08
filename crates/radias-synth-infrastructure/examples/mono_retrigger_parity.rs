@@ -80,6 +80,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         let make_voice = |timbre, note, held| ActiveVoice {
+            uses_program_common: false,
+            drum_pitch: None,
+            drum_instrument: None,
+            drum_filter2: None,
             renderer: VoiceRenderer::new(plan.initial, plan.parameters),
             amplifier: None,
             modulation: None,

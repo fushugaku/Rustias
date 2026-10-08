@@ -37,6 +37,9 @@ impl Program {
     pub fn drum_timbre(&self) -> u8 {
         (self.raw[24] >> 5) & 7
     }
+    pub fn drum_program(&self) -> crate::drum::DrumProgram {
+        crate::drum::DrumProgram::from_raw(self.raw[24], self.raw[25], self.raw[26], self.raw[27])
+    }
     pub fn arpeggiator_flags(&self) -> u8 {
         self.raw[1062]
     }
@@ -50,6 +53,9 @@ pub struct Timbre<'a> {
     raw: &'a [u8; TIMBRE_BYTES],
 }
 impl<'a> Timbre<'a> {
+    pub fn from_bytes(raw: &'a [u8; TIMBRE_BYTES]) -> Self {
+        Self { raw }
+    }
     pub fn bytes(self) -> &'a [u8; TIMBRE_BYTES] {
         self.raw
     }

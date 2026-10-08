@@ -19,9 +19,27 @@ Desktop использует нативный режим, когда досту�
 
 Браузерная версия работает без прошивки. Общий Rust-генератор из `radias-synth-infrastructure::synthesizer` создаёт звук внутри Web Audio `AudioWorklet`; JavaScript передаёт команды и выводит сэмплы. Веб-сборка не подключает SH3/C55-интерпретатор, SYS, RDL, PCM или записи звука.
 
-Доступны четыре тембра, пул из 24 голосовых слотов, Saw/Pulse/Triangle/Sine, LP/HP/BP-фильтр, cutoff/resonance, ADSR, уровень и панорама. Есть экранные клавиши, компьютерная клавиатура и Web MIDI (note on/off, sustain, all notes/sound off) в поддерживающих его браузерах. Тембры получают MIDI на каналах 1–4. Нажмите **Start audio**, чтобы разрешить воспроизведение; громкость регулируется отдельно от параметров тембра.
+Под панелью исполнения находится полный редактор нативного синтеза. Интерфейс и Rust проверяют параметры по общей [схеме](crates/radias-synth-infrastructure/src/parameters.json).
 
-Автономный профиль генерирует собственные таблицы строя, огибающих, velocity и панорамы по математическим формулам. Интерполяционная коррекция waveform в нём нулевая. Это самостоятельный набор параметров для нашего DSP-кода, а не копия заводских таблиц или доказательство совпадения с аппаратным инструментом. ROM-зависимые controller-таблицы и полный desktop-интерфейс в браузер не перенесены.
+| Раздел | Доступные параметры |
+| --- | --- |
+| OSC1 | Saw, Pulse, Triangle, Sine, Noise, Formant; Waveform, Cross, осцилляторный Unison и VPM; CTRL1/CTRL2. Noise/Formant работают в режиме Waveform. |
+| OSC2 / Mixer | Четыре формы; Normal, Ring, Sync и Ring+Sync; semitone/fine tune; уровни OSC1, OSC2 и шума |
+| Filters | Морфинг типа Filter1, cutoff, resonance, глубина EG1 и key tracking; Single, Serial, Parallel и Individual; Filter2 LP/HP/BP/Comb, link и собственные параметры cutoff, resonance, EG1 и клавишного трекинга |
+| Drive / Waveshaper | Drive, Hard Clip, Decimator, OctSaw, MultiTri, MultiSin, четыре SubOSC, Pickup и Level Boost; глубина и положение |
+| EG1 / EG2 / EG3 | Независимые ADSR, восемь кривых, чувствительность уровня/времени к velocity и key tracking |
+| Amplifier | Уровень, панорама, key tracking, смещение уровня, source gain/Expression и MIDI volume; автоматический gain bank для Unison |
+| LFO1 / LFO2 | Форма, shape, частота, фаза, Free/Timbre/Voice sync, tempo sync, деление и смещение скорости |
+| Virtual patches | Шесть маршрутов source/destination/intensity, ручные смещения и обратные связи между патчами |
+| Voice / Pitch | Четыре тембра, 24 голосовых слота, Mono/Poly, retrigger/priority, инструментальный Unison из 2–8 голосов, detune/spread, portamento с time/curve/CC65, transpose, fine tune, bend и vibrato |
+| Tuning / MIDI | Одиннадцать строев, тоника, master tune и custom cents; собственный или Global MIDI-канал тембра, клавишные диапазоны и receive flags; note on/off, bend, wheel, CC11 Expression, CC64 sustain, CC65 и all notes/sound off |
+| Drum Kit | 16 независимо редактируемых инструментов синтеза, тембр-владелец, общий уровень/pan/transpose, trigger note и exclusive group; отпускание pad сохраняет исходную ноту |
+
+Нажмите **Start audio** для воспроизведения. Вкладки редактора меняют параметры выбранного тембра. При включённом **Drum mode** выберите тембр-владелец и инструмент: редактор синтеза переключится на этот инструмент, а клавиатура — на 16 drum pads. Выбор другого инструмента сохраняет звучащие голоса. **Save** и **Open** сохраняют и открывают всю программу — четыре тембра и 16 инструментов — в локальном JSON-файле.
+
+Громкость прослушивания отделена от уровня тембра. Регуляторы поддерживают вертикальное перетаскивание, точную настройку с Shift, колесо и стрелки. Pads работают с несколькими касаниями; потеря фокуса отпускает удерживаемые ноты. Редактор адаптирован для мобильного экрана.
+
+Автономный профиль передаёт каждому нативному контроллеру таблицы, рассчитанные по математическим формулам: фильтры, Comb, огибающие, LFO/tempo, модуляция, шум, строй, pan и группы голосов. Интерполяционная коррекция waveform остаётся нулевой. Это самостоятельные данные для общих DSP-алгоритмов; они не копируют заводской ROM и не воспроизводят заводские программы. PCM/Audio In, эффекты FXD03, vocoder и секвенсоры ещё не завершены в нативном движке и не представлены как работающие регуляторы.
 
 Собрать и открыть локально:
 
@@ -143,7 +161,7 @@ quit
 | --- | --- |
 | [`radias-synth-domain`](crates/radias-synth-domain) | Fixed-point алгоритмы прямого синтеза; `no_std`, без зависимостей |
 | [`radias-synth-application`](crates/radias-synth-application) | Рендер голосов, полифония, часы сэмплов, события управления; `no_std` |
-| [`radias-synth-infrastructure`](crates/radias-synth-infrastructure) | Чтение таблиц прошивки и RDL, подготовка программ, сравнение с эталоном, CPAL-выход |
+| [`radias-synth-infrastructure`](crates/radias-synth-infrastructure) | Общий генератор, автономные таблицы и схема параметров, адаптеры прошивки/RDL и CPAL-выход |
 | [`radias-domain`](crates/radias-domain) | SH3/C55, память и периферия платы, NOR, codec, программы и backup; без внешних зависимостей |
 | [`radias-application`](crates/radias-application) | Жизненный цикл машины, команды, бюджеты исполнения и политика PCM |
 | [`radias-infrastructure`](crates/radias-infrastructure) | WAV, PCM, Flash-файлы, диагностические записи; аудио и MIDI через feature `desktop-io` |
@@ -160,9 +178,11 @@ quit
 ```sh
 cargo test --workspace --all-features --locked
 cargo check --workspace --all-targets --all-features --locked
+bash scripts/build-web.sh
+node scripts/verify-web.mjs
 ```
 
-Unit-тесты проверяют маршрутизацию программ, форматы WAVE, защиту исходных файлов, аудиобуферы и взаимодействие с регуляторами, клавиатурой и меню панели. Тест реального аудиовыхода помечен `ignored`: ему нужны исходные данные и устройство вывода.
+Unit-тесты проверяют маршрутизацию программ, форматы WAVE, защиту исходных файлов, аудиобуферы, интерфейс и автономный синтез. WASM-проверка воспроизводит все поддерживаемые режимы OSC1, маршруты Filter2 и типы waveshaper; проверяет модуляцию, mono/unison, MIDI Expression, Drum Kit и сохранение всей программы. Тест реального аудиовыхода помечен `ignored`: ему нужны исходные данные и устройство вывода.
 
 Rust-примеры в `crates/*/examples/` сохранены вместе с кодом. Многие `*_parity`-программы читают эталонные записи, полные WAV и состояния из внешнего исследовательского workspace. Такие сравнения требуют соответствующих данных и C++-оракулов исходного проекта; они не входят в обычный запуск unit-тестов. В примерах, которые принимают каталог данных первым аргументом, передавайте его явно.
 
