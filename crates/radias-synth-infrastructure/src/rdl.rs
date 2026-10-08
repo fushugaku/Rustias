@@ -24,6 +24,104 @@ fn chunk(bytes: &[u8]) -> Result<Chunk<'_>, &'static str> {
     })
 }
 
+/// Importable librarian records. Keep the whole payload, including editor
+/// metadata after the native program/drum body, for lossless source retention.
+/// Unlike the device-bank readers below, this also accepts a partial bank or
+/// an individual program saved by the librarian.
+pub struct ImportLibrary<'a> {
+    pub programs: Vec<&'a [u8]>,
+    pub drum_kits: Vec<&'a [u8]>,
+    pub global: Option<&'a [u8]>,
+}
+pub fn import_library<'a>(bytes: &'a [u8]) -> Result<ImportLibrary<'a>, &'static str> {
+    let outer = chunk(bytes)?;
+    if !outer.remaining.is_empty() {
+        return Err("Expected one complete RDL file");
+    }
+    let mut library = ImportLibrary {
+        programs: Vec::new(),
+        drum_kits: Vec::new(),
+        global: None,
+    };
+    let mut program_bank = false;
+    let mut drum_bank = false;
+    let mut global_bank = false;
+    let mut section = |kind: &[u8], payload: &'a [u8]| -> Result<(), &'static str> {
+        match kind {
+            b"316p" => {
+                if payload.len() < PROGRAM_BYTES {
+                    return Err("Truncated native program");
+                }
+                library.programs.push(payload);
+                if library.programs.len() > 256 {
+                    return Err("Too many RDL programs");
+                }
+            }
+            b"316d" => {
+                if payload.len() < DRUM_KIT_BYTES {
+                    return Err("Truncated native drum kit");
+                }
+                library.drum_kits.push(payload);
+                if library.drum_kits.len() > 32 {
+                    return Err("Too many RDL drum kits");
+                }
+            }
+            b"316g" => {
+                if library.global.is_some() || !matches!(payload.len(), 656 | 736) {
+                    return Err("Expected one complete native Global record");
+                }
+                library.global = Some(payload);
+            }
+            _ => {}
+        }
+        Ok(())
+    };
+    let mut banks = if outer.kind == b"316B" {
+        outer.payload
+    } else if outer.kind == b"316P" {
+        section_records(outer.payload, b"316p", &mut section)?;
+        &[]
+    } else if outer.kind == b"316p" {
+        section(outer.kind, outer.payload)?;
+        &[]
+    } else {
+        return Err("Choose a RADIAS .rdl library or program file");
+    };
+    while !banks.is_empty() {
+        let bank = chunk(banks)?;
+        banks = bank.remaining;
+        let (seen, record) = match bank.kind {
+            b"316P" => (&mut program_bank, b"316p"),
+            b"316D" => (&mut drum_bank, b"316d"),
+            b"316G" => (&mut global_bank, b"316g"),
+            _ => continue,
+        };
+        if *seen {
+            return Err("Duplicate RDL bank");
+        }
+        *seen = true;
+        section_records(bank.payload, record, &mut section)?;
+    }
+    if library.programs.is_empty() {
+        return Err("The RDL file contains no programs");
+    }
+    Ok(library)
+}
+fn section_records<'a>(
+    mut bytes: &'a [u8],
+    expected: &[u8],
+    record: &mut impl FnMut(&[u8], &'a [u8]) -> Result<(), &'static str>,
+) -> Result<(), &'static str> {
+    while !bytes.is_empty() {
+        let value = chunk(bytes)?;
+        bytes = value.remaining;
+        if value.kind == expected {
+            record(value.kind, value.payload)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn global(bytes: &[u8]) -> Result<&[u8], &'static str> {
     let library = chunk(bytes)?;
     if library.kind != b"316B" || !library.remaining.is_empty() {

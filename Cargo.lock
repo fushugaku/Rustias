@@ -2590,6 +2590,8 @@ dependencies = [
  "radias-synth-application",
  "radias-synth-domain",
  "radias-synth-infrastructure",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

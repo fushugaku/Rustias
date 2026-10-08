@@ -1,6 +1,7 @@
 //! Firmware-free native synthesizer C ABI for an AudioWorklet.
 use radias_synth_infrastructure::standalone::{PARAMETER_COUNT, StandaloneSynth};
 use std::cell::RefCell;
+mod rdl_import;
 mod sampler;
 use sampler::Sampler;
 
@@ -9,6 +10,8 @@ struct WebEngine {
     synth: StandaloneSynth,
     sampler: Sampler,
     held_drums: [[u16; 128]; 4],
+    unavailable_timbres: u8,
+    unavailable_drums: u16,
     output: [f32; 256],
     preset: Vec<u8>,
     frames: u32,
@@ -26,6 +29,8 @@ pub extern "C" fn rustias_init() {
             synth,
             sampler,
             held_drums: [[0; 128]; 4],
+            unavailable_timbres: 0,
+            unavailable_drums: 0,
             output: [0.0; 256],
             preset: vec![0; PRESET_CAPACITY],
             frames: 0,
@@ -163,6 +168,8 @@ pub extern "C" fn rustias_load(length: u32) -> u32 {
         e.sampler.stop();
         e.held_drums = [[0; 128]; 4];
         e.synth = synth;
+        e.unavailable_timbres = 0;
+        e.unavailable_drums = 0;
         e.sampler.sync(&e.synth);
         1
     })
@@ -174,6 +181,24 @@ pub extern "C" fn rustias_stop() {
             e.synth.stop();
             e.sampler.stop();
             e.held_drums = [[0; 128]; 4];
+        }
+    });
+}
+/// Browser-imported programs can refer to PCM/input sources absent from this
+/// build. Block their instruments until the user selects an available source.
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_rdl_mute(timbres: u32, drums: u32) {
+    ENGINE.with(|state| {
+        if let Some(e) = state.borrow_mut().as_mut() {
+            let timbres = (timbres & 15) as u8;
+            let drums = (drums & 65535) as u16;
+            if e.unavailable_timbres != timbres || e.unavailable_drums != drums {
+                e.synth.stop();
+                e.sampler.stop();
+                e.held_drums = [[0; 128]; 4];
+                e.unavailable_timbres = timbres;
+                e.unavailable_drums = drums;
+            }
         }
     });
 }
@@ -226,6 +251,9 @@ impl WebEngine {
     fn note(&mut self, t: u8, note: u8, velocity: u8) -> bool {
         let global = self.synth.settings[0];
         if global[140] == 0 || global[141] != t as i32 {
+            if velocity != 0 && self.unavailable_timbres & (1 << t) != 0 {
+                return true;
+            }
             return self.synth.note(t, note, velocity);
         }
         let settings = self.synth.settings[t as usize];
@@ -258,6 +286,9 @@ impl WebEngine {
     fn drum_pad(&mut self, instrument: usize, velocity: u8) -> bool {
         if self.synth.settings[0][140] == 0 {
             return false;
+        }
+        if velocity != 0 && self.unavailable_drums & (1 << instrument) != 0 {
+            return true;
         }
         if velocity != 0 {
             self.sampler.choke(&self.synth, instrument);

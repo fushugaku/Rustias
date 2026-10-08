@@ -32,12 +32,14 @@ class RustiasProcessor extends AudioWorkletProcessor {
           if (!this.wasm.rustias_load(json.length)) {
             this.port.postMessage({type: "warning", message: "The Rust engine rejected this program."}); this.snapshot();
           } else {
+            this.wasm.rustias_rdl_mute(data.unavailable?.timbres??0,data.unavailable?.drums??0);
             this.sequencer.stop();this.audition.stop();this.manualNotes.clear();this.sequenceNotes.clear();this.auditionNotes.clear();
             this.sequencer.setTempo(this.wasm.rustias_value(0,89)/10);
             this.nativeIndex = 128; this.phase = 0;
             this.currentLeft = this.currentRight = this.nextLeft = this.nextRight = 0;
           }
         }
+        else if(data.type==='rdl-muted')this.wasm.rustias_rdl_mute(data.timbres,data.drums);
         else if (data.type === "midi") {
           this.wasm.rustias_midi(...data.bytes);
           if ((data.bytes[0] & 240) === 176 || (data.bytes[0] & 240) === 224) this.snapshot();

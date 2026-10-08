@@ -2,6 +2,7 @@ import {createDrumSamples} from "./samples.js";
 import {createSequencer} from "./sequencer-ui.js";
 import {emptySequence,validateSequence} from "./sequence.js";
 import {PatchStore} from "./patches.js";
+import {MAX_RDL_BYTES,readRdl,rdlPatches,validateRdlSource,rdlMasks} from './rdl.js';
 import {createPanel,makePicker,isChoosing} from "./panel.js";
 const $ = selector => document.querySelector(selector);
 function showError(error) { $("#error").textContent = error.message ?? String(error); $("#error").hidden = false; }
@@ -26,12 +27,18 @@ let selected = 0, octave = 4, context, node, module, midiAccess, audioStarting;
 const held = new Map(), noteCounts = new Map();
 let sampleUI;
 let panel, programPicker, sequenceUI, activeSavedPatch=null, autosaveTimer, sequenceRequest=0, auditionRequest=0;
+let rdlSource=null,lastRdlMasks;
 const patchStore=new PatchStore(window.localStorage);
 const send = message => node?.port.postMessage(message);
 const global = id => timbres[0].values[id];
 const isDrum = () => global(140) !== 0 && global(141) === selected;
 const instrumentParameter = id => parameters[id].scope !== "global" && !(id >= 59 && id <= 72 || id >= 114 && id <= 120 || id >= 137 && id <= 139 || id >= 150 && id <= 151 || id === 153);
 const values = () => parameters.map(p => p.id === 118 ? (timbres[selected].values[67] ? timbres[selected].values[68] - 1 : 0) : isDrum() && instrumentParameter(p.id) ? drums[global(142)][p.id] : timbres[selected].values[p.id]);
+function unavailableSource(){return rdlSource?.unavailable.find(s=>isDrum()?s.drum===global(142):s.drum==null&&s.timbre===selected);}
+function muteMasks(){const masks=rdlMasks(rdlSource);for(let i=0;i<16;i++)if(sampleUI?.assigned(i))masks.drums&=~(1<<i);return masks;}
+function syncRdlMasks(){if(!node)return;const masks=muteMasks(),key=`${masks.timbres}:${masks.drums}`;if(key!==lastRdlMasks){send({type:'rdl-muted',...masks});lastRdlMasks=key;}}
+function loadEngine(program=state()){const unavailable=muteMasks();send({type:'load',program,unavailable});lastRdlMasks=`${unavailable.timbres}:${unavailable.drums}`;}
+function replaceSource(timbre,drum){if(rdlSource)rdlSource.unavailable=rdlSource.unavailable.filter(s=>drum==null?s.drum!=null||s.timbre!==timbre:s.drum!==drum);}
 function format(id, value) {
   const p = parameters[id];
   if (p.options) return p.options[(p.values ?? p.options.map((_, i) => p.min + i)).indexOf(value)];
@@ -50,6 +57,7 @@ function format(id, value) {
 }
 function disabled(id, v) {
   if(isDrum()&&sampleUI?.assigned(global(142))&&[0,10,11,12,13,14,15,16,17,18,19].includes(id))return true;
+  if(unavailableSource()&&[10,11,12].includes(id))return true;
   if (id === 10) return v[0] >= 4;
   if (id === 154) return v[29] !== 2;
   if ([21, 22, 23, 24, 27, 28].includes(id)) return v[20] === 0;
@@ -71,6 +79,7 @@ function setControl(id, value, fromUser = true) {
   const v = values(); if (disabled(id, v)) return;
   if (id === 119 && value > v[120] || id === 120 && value < v[119]) return;
   if (p.values && !p.values.includes(value)) return;
+  if(id===0)replaceSource(selected,isDrum()?global(142):null);
   if (p.scope === "global") for (const t of timbres) t.values[id] = value;
   else (isDrum() && instrumentParameter(id) ? drums[global(142)] : timbres[selected].values)[id] = value;
   if (id === 0 && value >= 4) (isDrum() ? drums[global(142)] : timbres[selected].values)[10] = 0;
@@ -83,7 +92,9 @@ function setControl(id, value, fromUser = true) {
 }
 function updateControls() {
   const v = values();
-  panel?.render(v); sampleUI?.render();
+  const missing=unavailableSource();
+  panel?.render(v,missing?{0:isDrum()&&sampleUI?.assigned(global(142))?'Sample':`${missing.label} ×`}:{}); sampleUI?.render();syncRdlMasks();
+  $('#rdl-details').hidden=!rdlSource;$('#wave-display').toggleAttribute('hidden',!!missing);
   $("#wave-display").setAttribute("aria-label", `${names[v[0]]} waveform`);
   const paths = ["M0 60 L60 12 L60 60 L120 12 L120 60 L180 12 L180 60 L240 12", "M0 60 V12 H30 V60 H60 V12 H90 V60 H120 V12 H150 V60 H180 V12 H210 V60 H240", "M0 36 L30 12 L60 36 L90 60 L120 36 L150 12 L180 36 L210 60 L240 36", `M${Array.from({length: 121}, (_, i) => `${i * 2} ${36 - 24 * Math.sin(i / 120 * 4 * Math.PI)}`).join(" L")}`, `M${Array.from({length: 61}, (_, i) => `${i * 4} ${12 + (i * 17 % 49)}`).join(" L")}`, `M${Array.from({length: 121}, (_, i) => `${i * 2} ${36 - 24 * Math.sin(i / 120 * 10 * Math.PI) * Math.sin(i / 120 * 2 * Math.PI)}`).join(" L")}`];
   $("#wave-path").setAttribute("d", paths[v[0]]);
@@ -93,7 +104,7 @@ function updateControls() {
 function displayValue(p, value) { return p.id === 89 ? value / 10 : [72, 148, 141, 142].includes(p.id) ? value + 1 : value - (p.center ?? 0); }
 function nativeValue(p, value) { return p.id === 89 ? value * 10 : [72, 148, 141, 142].includes(p.id) ? value - 1 : value + (p.center ?? 0); }
 panel=createPanel({parameters,readValues:values,setControl,format,disabled,displayValue,nativeValue});
-programPicker=makePicker({label:"Program",options:[{value:"init",label:"INIT"},{value:"pad",label:"Warm pad"},{value:"pulse",label:"Pulse bass"},{value:"pluck",label:"Soft pluck"},{value:"custom",label:"Custom"}],value:"init",onChange:applyPreset});
+programPicker=makePicker({label:"Program",options:[{value:"init",label:"INIT"},{value:"pad",label:"Warm pad"},{value:"pulse",label:"Pulse bass"},{value:"pluck",label:"Soft pluck"},{value:"custom",label:"Custom"}],value:"init",onChange:applyPreset,searchable:true});
 $("#preset").append(programPicker.button);
 document.querySelectorAll("[data-timbre]").forEach(button => button.addEventListener("click", () => { selected = Number(button.dataset.timbre); document.querySelectorAll("[data-timbre]").forEach(tab => tab.setAttribute("aria-selected", tab === button)); updateControls(); updateKeys(); scheduleSession(); }));
 function applyPreset(preset) {
@@ -101,13 +112,14 @@ function applyPreset(preset) {
   if (!(preset in presets)) return;
   activeSavedPatch=null;stopSequence();
   releaseAll();
+  replaceSource(selected,isDrum()?global(142):null);
   for (const p of parameters) {
     if (p.scope === "global" || p.readonly || [71, 72, 119, 120, 137, 138, 139, 146, 147, 150, 151, 153].includes(p.id) || isDrum() && !instrumentParameter(p.id)) continue;
     const value = presets[preset][p.id] ?? p.default;
     (isDrum() ? drums[global(142)] : timbres[selected].values)[p.id] = value;
   }
   // Load the full program in one command so dependent controls reset together.
-  timbres[selected].preset = preset; send({type: "load", program: state()}); updateControls(); updateKeys(); scheduleSession();
+  timbres[selected].preset = preset; loadEngine(); updateControls(); updateKeys(); scheduleSession();
 }
 function state() { return {version: 1, timbres: timbres.map(t => [...t.values]), drums: drums.map(v => [...v])}; }
 function acceptState(program) {
@@ -125,15 +137,16 @@ function normalizeEngine(value){
   }
   if(parameters.some(p=>p.scope==="global"&&program.timbres.some(v=>v[p.id]!==program.timbres[0][p.id])))throw new Error("Global settings must agree across timbres.");return program;
 }
-function snapshot(){return {version:2,engine:state(),sequencer:sequenceUI.getConfig(),samples:sampleUI?.getConfig?.()??null};}
+function snapshot(){return {version:2,engine:state(),sequencer:sequenceUI.getConfig(),samples:sampleUI?.getConfig?.()??null,...(rdlSource?{rdl:structuredClone(rdlSource)}:{})};}
 function loadSnapshot(value){
-  const program=normalizeEngine(value.version===2?value.engine:value),sequence=validateSequence(value.version===2?value.sequencer:emptySequence()),samples=sampleUI?.validateConfig(value.version===2?value.samples:null);
-  stop();for(const t of timbres)t.preset="custom";acceptState(program);sequenceUI.setConfig(sequence);send({type:"load",program});send({type:"sequencer",config:sequence});
-  if(sampleUI)sampleUI.setConfig(samples).then(updateControls).catch(showError);
+  const program=normalizeEngine(value.version===2?value.engine:value),sequence=validateSequence(value.version===2?value.sequencer:emptySequence()),samples=sampleUI?.validateConfig(value.version===2?value.samples:null),source=validateRdlSource(value.version===2?value.rdl:null);
+  stop();$('#error').hidden=true;rdlSource=source;for(const t of timbres)t.preset="custom";
+  const samplesReady=sampleUI?.setConfig(samples);acceptState(program);sequenceUI.setConfig(sequence);loadEngine(program);send({type:"sequencer",config:sequence});
+  samplesReady?.then(updateControls).catch(showError);
 }
 function scheduleSession(){clearTimeout(autosaveTimer);autosaveTimer=setTimeout(saveSession,300);}
 function saveSession(){try{patchStore.saveSession({snapshot:snapshot(),activeSavedPatch,selected,volume:Number($("#volume").value)});}catch(error){showError(new Error(`Could not save this patch in the browser: ${error.message}`));}}
-function refreshLibrary(){programPicker.options=programPicker.options.filter(o=>!String(o.value).startsWith("saved:"));for(const patch of patchStore.list())programPicker.options.push({value:`saved:${patch.id}`,label:patch.name});updateControls();}
+function refreshLibrary(){programPicker.options=programPicker.options.filter(o=>!String(o.value).startsWith("saved:"));for(const patch of patchStore.list())programPicker.options.push({value:`saved:${patch.id}`,label:patch.snapshot.rdl?`${String(patch.snapshot.rdl.slot+1).padStart(3,'0')} · ${patch.name}`:patch.name});updateControls();}
 sequenceUI=createSequencer({onChange:config=>{send({type:"sequencer",config});scheduleSession();},onPlay:playSequence,onStop:stopSequence,onReset:()=>send({type:"sequence-reset"}),onSelectTimbre:t=>{$(`[data-timbre="${t}"]`).click();},onAudition:auditionStep});
 sequenceUI.setReady(false);
 async function playSequence(){const request=++sequenceRequest;try{await startAudio();if(request!==sequenceRequest)return;send({type:"sequencer",config:sequenceUI.getConfig()});send({type:"sequence-play"});sequenceUI.setStatus({running:true,positions:[0,0,0,0]});}catch(error){showError(error);}}
@@ -150,13 +163,41 @@ $("#save-program").addEventListener("click", event => {
   event.currentTarget.href = programDownloadUrl;
 });
 $("#load-program").addEventListener("click", () => $("#program-file").click());
+function rdlReport(title,summary,notices){
+  $('#rdl-title').textContent=title;$('#rdl-summary').textContent=summary;const list=$('#rdl-notices');list.replaceChildren();
+  for(const notice of notices){const item=document.createElement('li');item.textContent=notice;list.append(item);}
+  list.hidden=!notices.length;$('#rdl-report').showModal();
+}
+$('#rdl-close').addEventListener('click',()=>$('#rdl-report').close());$('#rdl-done').addEventListener('click',()=>$('#rdl-report').close());
+$('#rdl-details').addEventListener('click',()=>{
+  if(!rdlSource)return;
+  const missing=rdlSource.unavailable.filter(s=>s.drum==null||!sampleUI?.assigned(s.drum));
+  rdlReport('RDL patch',`${rdlSource.file} · Program ${String(rdlSource.slot+1).padStart(3,'0')}${rdlSource.drum_kit_name?` · ${rdlSource.drum_kit_name}`:''}`,[
+    ...missing.map(s=>`${s.drum==null?`Timbre ${s.timbre+1}`:`Drum ${s.drum+1}`}: ${s.label} is unavailable. This instrument is muted until you choose an OSC 1 waveform${s.drum==null?'':' or assign a sample'}.`),...rdlSource.notices,
+  ]);
+});
 $("#program-file").addEventListener("change", async event => {
+  const button=$('#load-program');
   try {
     const file = event.target.files[0]; if (!file) return;
-    if (file.size > 1024*1024) throw new Error("This program file is too large.");
-    const value = JSON.parse(await file.text());
-    loadSnapshot(value);activeSavedPatch=null;await startAudio();send({type:"load",program:state()});send({type:"sequencer",config:sequenceUI.getConfig()});$("#error").hidden=true;scheduleSession();
-  } catch (error) { showError(error); } finally { event.target.value = ""; }
+    if(file.size>MAX_RDL_BYTES)throw new Error('Choose a file up to 8 MiB.');
+    button.disabled=true;button.textContent='Importing…';$('#error').hidden=true;const buffer=await file.arrayBuffer(),magic=new TextDecoder().decode(buffer.slice(0,4));
+    if(/\.rdl$/i.test(file.name)||['316B','316P','316p'].includes(magic)){
+      const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',buffer))].map(b=>b.toString(16).padStart(2,'0')).join('');
+      const library=await readRdl(module,buffer),imported=rdlPatches(library,file.name.slice(0,256),digest);
+      // Validate every patch before the one atomic library write or any UI change.
+      for(const patch of imported){normalizeEngine(patch.snapshot.engine);validateRdlSource(patch.snapshot.rdl);}
+      let result;try{result=patchStore.import(imported);}catch(error){if(error.name==='QuotaExceededError')throw new Error('Browser storage is full. The RDL bank was not imported; your existing patches are unchanged.');throw error;}
+      const first=patchStore.list().find(p=>p.id===imported[0].id);loadSnapshot(first.snapshot);activeSavedPatch=first.id;refreshLibrary();saveSession();
+      const partial=imported.filter(p=>p.snapshot.rdl.unavailable.length||p.snapshot.rdl.notices.length).length;
+      rdlReport('RDL imported',`${result.added} ${result.added===1?'program':'programs'} saved${result.duplicates?` · ${result.duplicates} already in your library`:''}. Choose them in Program.`,[
+        ...(partial?[`${partial} ${partial===1?'program refers':'programs refer'} to sources or settings outside the web engine. Open RDL on a selected patch for details. PCM/input-dependent instruments are muted until their source is replaced.`]:[]),
+      ]);
+    }else{
+      if(file.size>1024*1024)throw new Error('Choose a JSON patch up to 1 MiB.');
+      loadSnapshot(JSON.parse(new TextDecoder().decode(buffer)));activeSavedPatch=null;updateControls();scheduleSession();
+    }
+  } catch (error) { showError(error); } finally { event.target.value = '';button.textContent='Import';button.disabled=!module; }
 });
 function noteLabel(note) { return `${keyNames[note % 12]}${Math.floor(note / 12) - 1}`; }
 function updateKeys() {
@@ -198,7 +239,7 @@ async function setupAudio() {
         }
       };
     });
-    pendingNode.connect(context.destination); node = pendingNode; send({type: "load", program: state()}); send({type:"sequencer",config:sequenceUI.getConfig()});
+    pendingNode.connect(context.destination); node = pendingNode;lastRdlMasks=null;loadEngine();send({type:"sequencer",config:sequenceUI.getConfig()});
     await context.resume(); await ready; await sampleUI.attach(pendingNode,context); context.onstatechange = updatePower; updatePower();
   } catch (error) { sampleUI?.detach(); node?.disconnect(); node = null; context = null; await pendingContext.close(); throw error; }
 }
@@ -281,5 +322,5 @@ try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(sessio
 updateControls(); updateKeys(); document.body.dataset.parameterCount = parameters.length;
 try {
   const response = await fetch(new URL("./rustias.wasm", import.meta.url)); if (!response.ok) throw new Error(`Could not load the Rust engine (${response.status}).`);
-  module = await WebAssembly.compile(await response.arrayBuffer()); sequenceUI.setReady(true); $("#power").disabled = false; updatePower(); document.body.dataset.engine = "ready";
+  module = await WebAssembly.compile(await response.arrayBuffer()); sequenceUI.setReady(true); $("#power").disabled = false;$('#load-program').disabled=false;updatePower(); document.body.dataset.engine = "ready";
 } catch (error) { $("#status").textContent = "Engine unavailable"; showError(error); }
