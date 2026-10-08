@@ -152,7 +152,33 @@ sequenceUI.setReady(false);
 async function playSequence(){const request=++sequenceRequest;try{await startAudio();if(request!==sequenceRequest)return;send({type:"sequencer",config:sequenceUI.getConfig()});send({type:"sequence-play"});sequenceUI.setStatus({running:true,positions:[0,0,0,0]});}catch(error){showError(error);}}
 async function auditionStep(timbre,step,resolution){const request=++auditionRequest;try{await startAudio();if(request===auditionRequest)send({type:"audition",timbre,step,resolution});}catch(error){showError(error);}}
 function stopSequence(){sequenceRequest++;send({type:"sequence-stop"});sequenceUI?.setStatus({running:false,positions:[-1,-1,-1,-1]});}
-$("#save-patch").addEventListener("click",()=>{const existing=patchStore.list().find(p=>p.id===activeSavedPatch);if(existing){try{patchStore.save(existing.name,snapshot(),existing.id);refreshLibrary();saveSession();}catch(error){showError(error);}return;}$("#patch-name").value=`Patch ${String(patchStore.list().length+1).padStart(2,"0")}`;$("#patch-editor").showModal();$("#patch-name").select();});
+function newPatchDialog(copy=false){
+  const patches=patchStore.list(),existing=patches.find(p=>p.id===activeSavedPatch),base=existing?.name??programPicker.options.find(o=>o.value===programPicker.value)?.label??'Patch';
+  let name=`Patch ${String(patches.length+1).padStart(2,'0')}`;
+  if(copy){const names=new Set(patches.map(p=>p.name));let n=1;do{const suffix=` copy${n===1?'':` ${n}`}`;name=base.slice(0,64-suffix.length)+suffix;n++;}while(names.has(name));}
+  $('#patch-title').textContent=copy?'Save a copy':'Save patch';$('#patch-confirm').textContent=copy?'Save copy':'Save patch';$('#patch-name').value=name;
+  $('#patch-editor').showModal();$('#patch-name').focus();$('#patch-name').select();
+}
+function saveCurrentPatch(){
+  const existing=patchStore.list().find(p=>p.id===activeSavedPatch);
+  if(!existing){newPatchDialog();return;}
+  try{patchStore.save(existing.name,snapshot(),existing.id);refreshLibrary();saveSession();}catch(error){showError(error);}
+}
+$('#save-patch').addEventListener('click',saveCurrentPatch);
+const saveOptions=$('#patch-save-options'),saveMenu=$('#patch-save-menu');
+function closeSaveMenu(returnFocus=false){if(saveMenu.hidePopover)saveMenu.hidePopover();else saveMenu.hidden=true;saveOptions.setAttribute('aria-expanded','false');if(returnFocus)saveOptions.focus();}
+function openSaveMenu(){
+  if(saveOptions.getAttribute('aria-expanded')==='true'){closeSaveMenu();return;}
+  const rect=saveOptions.getBoundingClientRect(),width=Math.min(180,innerWidth-16);
+  saveMenu.style.width=`${width}px`;saveMenu.style.left=`${Math.max(8,Math.min(rect.right-width,innerWidth-width-8))}px`;
+  const below=innerHeight-rect.bottom;saveMenu.style.top=below>=110?`${rect.bottom+4}px`:'auto';saveMenu.style.bottom=below>=110?'auto':`${innerHeight-rect.top+4}px`;
+  if(saveMenu.showPopover)saveMenu.showPopover();else saveMenu.hidden=false;saveOptions.setAttribute('aria-expanded','true');$('#save-current-patch').focus();
+}
+saveOptions.addEventListener('click',openSaveMenu);saveOptions.addEventListener('keydown',event=>{if(event.key==='ArrowDown'){event.preventDefault();openSaveMenu();}});
+saveMenu.addEventListener('toggle',event=>{if(event.newState==='closed')saveOptions.setAttribute('aria-expanded','false');});
+saveMenu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeSaveMenu(true);}else if(['ArrowUp','ArrowDown','Home','End'].includes(event.key)){event.preventDefault();const items=[...saveMenu.querySelectorAll('[role=menuitem]')],i=items.indexOf(document.activeElement);items[event.key==='Home'?0:event.key==='End'?1:(i+1)%2].focus();}else if(event.key==='Tab')closeSaveMenu(true);});
+document.addEventListener('pointerdown',event=>{if(!saveMenu.contains(event.target)&&!saveOptions.contains(event.target))closeSaveMenu();});
+$('#save-current-patch').addEventListener('click',()=>{closeSaveMenu(true);saveCurrentPatch();});$('#save-copy').addEventListener('click',()=>{closeSaveMenu();newPatchDialog(true);});
 $("#patch-cancel").addEventListener("click",()=>$("#patch-editor").close());$("#patch-form").addEventListener("submit",event=>{event.preventDefault();try{const saved=patchStore.save($("#patch-name").value,snapshot());activeSavedPatch=saved.id;refreshLibrary();saveSession();$("#patch-editor").close();}catch(error){showError(error);}});
 window.addEventListener("pagehide",saveSession);
 
@@ -279,7 +305,7 @@ for (let index = 0; index < 16; index++) {
   key.addEventListener("focusout", () => up(`pad-${index}`)); key.addEventListener("keyup", event => { if ([" ", "Enter"].includes(event.key)) { event.preventDefault(); up(`pad-${index}`); } });
 }
 document.addEventListener("keydown", event => {
-  if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || !module || (isChoosing() || event.target.closest("input,select,dialog,[role=slider],[role=combobox],[role=option],.key"))) return;
+  if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || !module || (isChoosing() || saveOptions.getAttribute('aria-expanded')==='true' || event.target.closest("input,select,dialog,[role=slider],[role=combobox],[role=option],.key"))) return;
   const key = event.key.toLowerCase(), index = computerKeys.indexOf(key); if (index >= 0) { event.preventDefault(); down(`key-${key}`, (octave + 1) * 12 + index, index); } if (event.key === "Escape") stop();
 });
 document.addEventListener("keyup", event => up(`key-${event.key.toLowerCase()}`)); window.addEventListener("blur", releaseAll);
