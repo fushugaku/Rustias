@@ -39,7 +39,7 @@ use radias_synth_domain::{
 };
 
 pub const SAMPLE_RATE: u32 = 48_000;
-pub const PARAMETER_COUNT: usize = 154;
+pub const PARAMETER_COUNT: usize = 155;
 pub const PARAMETER_SCHEMA: &str = include_str!("parameters.json");
 pub type Values = [i32; PARAMETER_COUNT];
 #[derive(serde::Deserialize)]
@@ -169,7 +169,11 @@ fn controls(v: &Values) -> TimbreControls {
         amplifier_key_tracking: v[52] as u8,
         pan: v[8] as u8,
         shaper: radias_synth_application::shaper::ShaperProgram {
-            mode: radias_synth_application::shaper::ShaperMode::from_panel(v[29] as u8).unwrap(),
+            mode: radias_synth_application::shaper::ShaperMode::from_allocation(
+                v[29] as u8,
+                v[154] as u8,
+            )
+            .unwrap(),
             position: if v[30] == 0 {
                 ShaperPosition::PreFilter
             } else {
@@ -407,7 +411,7 @@ impl StandaloneSynth {
                 self.engine.apply(Command::Filter2Program(t, second));
             }
         }
-        if is(&[29, 30, 31]) {
+        if is(&[29, 30, 31, 154]) {
             self.engine.apply(Command::Shaper(t, c.shaper));
         }
         if changed.is_none_or(|id| matches!(id,32..=43|48..=51)) {
@@ -516,6 +520,13 @@ impl StandaloneSynth {
                 controls: controls(&self.drum_settings[i]),
                 graph: self.graph(&self.drum_settings[i]),
             }),
+        }
+    }
+    /// A PCM adapter can use the same instrument controllers and DSP graph.
+    pub fn drum_program(&self, index: usize) -> DrumInstrumentProgram {
+        DrumInstrumentProgram {
+            controls: controls(&self.drum_settings[index]),
+            graph: self.graph(&self.drum_settings[index]),
         }
     }
     pub fn control(&mut self, t: u8, id: usize, value: i32) -> bool {
@@ -700,6 +711,18 @@ impl StandaloneSynth {
             if v.len() == 153 {
                 v.push(v[151]);
             }
+            if v.len() == 154 {
+                let legacy = v[29];
+                v.push(match legacy {
+                    3 => 0,
+                    2 => 1,
+                    4..=12 => legacy - 2,
+                    _ => 1,
+                });
+                if legacy >= 2 {
+                    v[29] = 2;
+                }
+            }
         }
         if p.version != 1 || p.timbres.len() != 4 || p.drums.len() != 16 {
             return None;
@@ -799,6 +822,54 @@ mod tests {
                 assert!(s.control(0, p.id, p.default), "{} default", p.id);
                 assert!(!s.control(0, p.id, p.max + 1), "{} bounds", p.id);
             }
+        });
+    }
+    #[test]
+    fn drive_and_ws_keep_type_depth_and_position_independently() {
+        run(|| {
+            let mut s = StandaloneSynth::new();
+            for t in 0..4 {
+                for kind in 0..11 {
+                    assert!(s.control(t, 154, kind));
+                    assert!(s.control(t, 31, 70));
+                    assert!(s.control(t, 30, 1));
+                    for mode in [2, 0, 1, 2] {
+                        assert!(s.control(t, 29, mode));
+                        assert_eq!(s.value(t, 154), kind);
+                        assert_eq!(s.value(t, 31), 70);
+                        assert_eq!(s.value(t, 30), 1);
+                    }
+                    assert_eq!(
+                        controls(&s.settings[t as usize]).shaper.allocation_type(),
+                        kind as u8
+                    );
+                }
+            }
+            let saved = s.save();
+            let loaded = StandaloneSynth::load(&saved).unwrap();
+            assert_eq!(loaded.save(), saved);
+        });
+    }
+    #[test]
+    fn legacy_combined_ws_programs_migrate_without_losing_the_type() {
+        run(|| {
+            let mut s = StandaloneSynth::new();
+            s.control(0, 29, 2);
+            s.control(0, 154, 10);
+            let mut p: ProgramState = serde_json::from_slice(&s.save()).unwrap();
+            for v in p.timbres.iter_mut().chain(&mut p.drums) {
+                let kind = v.pop().unwrap();
+                if v[29] == 2 {
+                    v[29] = match kind {
+                        0 => 3,
+                        1 => 2,
+                        _ => kind + 2,
+                    };
+                }
+            }
+            let restored = StandaloneSynth::load(&serde_json::to_vec(&p).unwrap()).unwrap();
+            assert_eq!(restored.value(0, 29), 2);
+            assert_eq!(restored.value(0, 154), 10);
         });
     }
     #[test]

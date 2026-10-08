@@ -17,3 +17,6 @@
 .DS_Store
 .env
 .env.*
+
+# The curated CC0 library is part of the browser build.
+!web/samples/*.wav

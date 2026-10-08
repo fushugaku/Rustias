@@ -8,3 +8,5 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 radias-synth-infrastructure = { path = "../radias-synth-infrastructure" }
+radias-synth-application = { path = "../radias-synth-application" }
+radias-synth-domain = { path = "../radias-synth-domain" }

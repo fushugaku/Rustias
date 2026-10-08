@@ -22,7 +22,10 @@ jobs:
         run: cargo test --locked -p radias-synth-infrastructure --lib
       - name: Build WebAssembly and static app
         run: bash scripts/build-web.sh
-      - name: Verify Wasm audio and resampling
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify audio, sampler, sequencer and storage
         run: node scripts/verify-web.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

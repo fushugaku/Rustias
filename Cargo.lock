@@ -2587,6 +2587,8 @@ dependencies = [
 name = "radias-web"
 version = "0.1.0"
 dependencies = [
+ "radias-synth-application",
+ "radias-synth-domain",
  "radias-synth-infrastructure",
 ]
 

@@ -282,25 +282,15 @@
   },
   {
     "id": 29,
-    "label": "Type",
+    "label": "Drive/WS",
     "group": "Drive / Waveshaper",
     "default": 0,
     "min": 0,
-    "max": 12,
+    "max": 2,
     "options": [
       "Off",
       "Drive",
-      "Hard Clip",
-      "Decimator",
-      "OctSaw",
-      "MultiTri",
-      "MultiSin",
-      "SubOSC Saw",
-      "SubOSC Square",
-      "SubOSC Triangle",
-      "SubOSC Sine",
-      "Pickup",
-      "Level Boost"
+      "WavShape"
     ]
   },
   {
@@ -311,8 +301,8 @@
     "min": 0,
     "max": 1,
     "options": [
-      "Pre filter",
-      "Pre amp"
+      "PreFilt1",
+      "PreAmp"
     ]
   },
   {
@@ -1919,6 +1909,27 @@
     "options": [
       "Off",
       "On"
+    ]
+  },
+  {
+    "id": 154,
+    "label": "WS Type",
+    "group": "Drive / Waveshaper",
+    "default": 1,
+    "min": 0,
+    "max": 10,
+    "options": [
+      "Decimator",
+      "Hard Clip",
+      "OctSaw",
+      "MultiTri",
+      "MultiSin",
+      "SubOSC Saw",
+      "SubOSC Square",
+      "SubOSC Triangle",
+      "SubOSC Sine",
+      "Pickup",
+      "Level Boost"
     ]
   }
 ]

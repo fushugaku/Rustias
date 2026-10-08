@@ -1,10 +1,14 @@
 //! Firmware-free native synthesizer C ABI for an AudioWorklet.
 use radias_synth_infrastructure::standalone::{PARAMETER_COUNT, StandaloneSynth};
 use std::cell::RefCell;
+mod sampler;
+use sampler::Sampler;
 
 const PRESET_CAPACITY: usize = 65536;
 struct WebEngine {
     synth: StandaloneSynth,
+    sampler: Sampler,
+    held_drums: [[u16; 128]; 4],
     output: [f32; 256],
     preset: Vec<u8>,
     frames: u32,
@@ -16,8 +20,12 @@ thread_local! {
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_init() {
     ENGINE.with(|state| {
+        let synth = StandaloneSynth::new();
+        let sampler = Sampler::new(&synth);
         *state.borrow_mut() = Some(Box::new(WebEngine {
-            synth: StandaloneSynth::new(),
+            synth,
+            sampler,
+            held_drums: [[0; 128]; 4],
             output: [0.0; 256],
             preset: vec![0; PRESET_CAPACITY],
             frames: 0,
@@ -35,11 +43,17 @@ pub extern "C" fn rustias_control(timbre: u32, parameter: u32, value: i32) -> u3
         return 0;
     }
     ENGINE.with(|state| {
-        state
-            .borrow_mut()
-            .as_mut()
-            .is_some_and(|e| e.synth.control(timbre as u8, parameter as usize, value))
-            as u32
+        state.borrow_mut().as_mut().is_some_and(|e| {
+            let accepted = e.synth.control(timbre as u8, parameter as usize, value);
+            if accepted {
+                if matches!(parameter, 140 | 141) {
+                    e.sampler.stop();
+                    e.held_drums = [[0; 128]; 4];
+                }
+                e.sampler.sync(&e.synth);
+            }
+            accepted
+        }) as u32
     })
 }
 #[unsafe(no_mangle)]
@@ -60,11 +74,13 @@ pub extern "C" fn rustias_drum_control(index: u32, parameter: u32, value: i32) -
         return 0;
     }
     ENGINE.with(|state| {
-        state
-            .borrow_mut()
-            .as_mut()
-            .is_some_and(|e| e.synth.drum_control(index as u8, parameter as usize, value))
-            as u32
+        state.borrow_mut().as_mut().is_some_and(|e| {
+            let accepted = e.synth.drum_control(index as u8, parameter as usize, value);
+            if accepted {
+                e.sampler.sync(&e.synth);
+            }
+            accepted
+        }) as u32
     })
 }
 #[unsafe(no_mangle)]
@@ -76,7 +92,7 @@ pub extern "C" fn rustias_note(timbre: u32, note: u32, velocity: u32) -> u32 {
         state
             .borrow_mut()
             .as_mut()
-            .is_some_and(|e| e.synth.note(timbre as u8, note as u8, velocity as u8)) as u32
+            .is_some_and(|e| e.note(timbre as u8, note as u8, velocity as u8)) as u32
     })
 }
 #[unsafe(no_mangle)]
@@ -88,7 +104,7 @@ pub extern "C" fn rustias_drum_pad(index: u32, velocity: u32) -> u32 {
         state
             .borrow_mut()
             .as_mut()
-            .is_some_and(|e| e.synth.drum_pad(index as u8, velocity as u8)) as u32
+            .is_some_and(|e| e.drum_pad(index as usize, velocity as u8)) as u32
     })
 }
 #[unsafe(no_mangle)]
@@ -98,7 +114,7 @@ pub extern "C" fn rustias_midi(status: u32, first: u32, second: u32) {
     }
     ENGINE.with(|state| {
         if let Some(e) = state.borrow_mut().as_mut() {
-            e.synth.midi(status as u8, first as u8, second as u8);
+            e.midi(status as u8, first as u8, second as u8);
         }
     });
 }
@@ -144,7 +160,10 @@ pub extern "C" fn rustias_load(length: u32) -> u32 {
         let Some(synth) = StandaloneSynth::load(&e.preset[..length as usize]) else {
             return 0;
         };
+        e.sampler.stop();
+        e.held_drums = [[0; 128]; 4];
         e.synth = synth;
+        e.sampler.sync(&e.synth);
         1
     })
 }
@@ -153,6 +172,8 @@ pub extern "C" fn rustias_stop() {
     ENGINE.with(|state| {
         if let Some(e) = state.borrow_mut().as_mut() {
             e.synth.stop();
+            e.sampler.stop();
+            e.held_drums = [[0; 128]; 4];
         }
     });
 }
@@ -167,8 +188,9 @@ pub extern "C" fn rustias_render() -> *const f32 {
         e.peak = 0.0;
         for frame in e.output.chunks_exact_mut(2) {
             let sample = e.synth.engine.sample();
-            frame[0] = sample.left.0 as f32 / 2147483648.0;
-            frame[1] = sample.right.0 as f32 / 2147483648.0;
+            let pcm = e.sampler.sample(&e.synth);
+            frame[0] = (sample.left.0 as f64 + pcm.left.0 as f64) as f32 / 2147483648.0;
+            frame[1] = (sample.right.0 as f64 + pcm.right.0 as f64) as f32 / 2147483648.0;
             e.peak = e.peak.max(frame[0].abs()).max(frame[1].abs());
         }
         e.frames = e.frames.wrapping_add(128);
@@ -178,10 +200,9 @@ pub extern "C" fn rustias_render() -> *const f32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_voices() -> u32 {
     ENGINE.with(|state| {
-        state
-            .borrow()
-            .as_ref()
-            .map_or(0, |e| e.synth.engine.active_count() as u32)
+        state.borrow().as_ref().map_or(0, |e| {
+            (e.synth.engine.active_count() + e.sampler.active_count()) as u32
+        })
     })
 }
 #[unsafe(no_mangle)]
@@ -191,4 +212,149 @@ pub extern "C" fn rustias_frames() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_peak() -> f32 {
     ENGINE.with(|state| state.borrow().as_ref().map_or(0.0, |e| e.peak))
+}
+
+impl WebEngine {
+    fn channel(&self, t: usize) -> u8 {
+        let v = self.synth.settings[t];
+        if v[72] == 16 {
+            v[148] as u8
+        } else {
+            v[72] as u8
+        }
+    }
+    fn note(&mut self, t: u8, note: u8, velocity: u8) -> bool {
+        let global = self.synth.settings[0];
+        if global[140] == 0 || global[141] != t as i32 {
+            return self.synth.note(t, note, velocity);
+        }
+        let settings = self.synth.settings[t as usize];
+        if velocity != 0
+            && (settings[71] == 0 || (note as i32) < settings[119] || (note as i32) > settings[120])
+        {
+            return true;
+        }
+        let mask = if velocity == 0 {
+            let held = self.held_drums[t as usize][note as usize];
+            self.held_drums[t as usize][note as usize] = 0;
+            held
+        } else {
+            let mut mask = 0;
+            for i in 0..16 {
+                if self.synth.drum_settings[i][146] + global[145] - 64 == note as i32 {
+                    mask |= 1 << i;
+                }
+            }
+            self.held_drums[t as usize][note as usize] |= mask;
+            mask
+        };
+        for i in 0..16 {
+            if mask & (1 << i) != 0 {
+                self.drum_pad(i, velocity);
+            }
+        }
+        true
+    }
+    fn drum_pad(&mut self, instrument: usize, velocity: u8) -> bool {
+        if self.synth.settings[0][140] == 0 {
+            return false;
+        }
+        if velocity != 0 {
+            self.sampler.choke(&self.synth, instrument);
+        }
+        if self.sampler.assigned(instrument) {
+            if velocity != 0 {
+                let group = self.synth.drum_settings[instrument][147];
+                if group != 0 {
+                    for i in 0..16 {
+                        if !self.sampler.assigned(i) && self.synth.drum_settings[i][147] == group {
+                            self.synth.drum_pad(i as u8, 0);
+                        }
+                    }
+                }
+            }
+            self.sampler.trigger(&self.synth, instrument, velocity);
+            true
+        } else {
+            self.synth.drum_pad(instrument as u8, velocity)
+        }
+    }
+    fn midi(&mut self, status: u8, first: u8, second: u8) {
+        let channel = status & 15;
+        if matches!(status & 240, 0x80 | 0x90) {
+            let velocity = if status & 240 == 0x80 { 0 } else { second };
+            for t in 0..4 {
+                if self.channel(t) == channel {
+                    self.note(t as u8, first, velocity);
+                }
+            }
+        } else {
+            self.synth.midi(status, first, second);
+            let owner = self.synth.settings[0][141] as usize;
+            if status & 240 == 0xb0 && self.channel(owner) == channel {
+                if matches!(first, 120 | 123) {
+                    self.held_drums[owner] = [0; 128];
+                }
+                if first == 120 {
+                    self.sampler.stop();
+                }
+                if first == 123 {
+                    for i in 0..16 {
+                        self.sampler.trigger(&self.synth, i, 0);
+                    }
+                }
+            }
+            self.sampler.sync(&self.synth);
+        }
+    }
+}
+
+/// Staging memory for locally decoded mono PCM at the native 48 kHz rate.
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_sample_buffer(instrument: u32, frames: u32) -> *mut f32 {
+    ENGINE.with(|state| {
+        state
+            .borrow_mut()
+            .as_mut()
+            .map_or(std::ptr::null_mut(), |e| {
+                e.sampler.buffer(instrument as usize, frames as usize)
+            })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_sample_commit(instrument: u32, frames: u32, mode: u32) -> u32 {
+    if mode > 2 {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        state.borrow_mut().as_mut().is_some_and(|e| {
+            let accepted = e
+                .sampler
+                .commit(instrument as usize, frames as usize, mode as u8);
+            if accepted {
+                e.synth.drum_pad(instrument as u8, 0);
+            }
+            accepted
+        }) as u32
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_sample_clear(instrument: u32) {
+    ENGINE.with(|state| {
+        if let Some(e) = state.borrow_mut().as_mut() {
+            e.sampler.clear(instrument as usize);
+        }
+    });
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_sample_mode(instrument: u32, mode: u32) -> u32 {
+    if mode > 2 {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        state
+            .borrow_mut()
+            .as_mut()
+            .is_some_and(|e| e.sampler.set_mode(instrument as usize, mode as u8)) as u32
+    })
 }

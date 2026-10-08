@@ -276,6 +276,9 @@ impl Synthesizer {
             self.pool.edit_source_gain(timbre, gain, tables);
         }
     }
+    pub fn source_gain(&self, timbre: u8) -> u16 {
+        self.timbres[timbre as usize].amplifier.source_gain
+    }
     fn update_expression_gains(&mut self) {
         for (index, timbre) in self.timbres.iter_mut().enumerate() {
             let gain = self

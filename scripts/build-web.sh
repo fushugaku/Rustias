@@ -10,8 +10,10 @@ fi
 "$rustias_cargo_bin" build --release --locked --target wasm32-unknown-unknown -p radias-web \
   --config 'profile.release.panic="abort"'
 mkdir -p dist
-cp web/index.html web/styles.css web/app.js web/worklet.js web/favicon.svg dist/
+cp web/index.html web/styles.css web/app.js web/panel.js web/sequence.js web/sequencer-ui.js web/patches.js web/samples.js web/worklet.js web/favicon.svg dist/
 cp crates/radias-synth-infrastructure/src/parameters.json dist/parameters.json
 cp "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/radias_web.wasm" dist/rustias.wasm
+mkdir -p dist/samples
+cp web/samples/*.wav web/samples/manifest.json web/samples/LICENSE.txt web/samples/README.md dist/samples/
 touch dist/.nojekyll
 printf 'Web build ready: %s/dist\n' "$PWD"
