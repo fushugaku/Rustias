@@ -18,5 +18,6 @@
 .env
 .env.*
 
-# The curated CC0 library is part of the browser build.
+# Bundled licensed drum libraries are part of the browser build.
 !web/samples/*.wav
+!web/samples/tr-909/*.WAV
