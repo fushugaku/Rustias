@@ -164,9 +164,7 @@ impl Sampler {
             pan_tables: PanTables {
                 targets: std::array::from_fn(|i| (i as u32 * 32697 / 127) as u16),
             },
-            shaper_tables: ShaperTables {
-                sub_edges: [0; 129],
-            },
+            shaper_tables: tables::shapers(),
             clock: InstrumentClock::internal(tables::tempo(), synth.settings[0][89] as u16),
             seed: 0x2345,
             frames: 0,
@@ -816,7 +814,9 @@ impl Sampler {
             let Some(v) = &mut self.voices[slot] else {
                 continue;
             };
-            if (v.amplitude.finished() && !v.circuit.as_ref().is_some_and(|p| p.tail_active())) || (v.mode != 2 && v.position >= v.data.len() as f64) {
+            if (v.amplitude.finished() && !v.circuit.as_ref().is_some_and(|p| p.tail_active()))
+                || (v.mode != 2 && v.position >= v.data.len() as f64)
+            {
                 self.voices[slot] = None;
                 continue;
             }

@@ -159,6 +159,7 @@ struct State {
     filter: ResonantFilter,
     second: Filter2,
     shaper: Waveshaper,
+    shaper_gain: i16,
     comb: Option<Box<radias_synth_domain::comb::Comb>>,
     env: ModEnvelope,
     env_started: bool,
@@ -172,6 +173,7 @@ impl Default for State {
             filter: Default::default(),
             second: Default::default(),
             shaper: Default::default(),
+            shaper_gain: 0,
             comb: None,
             env: Default::default(),
             env_started: false,
@@ -317,7 +319,9 @@ impl CircuitVoice {
         if !circuit.enabled {
             return Ok(None);
         }
-        let has_amp = order.iter().any(|i| matches!(nodes[*i].kind, Kind::Amp | Kind::Eg2));
+        let has_amp = order
+            .iter()
+            .any(|i| matches!(nodes[*i].kind, Kind::Amp | Kind::Eg2));
         Ok(Some(Self::new(Arc::new(Plan {
             nodes,
             order,
@@ -355,7 +359,12 @@ impl VoiceCircuit for CircuitVoice {
     fn reconfigure(&mut self, prototype: &dyn VoiceCircuit) {
         if let Some(next) = prototype.as_any().downcast_ref::<Self>() {
             for n in &next.plan.nodes {
-                if !self.plan.nodes.iter().any(|old| old.id == n.id && old.kind == n.kind) {
+                if !self
+                    .plan
+                    .nodes
+                    .iter()
+                    .any(|old| old.id == n.id && old.kind == n.kind)
+                {
                     self.states[n.id] = State::default();
                 }
             }
@@ -461,7 +470,22 @@ impl SignalProcessor for CircuitVoice {
                             .shaper
                             .parameters_with_pitch(p.primary_pitch_code)
                     };
-                    sh.map_or(input[0], |s| {
+                    sh.map_or(input[0], |mut s| {
+                        if n.kind == Kind::Shaper && s.coefficients.gain_current().is_some() {
+                            if self.frames & 3 == 3 {
+                                if let Some(target) =
+                                    s.coefficients.gain_target(p.primary_pitch_code)
+                                {
+                                    state.shaper_gain =
+                                        radias_synth_domain::control_slew::SlewWeights {
+                                            target: 0x1d4,
+                                            memory: 0x7e2d,
+                                        }
+                                        .word(state.shaper_gain, target);
+                                }
+                            }
+                            s.coefficients.set_gain_current(state.shaper_gain);
+                        }
                         state
                             .shaper
                             .process(

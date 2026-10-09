@@ -322,3 +322,13 @@ pub fn noise() -> radias_synth_application::noise::NoiseTables {
         },
     }
 }
+
+/// Q15 reciprocal edge slopes for the native sub-oscillator kernels.
+/// The table index is the high byte of a half-cycle phase increment. The
+/// kernel scales its slope by 256, so an edge spanning i * 2^24 uses 2^14/i.
+/// This analytic data port contains no firmware words.
+pub fn shapers() -> radias_synth_domain::waveshaper::ShaperTables {
+    radias_synth_domain::waveshaper::ShaperTables {
+        sub_edges: core::array::from_fn(|i| if i == 0 { 32767 } else { (16384 / i) as i16 }),
+    }
+}

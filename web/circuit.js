@@ -8,7 +8,7 @@ export const MODULES={
   gate:{name:'KEY GATE',out:'cv'},velocity:{name:'VELOCITY',out:'cv'},output:{name:'OUTPUT',inputs:{in:'audio'}},
   oscillator:{name:'OSCILLATOR',out:'audio',inputs:{pitch:'cv'},controls:{wave:['Wave',0,3,0,['Saw','Pulse','Triangle','Sine']],semitone:['Semi',-48,48,0],level:['Level',0,127,64]}},
   filter:{name:'FILTER',out:'audio',inputs:{in:'audio',cutoff:'cv'},controls:{cutoff:['Cutoff',0,127,96],resonance:['Resonance',0,127,0],morph:['Morph',0,127,0]}},
-  shaper:{name:'DRIVE / WS',out:'audio',inputs:{in:'audio'},controls:{mode:['Mode',0,2,1,['Off','Drive','WS']],type:['WS Type',0,10,1,['Decimator','Hard Clip','Oct Saw','Multi Triangle','Multi Sine','Pickup','Level Boost','Sub Saw','Sub Square','Sub Triangle','Sub Sine']],depth:['Depth',0,127,32]}},
+  shaper:{name:'DRIVE / WS',out:'audio',inputs:{in:'audio'},controls:{mode:['Mode',0,2,1,['Off','Drive','WS']],type:['WS Type',0,10,1,['Decimator','Hard Clip','Oct Saw','Multi Triangle','Multi Sine','Sub Saw','Sub Square','Sub Triangle','Sub Sine','Pickup','Level Boost']],depth:['Depth',0,127,32]}},
   vca:{name:'VCA',out:'audio',inputs:{in:'audio',gain:'cv'},controls:{gain:['Gain dB',-48,24,0]}},
   sum:{name:'MIXER',out:'audio',inputs:{a:'audio',b:'audio',c:'audio'},controls:{a:['A',0,127,64],b:['B',0,127,64],c:['C',0,127,64]}},
   lfo:{name:'LFO',out:'cv',inputs:{rate:'cv'},controls:{rate:['Rate Hz',.01,40,1],shape:['Wave',0,3,0,['Sine','Triangle','Square','Saw']],depth:['Depth %',0,100,100]}},

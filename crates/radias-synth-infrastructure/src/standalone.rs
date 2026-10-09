@@ -35,7 +35,7 @@ use radias_synth_domain::{
     voice::{Voice, VoiceParameters},
     voice_group::VoiceGroupProgram,
     waveform::{ShapeParameters, Transfer, WaveformTable},
-    waveshaper::{ShaperPosition, ShaperTables},
+    waveshaper::ShaperPosition,
 };
 
 pub const SAMPLE_RATE: u32 = 48_000;
@@ -268,9 +268,7 @@ impl StandaloneSynth {
             (0..4).map(plan).collect(),
             WaveformTable {
                 correction: [0; 129],
-                shapers: ShaperTables {
-                    sub_edges: [0; 129],
-                },
+                shapers: tables::shapers(),
             },
             Some((tables::pitch(), tables::bandwidth())),
             Some(tables::controllers()),
