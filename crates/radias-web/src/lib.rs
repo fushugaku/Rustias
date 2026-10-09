@@ -49,7 +49,17 @@ pub extern "C" fn rustias_control(timbre: u32, parameter: u32, value: i32) -> u3
     }
     ENGINE.with(|state| {
         state.borrow_mut().as_mut().is_some_and(|e| {
-            let accepted = e.synth.control(timbre as u8, parameter as usize, value);
+            let global = e.synth.settings[0];
+            let instrument = global[142] as usize;
+            let sample_amplifier = global[140] != 0
+                && global[141] == timbre as i32
+                && e.sampler.assigned(instrument)
+                && matches!(parameter, 114..=117);
+            let accepted = if sample_amplifier {
+                e.drum_control(instrument, parameter as usize, value)
+            } else {
+                e.synth.control(timbre as u8, parameter as usize, value)
+            };
             if accepted {
                 if matches!(parameter, 140 | 141) {
                     e.sampler.stop();
@@ -67,10 +77,18 @@ pub extern "C" fn rustias_value(timbre: u32, parameter: u32) -> i32 {
         return 0;
     }
     ENGINE.with(|state| {
-        state
-            .borrow()
-            .as_ref()
-            .map_or(0, |e| e.synth.value(timbre as u8, parameter as usize))
+        state.borrow().as_ref().map_or(0, |e| {
+            let global = e.synth.settings[0];
+            let instrument = global[142] as usize;
+            if global[140] != 0 && global[141] == timbre as i32 && e.sampler.assigned(instrument) {
+                match parameter {
+                    114..=117 => return e.synth.drum_settings[instrument][parameter as usize],
+                    118 => return 0, // PCM voices do not allocate native Unison actors.
+                    _ => {}
+                }
+            }
+            e.synth.value(timbre as u8, parameter as usize)
+        })
     })
 }
 #[unsafe(no_mangle)]
@@ -80,7 +98,7 @@ pub extern "C" fn rustias_drum_control(index: u32, parameter: u32, value: i32) -
     }
     ENGINE.with(|state| {
         state.borrow_mut().as_mut().is_some_and(|e| {
-            let accepted = e.synth.drum_control(index as u8, parameter as usize, value);
+            let accepted = e.drum_control(index as usize, parameter as usize, value);
             if accepted {
                 e.sampler.sync(&e.synth);
             }
@@ -240,6 +258,26 @@ pub extern "C" fn rustias_peak() -> f32 {
 }
 
 impl WebEngine {
+    // These extra PCM amplifier settings live in the existing per-drum rows.
+    // The desktop/native drum controller continues to use its original inputs.
+    fn drum_control(&mut self, instrument: usize, parameter: usize, value: i32) -> bool {
+        let range = match parameter {
+            114 => Some(-64..=63),
+            115 => Some(0..=32767),
+            116 => Some(0..=1),
+            117 => Some(0..=127),
+            _ => None,
+        };
+        if let Some(range) = range {
+            if !range.contains(&value) {
+                return false;
+            }
+            self.synth.drum_settings[instrument][parameter] = value;
+            true
+        } else {
+            self.synth.drum_control(instrument as u8, parameter, value)
+        }
+    }
     fn channel(&self, t: usize) -> u8 {
         let v = self.synth.settings[t];
         if v[72] == 16 {
@@ -323,6 +361,13 @@ impl WebEngine {
             self.synth.midi(status, first, second);
             let owner = self.synth.settings[0][141] as usize;
             if status & 240 == 0xb0 && self.channel(owner) == channel {
+                if first == 7 && self.synth.settings[0][140] != 0 {
+                    for instrument in &mut self.synth.drum_settings {
+                        if instrument[116] != 0 {
+                            instrument[117] = second as i32;
+                        }
+                    }
+                }
                 if matches!(first, 120 | 123) {
                     self.held_drums[owner] = [0; 128];
                 }

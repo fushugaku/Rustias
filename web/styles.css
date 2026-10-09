@@ -42,3 +42,6 @@
 .drum-track .step-notes{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:10px;text-align:left;overflow-wrap:anywhere}.chord-keyboard.drum-keyboard{grid-template-columns:repeat(4,minmax(0,1fr))}.editor-dialog .drum-note{height:64px;min-height:64px;padding:6px!important;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}.drum-index{font:9px ui-monospace,SFMono-Regular,monospace;opacity:.7}.drum-name{max-width:100%;font:11px/12px ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}.selected-chord{overflow-wrap:anywhere}
 @media(max-width:520px){.chord-keyboard.drum-keyboard{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .chord-note:hover:not(:disabled){background:#e77b82;border-color:#8b303c}.chord-note[aria-pressed=true]:hover:not(:disabled){background:#f0a7ad;border-color:#74323b;color:#481e24}
+.step-navigation{display:flex;gap:4px;flex:none}.step-navigation button{width:44px;padding:0;font-size:20px}#step-editor .dialog-heading{gap:8px}#step-title{min-width:0}
+.sample-kit+.sample-kit{margin-left:0}
+.step-navigation button:disabled{opacity:.4}

@@ -40,7 +40,7 @@ function closePicker(returnFocus=false){
 }
 popup.addEventListener("toggle",event=>{if(event.newState==="closed"&&openPicker){openPicker.button.setAttribute("aria-expanded","false");openPicker=null;}});
 document.addEventListener("pointerdown",event=>{if(openPicker&&!popup.contains(event.target)&&!openPicker.button.contains(event.target))closePicker();});
-export function makePicker({label,options,value,onChange,short,searchable=false}){
+export function makePicker({label,options,value,onChange,short,searchable=false,searchLabel='Search programs'}){
   const button=document.createElement("button");button.type="button";button.className="lcd-choice";button.setAttribute("role","combobox");button.setAttribute("aria-label",label);button.setAttribute("aria-haspopup","listbox");button.setAttribute("aria-expanded","false");button.setAttribute("aria-controls",popup.id);
   const text=document.createElement("span"),arrow=document.createElement("span");arrow.className="choice-arrow";arrow.textContent="⌄";arrow.setAttribute("aria-hidden","true");button.append(text,arrow);
   const picker={button,options,value,onChange,render(next,override){picker.value=next;const option=picker.options.find(o=>o.value===next),name=override??option?.label;text.textContent=short?.(name)??name??String(next);button.title=`${label}: ${name??next}`;}};
@@ -53,7 +53,7 @@ export function makePicker({label,options,value,onChange,short,searchable=false}
     popup.style.top=spaceBelow>=Math.min(220,spaceAbove)?`${rect.bottom+4}px`:"auto";popup.style.bottom=spaceBelow>=Math.min(220,spaceAbove)?"auto":`${innerHeight-rect.top+4}px`;
     popup.style.maxHeight=`${Math.min(420,Math.max(spaceBelow,spaceAbove))}px`;
     let search;
-    if(searchable){search=document.createElement('input');search.type='search';search.className='choice-search';search.placeholder='Search programs';search.setAttribute('aria-label','Search programs');search.addEventListener('input',()=>{const query=search.value.trim().toLowerCase();for(const item of popup.querySelectorAll('[role=option]'))item.hidden=!item.textContent.toLowerCase().includes(query);});popup.append(search);}
+    if(searchable){search=document.createElement('input');search.type='search';search.className='choice-search';search.placeholder=searchLabel;search.setAttribute('aria-label',searchLabel);search.addEventListener('input',()=>{const query=search.value.trim().toLowerCase();for(const item of popup.querySelectorAll('[role=option]'))item.hidden=!item.textContent.toLowerCase().includes(query);});popup.append(search);}
     for(const option of picker.options){const item=document.createElement("button");item.type="button";item.textContent=option.label;item.setAttribute("role","option");item.setAttribute("aria-selected",option.value===picker.value);item.addEventListener("click",()=>{choose(option.value);closePicker(true);});popup.append(item);}
     if(popup.showPopover)popup.showPopover();else popup.hidden=false;button.setAttribute("aria-expanded","true");
     const active=popup.querySelector('[aria-selected="true"]');if(search){popup.scrollTop=0;search.focus({preventScroll:true});}else{active?.focus({preventScroll:true});active?.scrollIntoView({block:"nearest"});}

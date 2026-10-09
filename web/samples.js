@@ -1,14 +1,6 @@
 import {makePicker} from "./panel.js";
-
-export const emptySamples=()=>({version:1,slots:Array.from({length:16},()=>({source:"synth",mode:0}))});
-export function validateSamples(value){
-  if(value==null)return emptySamples();
-  if(value.version!==1||!Array.isArray(value.slots)||value.slots.length!==16)throw new Error("Invalid drum sample assignments.");
-  return {version:1,slots:value.slots.map(slot=>{
-    if(typeof slot?.source!=="string"||!(/^(synth|808:[a-z0-9-]+|custom:[a-zA-Z0-9-]+)$/.test(slot.source))||![0,1,2].includes(slot.mode))throw new Error("Invalid drum sample assignment.");
-    return {source:slot.source,mode:slot.mode,...(slot.name?{name:String(slot.name).slice(0,100)}:{})};
-  })};
-}
+import {emptySamples,validateSamples} from './sample-state.js';
+export {emptySamples,validateSamples} from './sample-state.js';
 class SampleStore {
   async open(){
     this.database??=new Promise((resolve,reject)=>{
@@ -35,7 +27,8 @@ export function createDrumSamples({getInstrument,isDrum,onAssign,onKit,onChange,
   const host=document.createElement("div");host.className="sample-controls";host.innerHTML='<div class="sample-source"><label>Source</label><div id="sample-source"></div></div><div class="sample-mode"><label>Playback</label><div id="sample-mode"></div></div><button id="sample-upload">Upload</button><input id="sample-file" type="file" accept="audio/*,.wav,.aif,.aiff,.flac,.ogg,.mp3,.m4a" hidden>';
   $(".module-drums").append(host);
   const kitButton=document.createElement("button");kitButton.id="sample-kit";kitButton.className="sample-kit";kitButton.textContent="808 kit";$(".module-drums .module-heading").append(kitButton);
-  const picker=makePicker({label:"Drum sample source",value:"synth",options:[{value:"synth",label:"Synth engine"}],onChange:source=>setSource(getInstrument(),source).catch(onError)});
+  const kit909=document.createElement('button');kit909.id='sample-kit-909';kit909.className='sample-kit';kit909.textContent='909 kit';$('.module-drums .module-heading').append(kit909);
+  const picker=makePicker({label:"Drum sample source",value:"synth",options:[{value:"synth",label:"Synth engine"}],searchable:true,searchLabel:'Search samples',onChange:source=>setSource(getInstrument(),source).catch(onError)});
   const playback=makePicker({label:"Sample playback",value:0,options:modes,onChange:mode=>{
     const instrument=getInstrument();config.slots[instrument].mode=mode;playback.render(mode);connection?.node.port.postMessage({type:"sample-mode",instrument,mode});onChange();
   }});
@@ -51,7 +44,7 @@ export function createDrumSamples({getInstrument,isDrum,onAssign,onKit,onChange,
   }
   const ready=(async()=>{
     const response=await fetch(new URL("./samples/manifest.json",import.meta.url));if(!response.ok)throw new Error("Could not load the drum sample library.");
-    const library=await response.json();if(library.samples?.length!==64)throw new Error("The drum library is incomplete.");manifest=library.samples;
+    const library=await response.json(),expected=library.banks?.reduce((sum,bank)=>sum+bank.count,0)??64;if(library.samples?.length!==expected)throw new Error("The drum library is incomplete.");manifest=library.samples;
     try{custom=await store.list();}catch(error){onError(new Error(`Could not open the local sample library: ${error.message}`));}
     rebuildOptions();render();
   })();ready.catch(onError);
@@ -99,12 +92,15 @@ export function createDrumSamples({getInstrument,isDrum,onAssign,onKit,onChange,
       try{await decode(id,file);await store.put({id,name:file.name,blob:file});custom.push({id,name:file.name});rebuildOptions();await setSource(uploadInstrument,id);}finally{loading--;render();}
     }catch(error){onError(error);}finally{event.target.value="";}
   });
-  kitButton.addEventListener("click",async()=>{
+  async function loadKit(bank){
     try{await ready;const categories=["kick","snare","clap","closed-hat","open-hat","low-tom","mid-tom","high-tom","cowbell","rim","maracas","claves","low-conga","mid-conga","high-conga","cymbal"];
-      config={version:1,slots:categories.map(category=>{const choices=manifest.filter(s=>s.category===category),s=choices[Math.floor(choices.length/2)];return {source:s.id,name:s.name,mode:0};})};
-      for(let i=0;i<16;i++)versions[i]++;pruneDecoded();onKit();render();onChange();await ensureAudio();await Promise.all(config.slots.map((_,i)=>loadSlot(i)));
+      const samples=bank==='909'?['BT7A0D7','ST7T7S7','HANDCLP1','HHCD4','HHOD6','LT7D7','MT7D7','HT7D7','RIM127','RIDED4','CSHD4','BT0AADA','ST0TAS7','HANDCLP2','HHCD8','HHOD8'].map(file=>manifest.find(s=>s.id===`909:${file.toLowerCase()}`)):categories.map(category=>{const choices=manifest.filter(s=>s.id.startsWith('808:')&&s.category===category);return choices[Math.floor(choices.length/2)];});
+      if(samples.some(sample=>!sample))throw new Error(`The ${bank} kit is incomplete.`);
+      config={version:2,slots:samples.map(s=>({source:s.id,name:s.name,mode:0}))};
+      for(let i=0;i<16;i++)versions[i]++;pruneDecoded();onKit(bank);render();onChange();await ensureAudio();await Promise.all(config.slots.map((_,i)=>loadSlot(i)));
     }catch(error){onError(error);}
-  });
+  }
+  kitButton.addEventListener('click',()=>loadKit('808'));kit909.addEventListener('click',()=>loadKit('909'));
   render();
   return {ready,render,validateConfig:validateSamples,getConfig:()=>structuredClone(config),assigned:i=>config.slots[i].source!=="synth",
     instrumentNames:()=>config.slots.map((slot,i)=>slot.source==='synth'?`Drum ${String(i+1).padStart(2,'0')}`:picker.options.find(option=>option.value===slot.source)?.label??slot.name??'Missing local sample'),

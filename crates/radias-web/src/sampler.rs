@@ -1,6 +1,6 @@
 //! Browser-only PCM source; all processing uses the native Rust DSP kernels.
 use radias_synth_application::{
-    amplifier::{AmplifierController, ControllerTables},
+    amplifier::{AmplifierController, AmplifierProgram, ControllerTables},
     clock::InstrumentClock,
     comb::CombVoiceControl,
     drum_program::DrumInstrumentProgram,
@@ -50,6 +50,7 @@ struct SampleVoice {
     released: bool,
     born: u64,
     amplitude: AmplifierController,
+    midi_volume_gain: u16,
     envelopes: VoiceEnvelopes,
     modulation: VoiceModulation,
     filter: DualFilterGraph,
@@ -82,6 +83,25 @@ pub struct Sampler {
     frames: u64,
 }
 impl Sampler {
+    fn amplifier_program(
+        synth: &StandaloneSynth,
+        instrument: usize,
+        program: DrumInstrumentProgram,
+    ) -> AmplifierProgram {
+        let owner = synth.settings[0][141] as u8;
+        let settings = synth.drum_settings[instrument];
+        let source_gain = if synth.settings[0][152] == 0 {
+            settings[115] as u16
+        } else {
+            synth.engine.source_gain(owner)
+        };
+        let mut amplifier =
+            program
+                .controls
+                .amplifier(source_gain, Some(synth.settings[0][143] as u8), 0);
+        amplifier.level_offset = settings[114] as i8;
+        amplifier
+    }
     pub fn new(synth: &StandaloneSynth) -> Self {
         Self {
             samples: Default::default(),
@@ -194,13 +214,15 @@ impl Sampler {
             if let Some(v) = voice {
                 let program = self.programs[v.instrument];
                 v.amplitude.edit_program(
-                    program.controls.amplifier(
-                        synth.engine.source_gain(owner as u8),
-                        Some(synth.settings[0][143] as u8),
-                        0,
-                    ),
+                    Self::amplifier_program(synth, v.instrument, program),
                     &self.controllers,
                 );
+                let settings = synth.drum_settings[v.instrument];
+                v.midi_volume_gain = if settings[116] != 0 {
+                    self.controllers.amplifier.midi_volume[settings[117] as usize]
+                } else {
+                    8192
+                };
                 v.envelopes.edit(
                     [program.controls.envelope[0], program.controls.envelope[2]],
                     &self.controllers,
@@ -295,15 +317,17 @@ impl Sampler {
             released: false,
             born: self.frames,
             amplitude: AmplifierController::from_program(
-                p.controls.amplifier(
-                    synth.engine.source_gain(owner as u8),
-                    Some(synth.settings[0][143] as u8),
-                    0,
-                ),
+                Self::amplifier_program(synth, instrument, p),
                 note,
                 velocity,
                 &self.controllers,
             ),
+            midi_volume_gain: if synth.drum_settings[instrument][116] != 0 {
+                self.controllers.amplifier.midi_volume
+                    [synth.drum_settings[instrument][117] as usize]
+            } else {
+                8192
+            },
             envelopes: VoiceEnvelopes::new(
                 [p.controls.envelope[0], p.controls.envelope[2]],
                 Some(p.graph.dynamic_filter),
@@ -334,6 +358,11 @@ impl Sampler {
             return;
         };
         let p = self.programs[v.instrument];
+        v.relative_pitch = (radias_synth_domain::note_pitch::fold_note(
+            60 + p.controls.pitch.transpose as i32 - 64,
+        ) as i16
+            - 60)
+            * 256;
         let owner = synth.settings[0][141] as usize;
         let settings = synth.settings[owner];
         let aux = v.envelopes.levels();
@@ -380,8 +409,15 @@ impl Sampler {
             .pitch
             .increment(radias_synth_domain::pitch::PitchCode::new(60 * 256).unwrap());
         v.step = (v.increment.0 as f64 / root.0 as f64).clamp(1.0 / 64.0, 64.0);
+        let key_track = self
+            .controllers
+            .amplifier
+            .key_modulation(p.controls.amplifier_key_tracking, v.relative_pitch);
         v.amplitude.modulations(
-            [targets.controls[13], targets.controls[9]],
+            [
+                (targets.controls[13] as i32 + key_track as i32).clamp(-32767, 32767) as i16,
+                targets.controls[9],
+            ],
             &self.controllers,
         );
         let first = v
@@ -556,9 +592,11 @@ impl Sampler {
                 filtered
             };
             v.envelopes.next(&self.controllers);
-            let level = v
-                .envelope
-                .step(v.amplitude.next_target(&self.controllers), 0x1d4);
+            let target = ((v.amplitude.next_target(&self.controllers) as i32
+                * v.midi_volume_gain as i32)
+                >> 13)
+                .clamp(0, 32767) as i16;
+            let level = v.envelope.step(target, 0x1d4);
             bus = pan::route(
                 Sample(saturate(multiply_q15(filtered.0, level))),
                 v.pan.next(SLEW),

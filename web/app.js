@@ -1,6 +1,7 @@
 import {createDrumSamples} from "./samples.js";
 import {createSequencer} from "./sequencer-ui.js";
 import {drumSequenceKit} from "./sequence-labels.js";
+import {migrateSampleAmplifiers} from './sample-state.js';
 import {emptySequence,validateSequence} from "./sequence.js";
 import {PatchStore} from "./patches.js";
 import {MAX_RDL_BYTES,readRdl,rdlPatches,validateRdlSource,rdlMasks} from './rdl.js';
@@ -33,8 +34,9 @@ const patchStore=new PatchStore(window.localStorage);
 const send = message => node?.port.postMessage(message);
 const global = id => timbres[0].values[id];
 const isDrum = () => global(140) !== 0 && global(141) === selected;
-const instrumentParameter = id => parameters[id].scope !== "global" && !(id >= 59 && id <= 72 || id >= 114 && id <= 120 || id >= 137 && id <= 139 || id >= 150 && id <= 151 || id === 153);
-const values = () => parameters.map(p => p.id === 118 ? (timbres[selected].values[67] ? timbres[selected].values[68] - 1 : 0) : isDrum() && instrumentParameter(p.id) ? drums[global(142)][p.id] : timbres[selected].values[p.id]);
+const isSample = () => isDrum() && sampleUI?.assigned(global(142));
+const instrumentParameter = id => parameters[id].scope !== "global" && (isSample() && id >= 114 && id <= 117 || !(id >= 59 && id <= 72 || id >= 114 && id <= 120 || id >= 137 && id <= 139 || id >= 150 && id <= 151 || id === 153));
+const values = () => parameters.map(p => p.id === 118 ? (isSample() ? 0 : timbres[selected].values[67] ? timbres[selected].values[68] - 1 : 0) : isDrum() && instrumentParameter(p.id) ? drums[global(142)][p.id] : timbres[selected].values[p.id]);
 function unavailableSource(){return rdlSource?.unavailable.find(s=>isDrum()?s.drum===global(142):s.drum==null&&s.timbre===selected);}
 function muteMasks(){const masks=rdlMasks(rdlSource);for(let i=0;i<16;i++)if(sampleUI?.assigned(i))masks.drums&=~(1<<i);return masks;}
 function syncRdlMasks(){if(!node)return;const masks=muteMasks(),key=`${masks.timbres}:${masks.drums}`;if(key!==lastRdlMasks){send({type:'rdl-muted',...masks});lastRdlMasks=key;}}
@@ -68,7 +70,8 @@ function disabled(id, v) {
   if ([64, 63].includes(id)) return v[62] === 1;
   if ([68, 69, 70].includes(id)) return v[67] === 0;
   if (id === 115) return v[152] === 1;
-  if ([114, 116, 117, 118].includes(id) && isDrum()) return true;
+  if ([114, 116, 117].includes(id) && isDrum() && !isSample()) return true;
+  if (id === 118 && isDrum()) return true;
   if (id === 117) return v[116] === 0;
   if (id >= 125 && id <= 136) return v[122] !== 9;
   if ([75, 83].includes(id)) return v[id + 3] !== 0;
@@ -92,7 +95,7 @@ function setControl(id, value, fromUser = true) {
     for (const t of timbres) if ((t.values[72] === 16 ? global(148) : t.values[72]) === channel) t.values[id] = value;
   }
   if (fromUser) timbres[selected].preset = "custom";
-  send({type: "control", timbre: selected, parameter: id, value}); updateControls(); updateKeys(); scheduleSession();
+  send(isSample() && id >= 114 && id <= 117 ? {type:"drum-control",instrument:global(142),parameter:id,value} : {type: "control", timbre: selected, parameter: id, value}); updateControls(); updateKeys(); scheduleSession();
 }
 function updateControls() {
   const v = values();
@@ -146,7 +149,7 @@ function normalizeEngine(value){
 }
 function snapshot(){return {version:2,engine:state(),sequencer:sequenceUI.getConfig(),samples:sampleUI?.getConfig?.()??null,...(rdlSource?{rdl:structuredClone(rdlSource)}:{})};}
 function loadSnapshot(value){
-  const program=normalizeEngine(value.version===2?value.engine:value),sequence=validateSequence(value.version===2?value.sequencer:emptySequence()),samples=sampleUI?.validateConfig(value.version===2?value.samples:null),source=validateRdlSource(value.version===2?value.rdl:null);
+  const previousSamples=value.version===2?value.samples:null,samples=sampleUI.validateConfig(previousSamples),program=migrateSampleAmplifiers(normalizeEngine(value.version===2?value.engine:value),previousSamples,samples),sequence=validateSequence(value.version===2?value.sequencer:emptySequence()),source=validateRdlSource(value.version===2?value.rdl:null);
   stop();$('#error').hidden=true;rdlSource=source;for(const t of timbres)t.preset="custom";
   const samplesReady=sampleUI?.setConfig(samples);acceptState(program);sequenceUI.setConfig(sequence);loadEngine(program);send({type:"sequencer",config:sequence});
   samplesReady?.then(updateControls).catch(showError);
@@ -154,7 +157,7 @@ function loadSnapshot(value){
 function scheduleSession(){clearTimeout(autosaveTimer);autosaveTimer=setTimeout(saveSession,300);}
 function saveSession(){try{patchStore.saveSession({snapshot:snapshot(),activeSavedPatch,selected,volume:Number($("#volume").value)});}catch(error){showError(new Error(`Could not save this patch in the browser: ${error.message}`));}}
 function refreshLibrary(){programPicker.options=programPicker.options.filter(o=>!String(o.value).startsWith("saved:"));for(const patch of patchStore.list())programPicker.options.push({value:`saved:${patch.id}`,label:patch.snapshot.rdl?`${String(patch.snapshot.rdl.slot+1).padStart(3,'0')} · ${patch.name}`:patch.name});updateControls();}
-sequenceUI=createSequencer({onChange:config=>{send({type:"sequencer",config});scheduleSession();},onPlay:playSequence,onStop:stopSequence,onReset:()=>send({type:"sequence-reset"}),onSelectTimbre:t=>{$(`[data-timbre="${t}"]`).click();},onAudition:auditionStep});
+sequenceUI=createSequencer({onChange:config=>{send({type:"sequencer",config});scheduleSession();},onPlay:playSequence,onStop:stopSequence,onReset:()=>send({type:"sequence-reset"}),onSelectTimbre:t=>{$(`[data-timbre="${t}"]`).click();},onSelectDrum:(instrument,timbre)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();setControl(142,instrument,false);},onAudition:auditionStep});
 sequenceUI.setReady(false);
 async function playSequence(){const request=++sequenceRequest;try{await startAudio();if(request!==sequenceRequest)return;send({type:"sequencer",config:sequenceUI.getConfig()});send({type:"sequence-play"});sequenceUI.setStatus({running:true,positions:[0,0,0,0]});}catch(error){showError(error);}}
 async function auditionStep(timbre,step,resolution){const request=++auditionRequest;try{await startAudio();if(request===auditionRequest)send({type:"audition",timbre,step,resolution});}catch(error){showError(error);}}
@@ -345,11 +348,11 @@ fullscreenButton.addEventListener("click",async()=>{
 });
 document.addEventListener("fullscreenchange",updateFullscreen);document.addEventListener("webkitfullscreenchange",updateFullscreen);updateFullscreen();
 function prepareSampleInstrument(instrument){
-  for(const [parameter,value] of [[3,0],[4,127],[5,127],[6,32],[9,0],[1,127],[2,0]]){drums[instrument][parameter]=value;send({type:"drum-control",instrument,parameter,value});}
+  for(const [parameter,value] of [[3,0],[4,127],[5,127],[6,32],[9,0],[1,127],[2,0],[114,0],[115,32512],[116,0],[117,127]]){drums[instrument][parameter]=value;send({type:"drum-control",instrument,parameter,value});}
 }
 function enableDrumKit(){if(!global(140))setControl(140,1);if(!isDrum())$(`[data-timbre="${global(141)}"]`).click();}
-sampleUI=createDrumSamples({getInstrument:()=>global(142),isDrum,ensureAudio:startAudio,onError:showError,onChange:()=>{updateControls();scheduleSession();},onAssign:(instrument,fresh)=>{enableDrumKit();if(fresh)prepareSampleInstrument(instrument);},onKit:()=>{
-  enableDrumKit();for(let i=0;i<16;i++){prepareSampleInstrument(i);for(const [parameter,value] of [[146,60+i],[147,[3,4].includes(i)?1:0]]){drums[i][parameter]=value;send({type:"drum-control",instrument:i,parameter,value});}}
+sampleUI=createDrumSamples({getInstrument:()=>global(142),isDrum,ensureAudio:startAudio,onError:showError,onChange:()=>{updateControls();scheduleSession();},onAssign:(instrument,fresh)=>{enableDrumKit();if(fresh)prepareSampleInstrument(instrument);},onKit:bank=>{
+  enableDrumKit();for(let i=0;i<16;i++){prepareSampleInstrument(i);for(const [parameter,value] of [[146,60+i],[147,([3,4].includes(i)||bank==='909'&&[14,15].includes(i))?1:0]]){drums[i][parameter]=value;send({type:"drum-control",instrument:i,parameter,value});}}
   setControl(142,0);
 }});
 sampleUI.ready.then(updateControls,()=>{});

@@ -38,7 +38,7 @@
     <noscript>JavaScript is required to load the WebAssembly synthesizer.</noscript>
   </main>
   <dialog id="step-editor" class="editor-dialog">
-    <div class="dialog-heading"><h2 id="step-title"></h2><button id="step-close" aria-label="Close step editor">×</button></div>
+    <div class="dialog-heading"><h2 id="step-title"></h2><div class="step-navigation"><button id="step-prev" aria-label="Previous step">←</button><button id="step-next" aria-label="Next step">→</button><button id="step-close" aria-label="Close step editor">×</button></div></div>
     <div class="chord-octaves"><button id="step-octave-down" aria-label="Lower sequence octave">−</button><span id="step-octave"></span><button id="step-octave-up" aria-label="Higher sequence octave">+</button></div>
     <div id="step-notes" class="chord-keyboard"></div><p id="step-selected" class="selected-chord"></p>
     <div class="step-properties"><label>Velocity<input id="step-velocity" type="number" min="1" max="127" value="100"></label><label>Gate %<input id="step-gate" type="number" min="1" max="100" value="75"></label><button id="step-clear">Clear</button><button id="step-copy">Copy next</button></div>

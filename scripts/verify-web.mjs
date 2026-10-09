@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {SequenceClock,StepAudition,emptySequence,validateSequence,RESOLUTIONS,stepFrames} from "../web/sequence.js";
 import {drumSequenceKit,sequenceLabels} from "../web/sequence-labels.js";
+import {emptySamples,validateSamples,migrateSampleAmplifiers} from '../web/sample-state.js';
 import {PatchStore} from "../web/patches.js";
 import {verifyRdl} from './verify-rdl.mjs';
 
@@ -127,11 +128,36 @@ control(9,127);control(8,0);render();const pannedLeft=api.rustias_render(),leftB
 control(8,64);control(90,4);control(91,11);control(92,110);control(83,86);const patchLow=rms(render());const patchHigh=rms(render());assert.ok(Math.abs(patchLow-patchHigh)>.0001,'LFO2 -> amp modulation changes PCM');
 features.push('selected PCM drum: independent live amp, cutoff, pan and LFO/virtual-patch processing');
 
+pcmSetup(48000,2);control(152,0);control(7,64);
+upload(1,Float32Array.from({length:48000},(_,i)=>0.4*Math.sin(i*2*Math.PI*440/48000)),2);
+for(const [id,value] of [[3,0],[4,127],[5,127],[6,20],[9,127],[7,64]])assert.equal(api.rustias_drum_control(1,id,value),1);
+api.rustias_drum_pad(0,100);const ampDry=rms(render().slice(3000));assert.ok(ampDry>.001);
+control(114,-64);assert.ok(rms(render().slice(3000))<.00001,'PCM Level offset changes the selected amplifier live');control(114,0);
+assert.equal(api.rustias_drum_control(1,114,-64),1);assert.ok(rms(render().slice(3000))>ampDry*.9,'A different instrument has its own Level offset');
+control(115,0);assert.ok(rms(render().slice(3000))<.00001,'Manual Source gain silences the selected sample');control(115,32512);assert.ok(rms(render().slice(3000))>ampDry*.9);
+control(116,1);control(117,0);assert.ok(rms(render().slice(3000))<.00001,'PCM MIDI volume acts when RX is enabled');
+api.rustias_midi(0xb1,7,127);assert.equal(api.rustias_value(0,117),0,'CC7 on another channel does not change the kit');
+api.rustias_midi(0xb0,7,127);assert.ok(rms(render().slice(3000))>ampDry*.9,'CC7 restores enabled PCM instruments');
+assert.equal(api.rustias_drum_control(1,117,23),1);api.rustias_midi(0xb0,7,95);const ampProgram=save();assert.equal(ampProgram.drums[0][117],95);assert.equal(ampProgram.drums[1][117],23,'CC7 ignores instruments with MIDI volume RX off');
+assert.equal(ampProgram.timbres[0][114],0);assert.equal(ampProgram.timbres[0][115],32512,'PCM edits do not change the common timbre amplifier');
+assert.equal(api.rustias_drum_control(0,114,-65),0);assert.equal(api.rustias_drum_control(0,115,32768),0);assert.deepEqual(save(),ampProgram,'Invalid amplifier edits leave all instruments intact');
+assert.equal(load(ampProgram),1);assert.deepEqual(save(),ampProgram,'Independent PCM amplifier settings survive JSON reload');
+api.rustias_stop();api.rustias_drum_pad(1,100);assert.ok(rms(render().slice(3000))<.00001,'Reload preserves the second instrument offset');
+control(142,1);control(114,0);assert.ok(rms(render().slice(3000))>ampDry*.9,'The second amplifier restores independently');
+api.rustias_stop();control(142,0);control(116,0);control(52,127);api.rustias_drum_pad(0,100);const keyRoot=rms(render().slice(3000));control(53,76);const keyHigh=rms(render().slice(3000));assert.ok(keyHigh>keyRoot*1.5,'PCM key tracking follows live sample transpose');control(52,0);assert.ok(rms(render().slice(3000))<keyRoot*.3,'PCM Key track must survive modulation updates');
+features.push('PCM amplifier: independent live Key track / Level offset / manual Source gain / MIDI volume, per-instrument CC7 receive and persistence');
+const legacyPcm=emptySamples();legacyPcm.version=1;legacyPcm.slots[0]={source:'808:kick-01',mode:2};
+const legacyGain=structuredClone(ampProgram);legacyGain.timbres[0][115]=8000;const upgradedSamples=validateSamples(legacyPcm),upgradedGain=migrateSampleAmplifiers(legacyGain,legacyPcm,upgradedSamples);
+assert.equal(upgradedSamples.version,2);assert.equal(upgradedGain.drums[0][115],8000,'Older PCM patches keep their common manual gain');assert.equal(legacyGain.drums[0][115],32512,'Migration leaves the source patch intact');
+upgradedGain.drums[0][115]=11000;assert.equal(migrateSampleAmplifiers(upgradedGain,upgradedSamples,upgradedSamples).drums[0][115],11000,'New patches preserve independent gain edits');
+
 const manifest=JSON.parse(fs.readFileSync(new URL("../web/samples/manifest.json",import.meta.url)));
-assert.equal(manifest.samples.length,64);assert.equal(manifest.license,"CC0-1.0");const hashes=new Set();
+assert.equal(manifest.samples.length,224);assert.equal(manifest.banks.find(bank=>bank.id==='808').license,"CC0-1.0");const hashes=new Set();
 for(const sample of manifest.samples){const data=fs.readFileSync(new URL(`../web/samples/${sample.file}`,import.meta.url));assert.equal(data.toString("ascii",0,4),"RIFF");assert.equal(data.toString("ascii",8,12),"WAVE");assert.ok(sample.duration>0);assert.equal(createHash("sha256").update(data).digest("hex"),sample.sha256);hashes.add(sample.sha256);}
-assert.equal(hashes.size,64,"Bundled recordings must be distinct");
-features.push("64 distinct CC0 WAVs with source revision, license and verified checksums");
+const samples808=manifest.samples.filter(sample=>sample.id.startsWith('808:')),samples909=manifest.samples.filter(sample=>sample.id.startsWith('909:'));
+assert.equal(samples808.length,64);assert.equal(new Set(samples808.map(sample=>sample.sha256)).size,64,'All 808 recordings remain distinct');assert.equal(samples909.length,160,'The original 909 set must stay complete');
+for(const bank of manifest.banks){assert.equal(manifest.samples.filter(sample=>sample.id.startsWith(`${bank.id}:`)).length,bank.count);assert.ok(bank.sourceCommit);const license=fs.readFileSync(new URL(`../web/samples/${bank.licenseFile}`,import.meta.url));if(bank.licenseSha256)assert.equal(createHash('sha256').update(license).digest('hex'),bank.licenseSha256,'Original license text stays unmodified');}
+features.push("64 CC0 808 WAVs plus the complete 160-file TR-909 set, source revisions, original licenses and verified checksums");
 
 // Labels must describe the instruments that the native MIDI path triggers,
 // rather than assuming the kit occupies C4 through D#5.
