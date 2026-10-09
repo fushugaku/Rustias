@@ -85,6 +85,10 @@ Click an output port and then a matching input to connect it. Blue cables carry 
 
 Every synthesis module except the required Output has an **×** button, including the original Noise, OSC 1, filters and envelopes. Removal deletes its attached cables and activates the resulting routing. Undo restores the module and cables; removed original modules also become available in Add module. Removed modules and independent OSC 1 settings persist in program/timbre saves and JSON.
 
+**Drive/WS Position → PreFilt1 / PreAmp** rewires a serial modular path before Filter 1 or Amplifier while leaving every module in place. A custom branched path keeps its explicit cables. Dragging ends on release, lost pointer capture, window blur or a mode change; zoom and canvas scrolling preserve the pointer offset.
+
+**Add module → SWITCH** provides audio **in** and independent outputs **A/B**. **Route** chooses the active output; a connected **select** CV overrides it (below 0.5 → A, otherwise B). Live changes crossfade over 5 ms without restarting voices. For a filtered/direct path, connect Drive/WS → Switch; A → Filter → Mixer A, B → Mixer B; Mixer → Amplifier → Output. Set both Mixer input levels to 127 for unity gain. Reuse the same Switch for any two audio branches. Output identities, Route and cables are saved with programs/timbres.
+
 **Routing On** evaluates the cables for every voice, including PCM samples. Changing a cable enables routing; moving a module does not change sound. **Routing Off** uses the original fixed DSP path while retaining the custom patch. **Reset modules** restores the initial layout and disables routing. Undo/Redo cover module edits. Feedback loops are rejected. Layout, module parameters and cables are included in Save, Save copy, session restore and JSON export.
 
 ### One engine source

@@ -107,7 +107,9 @@ function setControl(id, value, fromUser = true) {
   }
   if(fromUser){markProgram();if(p.scope!=="global"&&!SLOT_PARAMETERS.has(id))markTimbre();}
   if(circuitUI?.getConfig().tracks[selected].enabled){clearTimeout(circuitTimer);const timbre=selected;circuitTimer=setTimeout(()=>sendCircuits(timbre),60);}
-  if(!(editingSample&&instrumentParameter(id)))send(isSample() && id >= 114 && id <= 117 ? {type:"drum-control",instrument:global(142),parameter:id,value} : {type: "control", timbre: selected, parameter: id, value}); updateControls(); updateKeys(); scheduleSession();
+  if(!(editingSample&&instrumentParameter(id)))send(isSample() && id >= 114 && id <= 117 ? {type:"drum-control",instrument:global(142),parameter:id,value} : {type: "control", timbre: selected, parameter: id, value});
+  if(id===30)circuitUI?.positionDrive(value);
+  updateControls(); updateKeys(); scheduleSession();
 }
 function updateControls() {
   const v = values();

@@ -14,8 +14,10 @@ export const MODULES={
   sum:{name:'MIXER',out:'audio',inputs:{a:'audio',b:'audio',c:'audio'},controls:{a:['A',0,127,64],b:['B',0,127,64],c:['C',0,127,64]}},
   lfo:{name:'LFO',out:'cv',inputs:{rate:'cv'},controls:{rate:['Rate Hz',.01,40,1],shape:['Wave',0,3,0,['Sine','Triangle','Square','Saw']],depth:['Depth %',0,100,100]}},
   envelope:{name:'ENVELOPE',out:'cv',inputs:{gate:'cv'},controls:{attack:['Attack',0,127,0],decay:['Decay',0,127,48],sustain:['Sustain',0,127,100],release:['Release',0,127,32]}},
+  switch:{name:'SWITCH',outputs:{a:'audio',b:'audio'},inputs:{in:'audio',select:'cv'},controls:{route:['Route',0,1,0,['A','B']]}},
 };
-export const EXTRA_MODULES=['oscillator1','oscillator','filter','shaper','vca','sum','lfo','envelope'];
+export const EXTRA_MODULES=['oscillator1','oscillator','filter','shaper','vca','sum','lfo','envelope','switch'];
+export const outputPorts=kind=>MODULES[kind].outputs??(MODULES[kind].out?{out:MODULES[kind].out}:{});
 const BUILTINS=['osc1','osc2','noise','mixer','filter1','filter2','drive','amp','eg1','eg2','eg3','lfo1','lfo2','gate','velocity','output'];
 export const availableModules=circuit=>[...EXTRA_MODULES,...BUILTINS.filter(kind=>kind!=='output'&&!circuit.nodes.some(n=>n.kind===kind))];
 export function removeModule(circuit,id){
@@ -26,7 +28,7 @@ export function defaultCircuit(v=[]){
   const positions=[[24,24],[24,400],[24,780],[350,24],[700,24],[1050,24],[1400,24],[1750,24],[350,580],[700,580],[1050,580],[1400,580],[1750,580],[350,1120],[700,1120],[2100,24]];
   const nodes=BUILTINS.map((kind,id)=>({id,kind,x:positions[id][0]+(positions[id][0]>=350?24:0),y:positions[id][1],params:{}}));
   const wires=[{from:0,to:3,port:'a'},{from:1,to:3,port:'b'},{from:2,to:3,port:'c'}];
-  const chain=v[30]===0?[3,6,4,5,7,15]:[3,4,5,6,7,15];
+  const chain=(v[30]??0)===0?[3,6,4,5,7,15]:[3,4,5,6,7,15];
   for(let i=1;i<chain.length;i++)wires.push({from:chain[i-1],to:chain[i],port:'in'});
   return {enabled:false,nodes,wires,panels:Object.fromEntries(['patch1','patch2','patch3','patch4','patch5','patch6','voice','midi','scale','drums'].map((key,i)=>[key,{x:24+i%6*350,y:i<6?1310:1760}]))};
 }
@@ -42,10 +44,27 @@ export function validateCircuit(raw){
   }
   if(outputs!==1)throw new Error('Keep one Output module.');const inputs=new Set();
   for(const w of c.wires){const a=ids.get(w.from),b=ids.get(w.to),type=b&&MODULES[b.kind].inputs?.[w.port],key=`${w.to}:${w.port}`;
-    if(!a||!b||!type||MODULES[a.kind].out!==type||inputs.has(key))throw new Error('Connect audio to audio and CV to CV; use a Mixer to combine signals.');inputs.add(key);}
+    if(!a||!b||!type||outputPorts(a.kind)[w.output??'out']!==type||inputs.has(key))throw new Error('Connect audio to audio and CV to CV; use a Mixer to combine signals.');inputs.add(key);}
   const done=new Set();while(done.size<c.nodes.length){const before=done.size;for(const n of c.nodes)if(!done.has(n.id)&&c.wires.filter(w=>w.to===n.id).every(w=>done.has(w.from)))done.add(n.id);if(done.size===before)throw new Error('This cable would create a feedback loop.');}
   c.panels??={};for(const [key,pos]of Object.entries(c.panels))if(!/^[a-z][a-z0-9]*$/.test(key)||!['x','y'].every(a=>Number.isFinite(pos[a])&&pos[a]>=0&&pos[a]<=10000))throw new Error('Invalid panel position.');return c;
 }
 export function validateCircuits(raw,values){if(raw==null)return emptyCircuits(values);if(raw.version!==1||raw.tracks?.length!==4)throw new Error('Invalid modular patch.');return {version:1,tracks:raw.tracks.map(validateCircuit)};}
-export function connect(circuit,from,to,port){const copy=structuredClone(circuit);copy.wires=copy.wires.filter(w=>w.to!==to||w.port!==port);copy.wires.push({from,to,port});copy.enabled=true;return validateCircuit(copy);}
+export function connect(circuit,from,to,port,output='out'){const copy=structuredClone(circuit);copy.wires=copy.wires.filter(w=>w.to!==to||w.port!==port);copy.wires.push({from,to,port,...(output==='out'?{}:{output})});copy.enabled=true;return validateCircuit(copy);}
+// Move the Drive in a serial audio path without changing any module position.
+// Branched/custom paths remain explicit: their cables are never discarded.
+export function placeDrive(circuit,position){
+  const copy=structuredClone(circuit),drive=copy.nodes.find(n=>n.kind==='drive'),target=copy.nodes.find(n=>n.kind===(position===0?'filter1':'amp'));
+  if(!drive||!target)return null;
+  const incoming=copy.wires.filter(w=>w.to===drive.id&&w.port==='in'),outgoing=copy.wires.filter(w=>w.from===drive.id);
+  if(incoming.length!==1||outgoing.length!==1||outgoing[0].port!=='in')return null;
+  if(outgoing[0].to===target.id)return copy;
+  const reaches=(from,to)=>{const seen=new Set();while(!seen.has(from)){seen.add(from);const next=copy.wires.filter(w=>w.from===from);if(next.length!==1||next[0].port!=='in')return false;from=next[0].to;if(from===to)return true;}return false;};
+  if(!reaches(drive.id,target.id)&&!reaches(target.id,drive.id))return null;
+  copy.wires=copy.wires.filter(w=>w!==incoming[0]&&w!==outgoing[0]);
+  copy.wires.push({...incoming[0],to:outgoing[0].to,port:outgoing[0].port});
+  const before=copy.wires.find(w=>w.to===target.id&&w.port==='in');if(!before)return null;
+  copy.wires=copy.wires.filter(w=>w!==before);
+  copy.wires.push({...before,to:drive.id},{from:drive.id,to:target.id,port:'in'});
+  copy.enabled=true;return validateCircuit(copy);
+}
 export function audioCircuit(c){return {enabled:c.enabled,nodes:c.nodes.map(({id,kind,params})=>({id,kind,params})),wires:c.wires};}

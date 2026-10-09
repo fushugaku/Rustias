@@ -10,6 +10,8 @@ import {PatchStore} from "../web/patches.js";
 import {defaultCircuit,validateCircuits,connect,audioCircuit,removeModule,availableModules,MODULES} from "../web/circuit.js";
 import {verifyRdl} from './verify-rdl.mjs';
 import {verifyPrograms} from './verify-programs.mjs';
+import {verifyCircuitDrag} from './verify-circuit-drag.mjs';
+import {verifyCircuitSwitch} from './verify-circuit-switch.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
@@ -49,6 +51,7 @@ function load(program) {
   return api.rustias_load(data.length);
 }
 const features=[];
+features.push(verifyCircuitDrag());
 features.push(...verifyRdl(module).features);
 for(let mode=0;mode<4;mode++)for(let wave=0;wave<(mode===0?6:4);wave++) {
   api.rustias_init();control(0,wave);control(10,mode);control(11,64);api.rustias_note(0,60,100);
@@ -343,6 +346,7 @@ const minimalGraph=defaultCircuit();for(const n of [...minimalGraph.nodes])if(n.
 const primarySnapshot={...modularSnapshot,circuits:{version:1,tracks:[primaryGraph,removedNoise,defaultCircuit(),defaultCircuit()]}};
 const primarySaved=graphStore.save('Independent OSC1 and removed Noise',primarySnapshot);assert.deepEqual(validateCircuits(graphStore.list().find(p=>p.id===primarySaved.id).snapshot.circuits),primarySnapshot.circuits,'Independent OSC1 settings and removed builtins survive program storage');
 features.push('Full independent OSC1 modules: all 18 waveform/mode combinations, CTRL1/2, VPM ratio, pitch/cents, audio Cross and CV wiring, isolated states; builtin removal/re-addition and patch persistence');
+features.push(verifyCircuitSwitch({api,setCircuit,graphNote,render,rms,control}));
 
 const reports = [];
 for (const sampleRate of [48000, 44100]) {

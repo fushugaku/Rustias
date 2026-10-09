@@ -39,6 +39,11 @@ pub struct Wire {
     pub from: usize,
     pub to: usize,
     pub port: String,
+    #[serde(default = "default_output")]
+    pub output: String,
+}
+fn default_output() -> String {
+    "out".into()
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -66,6 +71,7 @@ enum Kind {
     Sum,
     Lfo,
     Envelope,
+    Switch,
 }
 fn kind(name: &str) -> Option<Kind> {
     Some(match name {
@@ -93,6 +99,7 @@ fn kind(name: &str) -> Option<Kind> {
         "sum" => Kind::Sum,
         "lfo" => Kind::Lfo,
         "envelope" => Kind::Envelope,
+        "switch" => Kind::Switch,
         _ => return None,
     })
 }
@@ -110,6 +117,15 @@ fn cv(k: Kind) -> bool {
             | Kind::Envelope
     )
 }
+fn output_port(k: Kind, name: &str) -> Option<(usize, bool)> {
+    match (k, name) {
+        (Kind::Switch, "a") => Some((0, false)),
+        (Kind::Switch, "b") => Some((1, false)),
+        (Kind::Switch | Kind::Output, _) => None,
+        (_, "out") => Some((0, cv(k))),
+        _ => None,
+    }
+}
 fn port(k: Kind, name: &str) -> Option<(usize, bool)> {
     match (k, name) {
         (Kind::Mix | Kind::Sum, "a") => Some((0, false)),
@@ -123,6 +139,7 @@ fn port(k: Kind, name: &str) -> Option<(usize, bool)> {
             | Kind::Shaper
             | Kind::Amp
             | Kind::Gain
+            | Kind::Switch
             | Kind::Output,
             "in",
         ) => Some((0, false)),
@@ -135,13 +152,19 @@ fn port(k: Kind, name: &str) -> Option<(usize, bool)> {
         (Kind::Primary, "lfo") => Some((4, true)),
         (Kind::Lfo, "rate") => Some((3, true)),
         (Kind::Envelope, "gate") => Some((3, true)),
+        (Kind::Switch, "select") => Some((3, true)),
         _ => None,
     }
+}
+#[derive(Clone, Copy)]
+struct Signal {
+    id: usize,
+    output: usize,
 }
 struct Node {
     id: usize,
     kind: Kind,
-    inputs: [Option<usize>; 5],
+    inputs: [Option<Signal>; 5],
     values: Values,
     numbers: [f64; 6],
     filters: Vec<radias_synth_domain::filter::FilterCoefficients>,
@@ -174,6 +197,7 @@ struct State {
     env_started: bool,
     env_gate: bool,
     phase: f64,
+    switch_mix: Option<f64>,
 }
 impl Default for State {
     fn default() -> Self {
@@ -189,6 +213,7 @@ impl Default for State {
             env_started: false,
             env_gate: false,
             phase: 0.0,
+            switch_mix: None,
         }
     }
 }
@@ -270,6 +295,12 @@ impl CircuitVoice {
                         numbers[i] = get(key, [0.0, 48.0, 100.0, 32.0][i], 0.0, 127.0)?;
                     }
                 }
+                Kind::Switch => {
+                    numbers[0] = get("route", 0.0, 0.0, 1.0)?;
+                    if numbers[0].fract() != 0.0 {
+                        return Err("Invalid route.".into());
+                    }
+                }
                 _ => values = *base,
             }
             ids[module.id] = Some(nodes.len());
@@ -302,10 +333,18 @@ impl CircuitVoice {
                 .flatten()
                 .ok_or("Cable destination is missing.")?;
             let (p, control) = port(nodes[b].kind, &wire.port).ok_or("Unknown input port.")?;
-            if control != cv(nodes[a].kind) || nodes[a].kind == Kind::Output {
+            let (channel, source_control) =
+                output_port(nodes[a].kind, &wire.output).ok_or("Unknown output port.")?;
+            if control != source_control {
                 return Err("Connect audio to audio and CV to CV.".into());
             }
-            if nodes[b].inputs[p].replace(wire.from).is_some() {
+            if nodes[b].inputs[p]
+                .replace(Signal {
+                    id: wire.from,
+                    output: channel,
+                })
+                .is_some()
+            {
                 return Err("Each input accepts one cable; use a Mixer to combine signals.".into());
             }
         }
@@ -314,7 +353,7 @@ impl CircuitVoice {
         while order.len() < nodes.len() {
             let before = order.len();
             for (i, n) in nodes.iter().enumerate() {
-                if !done[n.id] && n.inputs.iter().flatten().all(|id| done[*id]) {
+                if !done[n.id] && n.inputs.iter().flatten().all(|s| done[s.id]) {
                     done[n.id] = true;
                     order.push(i);
                 }
@@ -331,7 +370,13 @@ impl CircuitVoice {
                 continue;
             }
             needed[id] = true;
-            stack.extend(nodes[ids[id].unwrap()].inputs.iter().flatten().copied());
+            stack.extend(
+                nodes[ids[id].unwrap()]
+                    .inputs
+                    .iter()
+                    .flatten()
+                    .map(|s| s.id),
+            );
         }
         order.retain(|i| needed[nodes[*i].id]);
         for node in &mut nodes {
@@ -444,7 +489,7 @@ impl SignalProcessor for CircuitVoice {
         level: i16,
         table: &WaveformTable,
     ) -> Sample {
-        let mut out = [0.0; LIMIT];
+        let mut out = [[0.0; 2]; LIMIT];
         let gate = self.controls[0] > 0.0;
         if !gate {
             self.release_frames = self.release_frames.saturating_add(1);
@@ -454,7 +499,7 @@ impl SignalProcessor for CircuitVoice {
         for &i in &self.plan.order {
             let n = &self.plan.nodes[i];
             let state = &mut self.states[n.id];
-            let input = n.inputs.map(|id| id.map_or(0.0, |id| out[id]));
+            let input = n.inputs.map(|s| s.map_or(0.0, |s| out[s.id][s.output]));
             let gain = if n.inputs[3].is_some() { input[3] } else { 1.0 };
             let audio = Sample((input[0] * 2147483647.0) as i32);
             let result = match n.kind {
@@ -468,6 +513,19 @@ impl SignalProcessor for CircuitVoice {
                 }
                 Kind::Sum => {
                     input[0] * n.numbers[0] + input[1] * n.numbers[1] + input[2] * n.numbers[2]
+                }
+                Kind::Switch => {
+                    let target = if n.inputs[3].is_some() {
+                        if input[3] >= 0.5 { 1.0 } else { 0.0 }
+                    } else {
+                        n.numbers[0]
+                    };
+                    // Start on the chosen route. Live changes crossfade over 5 ms,
+                    // preserving all oscillator, filter and envelope states.
+                    let mix = state.switch_mix.get_or_insert(target);
+                    *mix += (target - *mix).clamp(-1.0 / 240.0, 1.0 / 240.0);
+                    out[n.id][1] = input[0] * *mix;
+                    input[0] * (1.0 - *mix)
                 }
                 Kind::Filter1 | Kind::Filter => {
                     let c = if n.filters.is_empty() {
@@ -664,7 +722,7 @@ impl SignalProcessor for CircuitVoice {
                     state.env.envelope.segment.level as f64 / 65535.0
                 }
             };
-            out[n.id] = if result.is_finite() {
+            out[n.id][0] = if result.is_finite() {
                 result.clamp(-1.0, 1.0)
             } else {
                 0.0
@@ -684,7 +742,7 @@ impl SignalProcessor for CircuitVoice {
             1.0
         };
         Sample(saturate(
-            (out[self.plan.output] * 2147483647.0 * release) as i64,
+            (out[self.plan.output][0] * 2147483647.0 * release) as i64,
         ))
     }
 }
