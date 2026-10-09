@@ -27,11 +27,14 @@ use radias_synth_domain::{
     pitch::PhaseIncrement,
     waveshaper::{ShaperParameters, ShaperPosition, ShaperSignal, ShaperTables, Waveshaper},
 };
-use radias_synth_infrastructure::{standalone::StandaloneSynth, standalone_tables as tables};
-use std::rc::Rc;
+use radias_synth_infrastructure::{
+    standalone::{StandaloneSynth, Values, default_values},
+    standalone_tables as tables,
+};
+use std::{collections::BTreeMap, rc::Rc};
 
 pub const MAX_FRAMES: usize = 48_000 * 30;
-const VOICES: usize = 24;
+const VOICES: usize = radias_synth_domain::voice_allocation::VOICE_COUNT;
 const SLEW: SlewWeights = SlewWeights {
     target: 0x1d4,
     memory: 0x7e2d,
@@ -39,6 +42,10 @@ const SLEW: SlewWeights = SlewWeights {
 
 struct SampleVoice {
     instrument: usize,
+    library: Option<u32>,
+    timbre: u8,
+    settings: Values,
+    program: DrumInstrumentProgram,
     data: Rc<Vec<f32>>,
     mode: u8,
     position: f64,
@@ -63,11 +70,23 @@ struct SampleVoice {
     comb: Box<Comb>,
 }
 
+struct LibrarySample {
+    data: Rc<Vec<f32>>,
+    timbre: u8,
+    mode: u8,
+    settings: Values,
+    program: DrumInstrumentProgram,
+}
+
 pub struct Sampler {
     samples: [Option<Rc<Vec<f32>>>; 16],
     modes: [u8; 16],
     pending: Vec<f32>,
     pending_instrument: usize,
+    pending_library: Option<u32>,
+    assets: BTreeMap<u32, Rc<Vec<f32>>>,
+    library: BTreeMap<u32, LibrarySample>,
+    gain: f64,
     voices: [Option<SampleVoice>; VOICES],
     programs: [DrumInstrumentProgram; 16],
     controllers: Box<ControllerTables>,
@@ -81,15 +100,15 @@ pub struct Sampler {
     clock: InstrumentClock,
     seed: u16,
     frames: u64,
+    birth: u64,
 }
 impl Sampler {
     fn amplifier_program(
         synth: &StandaloneSynth,
-        instrument: usize,
+        owner: u8,
+        settings: Values,
         program: DrumInstrumentProgram,
     ) -> AmplifierProgram {
-        let owner = synth.settings[0][141] as u8;
-        let settings = synth.drum_settings[instrument];
         let source_gain = if synth.settings[0][152] == 0 {
             settings[115] as u16
         } else {
@@ -108,6 +127,10 @@ impl Sampler {
             modes: [0; 16],
             pending: Vec::new(),
             pending_instrument: 0,
+            pending_library: None,
+            assets: BTreeMap::new(),
+            library: BTreeMap::new(),
+            gain: 1.0,
             voices: std::array::from_fn(|_| None),
             programs: std::array::from_fn(|i| synth.drum_program(i)),
             controllers: Box::new(tables::controllers()),
@@ -125,18 +148,21 @@ impl Sampler {
             clock: InstrumentClock::internal(tables::tempo(), synth.settings[0][89] as u16),
             seed: 0x2345,
             frames: 0,
+            birth: 0,
         }
     }
     pub fn buffer(&mut self, instrument: usize, frames: usize) -> *mut f32 {
         if instrument >= 16 || !(2..=MAX_FRAMES).contains(&frames) {
             return std::ptr::null_mut();
         }
+        self.pending_library = None;
         self.pending_instrument = instrument;
         self.pending.resize(frames, 0.0);
         self.pending.as_mut_ptr()
     }
     pub fn commit(&mut self, instrument: usize, frames: usize, mode: u8) -> bool {
         if instrument >= 16
+            || self.pending_library.is_some()
             || instrument != self.pending_instrument
             || frames != self.pending.len()
             || !(2..=MAX_FRAMES).contains(&frames)
@@ -159,7 +185,10 @@ impl Sampler {
         }
         self.samples[instrument] = None;
         for voice in &mut self.voices {
-            if voice.as_ref().is_some_and(|v| v.instrument == instrument) {
+            if voice
+                .as_ref()
+                .is_some_and(|v| v.library.is_none() && v.instrument == instrument)
+            {
                 *voice = None;
             }
         }
@@ -173,7 +202,7 @@ impl Sampler {
             .voices
             .iter_mut()
             .flatten()
-            .filter(|v| v.instrument == instrument)
+            .filter(|v| v.library.is_none() && v.instrument == instrument)
         {
             voice.mode = mode;
         }
@@ -185,6 +214,13 @@ impl Sampler {
     pub fn active_count(&self) -> usize {
         self.voices.iter().flatten().count()
     }
+    pub fn stop_kit(&mut self) {
+        for voice in &mut self.voices {
+            if voice.as_ref().is_some_and(|v| v.library.is_none()) {
+                *voice = None;
+            }
+        }
+    }
     pub fn stop(&mut self) {
         for voice in &mut self.voices {
             *voice = None;
@@ -194,11 +230,155 @@ impl Sampler {
         let group = synth.drum_settings[instrument][147];
         if group != 0 {
             for voice in &mut self.voices {
-                if voice
-                    .as_ref()
-                    .is_some_and(|v| synth.drum_settings[v.instrument][147] == group)
-                {
+                if voice.as_ref().is_some_and(|v| {
+                    v.timbre == synth.settings[0][141] as u8 && v.settings[147] == group
+                }) {
                     *voice = None;
+                }
+            }
+        }
+    }
+    pub fn set_gain(&mut self, gain: f64) {
+        self.gain = gain;
+    }
+    pub fn steal_oldest_voice(&mut self) -> bool {
+        let slot = self
+            .voices
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, v)| v.as_ref().map(|v| (slot, v.born)))
+            .min_by_key(|(_, born)| *born);
+        if let Some((slot, _)) = slot {
+            self.voices[slot] = None;
+            true
+        } else {
+            false
+        }
+    }
+    pub fn library_buffer(&mut self, asset: u32, frames: usize) -> *mut f32 {
+        if asset == 0
+            || !(2..=MAX_FRAMES).contains(&frames)
+            || (self.assets.len() >= 1024 && !self.assets.contains_key(&asset))
+        {
+            return std::ptr::null_mut();
+        }
+        self.pending_library = Some(asset);
+        self.pending.resize(frames, 0.0);
+        self.pending.as_mut_ptr()
+    }
+    pub fn library_commit(&mut self, asset: u32, frames: usize) -> bool {
+        if self.pending_library != Some(asset)
+            || frames != self.pending.len()
+            || !(2..=MAX_FRAMES).contains(&frames)
+            || self.pending.iter().any(|v| !v.is_finite())
+        {
+            return false;
+        }
+        for v in &mut self.pending {
+            *v = v.clamp(-1.0, 1.0);
+        }
+        self.assets
+            .insert(asset, Rc::new(std::mem::take(&mut self.pending)));
+        self.pending_library = None;
+        true
+    }
+    pub fn library_profile(
+        &mut self,
+        synth: &StandaloneSynth,
+        id: u32,
+        asset: u32,
+        timbre: u8,
+        mode: u8,
+    ) -> bool {
+        if id == 0
+            || timbre >= 4
+            || mode > 2
+            || (self.library.len() >= 1024 && !self.library.contains_key(&id))
+        {
+            return false;
+        }
+        let Some(data) = self.assets.get(&asset).cloned() else {
+            return false;
+        };
+        let settings = self
+            .library
+            .get(&id)
+            .map_or_else(default_values, |p| p.settings);
+        self.library.insert(
+            id,
+            LibrarySample {
+                data,
+                timbre,
+                mode,
+                settings,
+                program: synth.compile_drum_values(&settings),
+            },
+        );
+        true
+    }
+    pub fn library_owned(&self, id: u32, timbre: u8) -> bool {
+        self.library.get(&id).is_some_and(|p| p.timbre == timbre)
+    }
+    pub fn library_value(&self, id: u32, parameter: usize) -> i32 {
+        self.library
+            .get(&id)
+            .and_then(|p| p.settings.get(parameter))
+            .copied()
+            .unwrap_or(0)
+    }
+    pub fn library_control(
+        &mut self,
+        synth: &StandaloneSynth,
+        id: u32,
+        parameter: usize,
+        value: i32,
+    ) -> bool {
+        if !synth.valid_parameter(parameter, value) {
+            return false;
+        }
+        let Some(profile) = self.library.get_mut(&id) else {
+            return false;
+        };
+        if parameter == 10 && value != 0 && profile.settings[0] >= 4 {
+            return false;
+        }
+        if parameter == 0 && value >= 4 {
+            profile.settings[10] = 0;
+        }
+        profile.settings[parameter] = value;
+        profile.program = synth.compile_drum_values(&profile.settings);
+        true
+    }
+    pub fn library_reset(&mut self) {
+        for voice in &mut self.voices {
+            if voice.as_ref().is_some_and(|v| v.library.is_some()) {
+                *voice = None;
+            }
+        }
+        self.library.clear();
+        self.assets.clear();
+    }
+    pub fn library_midi(&mut self, timbre: u8, cc: u8, value: u8) {
+        if cc == 7 {
+            for profile in self
+                .library
+                .values_mut()
+                .filter(|p| p.timbre == timbre && p.settings[116] != 0)
+            {
+                profile.settings[117] = value as i32;
+            }
+        }
+        for voice in &mut self.voices {
+            if let Some(v) = voice
+                .as_mut()
+                .filter(|v| v.library.is_some() && v.timbre == timbre)
+            {
+                if cc == 120 {
+                    *voice = None;
+                } else if cc == 123 && v.mode != 0 {
+                    v.released = true;
+                    v.amplitude.release(&self.controllers);
+                    v.envelopes.release(&self.controllers);
                 }
             }
         }
@@ -206,20 +386,35 @@ impl Sampler {
     pub fn sync(&mut self, synth: &StandaloneSynth) {
         self.programs = std::array::from_fn(|i| synth.drum_program(i));
         let owner = synth.settings[0][141] as usize;
-        if synth.settings[0][140] == 0 || synth.settings[owner][71] == 0 {
-            self.stop();
-        }
         self.clock.set_program_tempo(synth.settings[0][89] as u16);
         for (slot, voice) in self.voices.iter_mut().enumerate() {
             if let Some(v) = voice {
-                let program = self.programs[v.instrument];
+                if synth.settings[v.timbre as usize][71] == 0
+                    || (v.library.is_none()
+                        && (synth.settings[0][140] == 0 || owner != v.timbre as usize))
+                {
+                    *voice = None;
+                    continue;
+                }
+                if let Some(id) = v.library {
+                    let Some(profile) = self.library.get(&id) else {
+                        *voice = None;
+                        continue;
+                    };
+                    v.settings = profile.settings;
+                    v.program = profile.program;
+                    v.mode = profile.mode;
+                } else {
+                    v.settings = synth.drum_settings[v.instrument];
+                    v.program = self.programs[v.instrument];
+                }
+                let program = v.program;
                 v.amplitude.edit_program(
-                    Self::amplifier_program(synth, v.instrument, program),
+                    Self::amplifier_program(synth, v.timbre, v.settings, program),
                     &self.controllers,
                 );
-                let settings = synth.drum_settings[v.instrument];
-                v.midi_volume_gain = if settings[116] != 0 {
-                    self.controllers.amplifier.midi_volume[settings[117] as usize]
+                v.midi_volume_gain = if v.settings[116] != 0 {
+                    self.controllers.amplifier.midi_volume[v.settings[117] as usize]
                 } else {
                     8192
                 };
@@ -245,28 +440,111 @@ impl Sampler {
             }
         }
     }
+    fn release_voice(v: &mut SampleVoice, controllers: &ControllerTables) {
+        if v.mode != 0 && !v.released {
+            v.released = true;
+            v.amplitude.release(controllers);
+            v.envelopes.release(controllers);
+        }
+    }
     pub fn trigger(&mut self, synth: &StandaloneSynth, instrument: usize, velocity: u8) {
         if velocity == 0 {
-            for voice in self
+            for v in self
                 .voices
                 .iter_mut()
                 .flatten()
-                .filter(|v| v.instrument == instrument && v.mode != 0 && !v.released)
+                .filter(|v| v.library.is_none() && v.instrument == instrument)
             {
-                voice.released = true;
-                voice.amplitude.release(&self.controllers);
-                voice.envelopes.release(&self.controllers);
+                Self::release_voice(v, &self.controllers);
             }
             return;
         }
-        let owner = synth.settings[0][141] as usize;
-        if synth.settings[0][140] == 0 || synth.settings[owner][71] == 0 {
+        let owner = synth.settings[0][141] as u8;
+        if synth.settings[0][140] == 0 || synth.settings[owner as usize][71] == 0 {
             return;
         }
         let Some(data) = self.samples[instrument].clone() else {
             return;
         };
         self.choke(synth, instrument);
+        self.start_voice(
+            synth,
+            instrument,
+            None,
+            owner,
+            self.modes[instrument],
+            synth.drum_settings[instrument],
+            self.programs[instrument],
+            data,
+            velocity,
+        );
+    }
+    pub fn library_trigger(
+        &mut self,
+        synth: &StandaloneSynth,
+        timbre: u8,
+        id: u32,
+        velocity: u8,
+    ) -> bool {
+        let Some(profile) = self.library.get(&id).filter(|p| p.timbre == timbre) else {
+            return false;
+        };
+        if velocity == 0 {
+            for v in self
+                .voices
+                .iter_mut()
+                .flatten()
+                .filter(|v| v.library == Some(id) && v.timbre == timbre)
+            {
+                Self::release_voice(v, &self.controllers);
+            }
+            return true;
+        }
+        if synth.settings[timbre as usize][71] == 0 {
+            return true;
+        }
+        let (settings, program, mode, data) = (
+            profile.settings,
+            profile.program,
+            profile.mode,
+            profile.data.clone(),
+        );
+        if settings[147] != 0 {
+            for voice in &mut self.voices {
+                if voice
+                    .as_ref()
+                    .is_some_and(|v| v.timbre == timbre && v.settings[147] == settings[147])
+                {
+                    *voice = None;
+                }
+            }
+        }
+        self.start_voice(
+            synth,
+            0,
+            Some(id),
+            timbre,
+            mode,
+            settings,
+            program,
+            data,
+            velocity,
+        );
+        true
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn start_voice(
+        &mut self,
+        synth: &StandaloneSynth,
+        instrument: usize,
+        library: Option<u32>,
+        timbre: u8,
+        mode: u8,
+        settings: Values,
+        p: DrumInstrumentProgram,
+        data: Rc<Vec<f32>>,
+        velocity: u8,
+    ) {
         let slot = self
             .voices
             .iter()
@@ -279,7 +557,6 @@ impl Sampler {
                     .unwrap()
                     .0
             });
-        let p = self.programs[instrument];
         let note =
             radias_synth_domain::note_pitch::fold_note(60 + p.controls.pitch.transpose as i32 - 64);
         let pitch = note as u16 * 256;
@@ -304,10 +581,15 @@ impl Sampler {
                 .compile_increment(division as i32, 0, self.clock.receiver.tempo.clock_rate())
                 .1;
         }
+        self.birth = self.birth.wrapping_add(1);
         self.voices[slot] = Some(SampleVoice {
             instrument,
+            library,
+            timbre,
+            settings,
+            program: p,
             data,
-            mode: self.modes[instrument],
+            mode,
             position: 0.0,
             step: 1.0,
             pitch,
@@ -315,16 +597,15 @@ impl Sampler {
             relative_pitch: (note as i16 - 60) * 256,
             velocity,
             released: false,
-            born: self.frames,
+            born: self.birth,
             amplitude: AmplifierController::from_program(
-                Self::amplifier_program(synth, instrument, p),
+                Self::amplifier_program(synth, timbre, settings, p),
                 note,
                 velocity,
                 &self.controllers,
             ),
-            midi_volume_gain: if synth.drum_settings[instrument][116] != 0 {
-                self.controllers.amplifier.midi_volume
-                    [synth.drum_settings[instrument][117] as usize]
+            midi_volume_gain: if settings[116] != 0 {
+                self.controllers.amplifier.midi_volume[settings[117] as usize]
             } else {
                 8192
             },
@@ -357,14 +638,13 @@ impl Sampler {
         let Some(v) = &mut self.voices[slot] else {
             return;
         };
-        let p = self.programs[v.instrument];
+        let p = v.program;
         v.relative_pitch = (radias_synth_domain::note_pitch::fold_note(
             60 + p.controls.pitch.transpose as i32 - 64,
         ) as i16
             - 60)
             * 256;
-        let owner = synth.settings[0][141] as usize;
-        let settings = synth.settings[owner];
+        let settings = synth.settings[v.timbre as usize];
         let aux = v.envelopes.levels();
         let lfo = v.modulation.pair.values(&self.modulation_tables.lfo);
         let sources = ControllerSources {
@@ -558,7 +838,7 @@ impl Sampler {
                     input
                 }
             };
-            let filtered = if let Some(route) = self.programs[v.instrument].graph.filter_routing {
+            let filtered = if let Some(route) = v.program.graph.filter_routing {
                 v.filter.sample_with_prefilter_and_comb(
                     route,
                     OscillatorMix {
@@ -598,7 +878,9 @@ impl Sampler {
                 .clamp(0, 32767) as i16;
             let level = v.envelope.step(target, 0x1d4);
             bus = pan::route(
-                Sample(saturate(multiply_q15(filtered.0, level))),
+                Sample(saturate(
+                    (multiply_q15(filtered.0, level) as f64 * self.gain) as i64,
+                )),
                 v.pan.next(SLEW),
                 bus,
             );

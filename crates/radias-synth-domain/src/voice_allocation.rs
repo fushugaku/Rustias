@@ -1,5 +1,16 @@
 //! Original 24-slot allocation priority, SH3 007aac/007b4c and 0075b4/007610.
+#[cfg(all(feature = "web-polyphony", target_arch = "wasm32"))]
+pub const VOICE_COUNT: usize = 48;
+#[cfg(not(all(feature = "web-polyphony", target_arch = "wasm32")))]
 pub const VOICE_COUNT: usize = 24;
+#[cfg(all(feature = "web-polyphony", target_arch = "wasm32"))]
+pub type VoiceMask = u64;
+#[cfg(not(all(feature = "web-polyphony", target_arch = "wasm32")))]
+pub type VoiceMask = u32;
+pub const VOICE_MASK: VoiceMask = (1 << VOICE_COUNT) - 1;
+pub const VOICES_PER_PROCESSOR: usize = VOICE_COUNT / 2;
+// Firmware instruction-cost budgets are not a browser CPU budget.
+const PROCESSOR_BUDGET: u32 = if VOICE_COUNT > 24 { 16_777_216 } else { 65_536 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AllocationOwner(pub u32);
@@ -23,7 +34,7 @@ impl VoiceClaim {
         let same = self.owner == query;
         let held = self.note_flags & 128 != 0;
         let flags = self.release_flags & 3;
-        let position = ((position as u32) & 31) << 16;
+        let position = ((position as u32) & (VOICE_COUNT.next_power_of_two() as u32 - 1)) << 16;
         match pass {
             AllocationPass::Reuse => {
                 let status = ((held as u32) << 30) | ((flags as u32) << 28);
@@ -37,11 +48,13 @@ impl VoiceClaim {
                 if same {
                     0x80000000 | position | ((held as u32) << 30) | ((flags as u32) << 28)
                 } else {
-                    (position ^ 0x001f0000) | ((!held as u32) << 30) | (((flags ^ 3) as u32) << 28)
+                    (position ^ ((VOICE_COUNT.next_power_of_two() as u32 - 1) << 16))
+                        | ((!held as u32) << 30)
+                        | (((flags ^ 3) as u32) << 28)
                 }
             }
             AllocationPass::Fresh => {
-                (position ^ 0x001f0000)
+                (position ^ ((VOICE_COUNT.next_power_of_two() as u32 - 1) << 16))
                     | ((!held as u32) << 31)
                     | (((flags & 2 == 0) as u32) << 30)
                     | (((flags & 1 == 0) as u32) << 29)
@@ -110,17 +123,26 @@ pub struct ProcessorBudget {
 /// Selection, queue order and processor costs are owned by one instrument.
 /// Controller envelope flags remain explicit; note events alone cannot infer
 /// all the firmware's release/acknowledgement states.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VoiceAllocator {
     pub order: VoiceOrder,
     pub claims: [VoiceClaim; VOICE_COUNT],
     pub budget: ProcessorBudget,
 }
+impl Default for VoiceAllocator {
+    fn default() -> Self {
+        Self {
+            order: Default::default(),
+            claims: [VoiceClaim::default(); VOICE_COUNT],
+            budget: Default::default(),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VoiceAssignment {
     pub slot: u8,
-    pub displaced: u32,
+    pub displaced: VoiceMask,
 }
 
 impl Default for ProcessorBudget {
@@ -137,16 +159,23 @@ impl VoiceAllocator {
     /// unsigned old cost is replaced. Its 008f04 reclaim variant compares
     /// remaining cost with the processor mask (one/two), unlike 008e0c's
     /// cost threshold; preserve that original register reuse.
-    pub fn prepare_mono_budget(&mut self, slot: usize, cost: u16) -> u32 {
+    pub fn prepare_mono_budget(&mut self, slot: usize, cost: u16) -> VoiceMask {
         self.prepare_mono_budget_excluding(slot, cost, 0)
     }
-    fn prepare_mono_budget_excluding(&mut self, slot: usize, cost: u16, excluded: u32) -> u32 {
+    fn prepare_mono_budget_excluding(
+        &mut self,
+        slot: usize,
+        cost: u16,
+        excluded: VoiceMask,
+    ) -> VoiceMask {
         let additional = cost as i32 - self.budget.costs[slot] as i32;
-        let available = self.budget.remaining()[slot / 12].wrapping_sub(additional);
+        let available =
+            self.budget.remaining()[slot / VOICES_PER_PROCESSOR].wrapping_sub(additional);
         if available > cost as i32 {
             0
         } else {
-            self.reclaim_ordered(None, 1 << (slot / 12), excluded).1
+            self.reclaim_ordered(None, 1 << (slot / VOICES_PER_PROCESSOR), excluded)
+                .1
         }
     }
     /// Mono first prefers a still active/releasing voice of this timbre,
@@ -187,7 +216,7 @@ impl VoiceAllocator {
     }
     /// 008542 visits held owner voices in physical order and moves each to
     /// the back. Its single-trigger update preserves release flags.
-    pub fn retarget_mono(&mut self, owner: AllocationOwner, note: u8) -> u32 {
+    pub fn retarget_mono(&mut self, owner: AllocationOwner, note: u8) -> VoiceMask {
         let mut selected = 0;
         for slot in 0..VOICE_COUNT {
             if self.claims[slot].owner == owner && self.claims[slot].note_flags & 128 != 0 {
@@ -206,7 +235,7 @@ impl VoiceAllocator {
     }
     /// 006fe8/008570 reuse every held owner actor. The original skips
     /// allocation/reclamation and republishes each actor's compiled cost.
-    pub fn retrigger_mono(&mut self, owner: AllocationOwner, note: u8, cost: u16) -> u32 {
+    pub fn retrigger_mono(&mut self, owner: AllocationOwner, note: u8, cost: u16) -> VoiceMask {
         let selected = self.retarget_mono(owner, note);
         for slot in 0..VOICE_COUNT {
             if selected & (1 << slot) != 0 {
@@ -218,10 +247,15 @@ impl VoiceAllocator {
     }
     /// Original 008e0c's queue and cost policy, excluding host-side cleanup.
     /// The returned mask lets the application destroy each displaced graph.
-    pub fn reclaim(&mut self, cost: i32, processors: u8) -> (u8, u32) {
+    pub fn reclaim(&mut self, cost: i32, processors: u8) -> (u8, VoiceMask) {
         self.reclaim_ordered(Some(cost), processors, 0)
     }
-    fn reclaim_ordered(&mut self, cost: Option<i32>, processors: u8, excluded: u32) -> (u8, u32) {
+    fn reclaim_ordered(
+        &mut self,
+        cost: Option<i32>,
+        processors: u8,
+        excluded: VoiceMask,
+    ) -> (u8, VoiceMask) {
         let order = self.order;
         let result = self.reclaim_bookkeeping(cost, processors, excluded);
         // 009010/0093fc promotes each reclaimed actor past preceding held
@@ -237,20 +271,20 @@ impl VoiceAllocator {
         &mut self,
         cost: Option<i32>,
         mut processors: u8,
-        excluded: u32,
-    ) -> (u8, u32) {
+        excluded: VoiceMask,
+    ) -> (u8, VoiceMask) {
         let mut remaining = self.budget.remaining();
         let mut displaced = 0;
         for _ in 0..VOICE_COUNT {
             let victim = self.order.0.iter().copied().find(|&slot| {
                 let c = self.claims[slot as usize];
                 excluded & (1 << slot) == 0
-                    && processors & (1 << (slot / 12)) != 0
+                    && processors & (1 << (slot / VOICES_PER_PROCESSOR as u8)) != 0
                     && (c.release_flags & 3 != 0 || c.note_flags & 128 != 0)
             });
             let Some(slot) = victim else { break };
             let index = slot as usize;
-            let processor = index / 12;
+            let processor = index / VOICES_PER_PROCESSOR;
             self.claims[index].note_flags &= 127;
             self.claims[index].release_flags &= !3;
             displaced |= 1 << slot;
@@ -430,7 +464,7 @@ impl VoiceAllocator {
         timbre: u8,
         note: u8,
         cost: u16,
-        mask: u32,
+        mask: VoiceMask,
         slots: &mut crate::voice_group::VoiceGroupSlots,
     ) {
         for slot in 0..VOICE_COUNT {
@@ -455,7 +489,7 @@ impl VoiceAllocator {
     }
     /// Original009180/0091B8/00924C retires only live claims belonging to
     /// the edited timbre, promoting each cleared actor in physical order.
-    pub fn retire_owner_for_program_edit(&mut self, owner: AllocationOwner) -> u32 {
+    pub fn retire_owner_for_program_edit(&mut self, owner: AllocationOwner) -> VoiceMask {
         let mut retired = 0;
         for slot in 0..VOICE_COUNT {
             let claim = self.claims[slot];
@@ -471,17 +505,17 @@ impl VoiceAllocator {
 }
 impl ProcessorBudget {
     pub fn remaining(&self) -> [i32; 2] {
-        let master = self.costs[..12]
+        let master = self.costs[..VOICES_PER_PROCESSOR]
             .iter()
             .fold(self.master_overhead as u32, |sum, &cost| {
                 sum.wrapping_add(cost as u32)
             });
-        let slave = self.costs[12..]
+        let slave = self.costs[VOICES_PER_PROCESSOR..]
             .iter()
             .fold(0u32, |sum, &cost| sum.wrapping_add(cost as u32));
         [
-            65536u32.wrapping_sub(master) as i32,
-            65536u32.wrapping_sub(slave) as i32,
+            PROCESSOR_BUDGET.wrapping_sub(master) as i32,
+            PROCESSOR_BUDGET.wrapping_sub(slave) as i32,
         ]
     }
     pub fn available(&self, cost: i32) -> u8 {
@@ -495,7 +529,7 @@ impl VoiceOrder {
         &self,
         claims: &[VoiceClaim; VOICE_COUNT],
         owner: AllocationOwner,
-        excluded: u32,
+        excluded: VoiceMask,
         pass: AllocationPass,
     ) -> Option<VoiceSelection> {
         self.select_with_processors(claims, owner, excluded, pass, 3)
@@ -504,17 +538,19 @@ impl VoiceOrder {
         &self,
         claims: &[VoiceClaim; VOICE_COUNT],
         owner: AllocationOwner,
-        excluded: u32,
+        excluded: VoiceMask,
         pass: AllocationPass,
         processors: u8,
     ) -> Option<VoiceSelection> {
         let mut result = None;
         let mut best = 0;
         for (position, &slot) in self.0.iter().enumerate() {
-            if excluded & (1u32 << slot) != 0 {
+            if excluded & ((1 as VoiceMask) << slot) != 0 {
                 continue;
             }
-            if matches!(pass, AllocationPass::Fresh) && processors & (1 << (slot / 12)) == 0 {
+            if matches!(pass, AllocationPass::Fresh)
+                && processors & (1 << (slot / VOICES_PER_PROCESSOR as u8)) == 0
+            {
                 continue;
             }
             let priority = claims[slot as usize].priority(owner, position as u8, pass);
@@ -548,5 +584,14 @@ impl VoiceOrder {
             position -= 1;
         }
         self.0[position] = slot;
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod capacity_tests {
+    #[test]
+    fn desktop_capacity_stays_original_even_with_web_feature() {
+        assert_eq!(super::VOICE_COUNT, 24);
+        assert_eq!(super::VOICE_MASK, 0x00ff_ffff);
     }
 }

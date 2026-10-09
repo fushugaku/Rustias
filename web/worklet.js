@@ -12,6 +12,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.audibleFrames = 0;
     this.peak = 0;
     this.failed = false;
+    this.libraryProfiles=new Map();
     this.manualNotes=new Set();this.sequenceNotes=new Map();this.auditionNotes=new Set();
     this.sequencer=new SequenceClock((t,n,v)=>this.ownedNote(t,n,v,true));
     this.audition=new StepAudition((t,n,v)=>this.ownedNote(t,n,v,"audition"));
@@ -22,6 +23,19 @@ class RustiasProcessor extends AudioWorkletProcessor {
           if (!this.wasm.rustias_control(data.timbre, data.parameter, data.value)) this.snapshot();
           if(data.parameter===89)this.sequencer.setTempo(this.wasm.rustias_value(0,89)/10);
         }
+        else if(data.type==='drum-gain')this.wasm.rustias_drum_gain(data.value);
+        else if(data.type==='library-reset'){this.wasm.rustias_library_reset();this.libraryProfiles.clear();}
+        else if(data.type==='library-sample'){
+          const frames=data.data.length,pointer=this.wasm.rustias_library_sample_buffer(data.asset,frames);let ok=false;
+          if(pointer){new Float32Array(this.wasm.memory.buffer,pointer,frames).set(data.data);ok=!!this.wasm.rustias_library_sample_commit(data.asset,frames);}
+          this.port.postMessage({type:'sample-ready',request:data.request,ok});
+        }
+        else if(data.type==='library-profile'){
+          if(!this.wasm.rustias_library_profile(data.id,data.asset,data.timbre,data.mode))throw new Error('The sample profile could not be loaded.');
+          for(let id=0;id<data.values.length;id++)if(!this.wasm.rustias_library_control(data.id,id,data.values[id]))throw new Error('Invalid sample sound parameters.');
+          this.wasm.rustias_library_sync();this.libraryProfiles.set(`${data.timbre}:${data.source}`,{id:data.id,timbre:data.timbre,source:data.source});
+        }
+        else if(data.type==='library-control'){this.wasm.rustias_library_control(data.id,data.parameter,data.value);this.wasm.rustias_library_sync();}
         else if (data.type === "drum-control") this.wasm.rustias_drum_control(data.instrument,data.parameter,data.value);
         else if (data.type === "drum") this.wasm.rustias_drum_pad(data.instrument, data.velocity);
         else if (data.type === "load") {
@@ -42,7 +56,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
         else if(data.type==='rdl-muted')this.wasm.rustias_rdl_mute(data.timbres,data.drums);
         else if (data.type === "midi") {
           this.wasm.rustias_midi(...data.bytes);
-          if ((data.bytes[0] & 240) === 176 || (data.bytes[0] & 240) === 224) this.snapshot();
+          if ((data.bytes[0] & 240) === 176 || (data.bytes[0] & 240) === 224) this.snapshot(data.bytes);
         }
         else if(data.type==="audition")this.audition.play(data.timbre,data.step,this.wasm.rustias_value(0,89)/10,data.resolution);
         else if(data.type==="sequencer")this.sequencer.setConfig(data.config);
@@ -69,19 +83,21 @@ class RustiasProcessor extends AudioWorkletProcessor {
     else if(sequence){const count=Math.max(0,(this.sequenceNotes.get(key)??0)+(velocity?1:-1));if(count)this.sequenceNotes.set(key,count);else this.sequenceNotes.delete(key);}
     else if(velocity)this.manualNotes.add(key);else this.manualNotes.delete(key);
     const after=(this.sequenceNotes.get(key)??0)+(this.manualNotes.has(key)?1:0)+(this.auditionNotes.has(key)?1:0);
-    if(velocity&&!before)this.wasm.rustias_note(timbre,note,velocity);else if(!after&&before)this.wasm.rustias_note(timbre,note,0);
+    const emit=value=>{if(typeof note==='string'){const profile=this.libraryProfiles.get(key);if(profile)this.wasm.rustias_library_note(timbre,profile.id,value);}else this.wasm.rustias_note(timbre,note,value);};
+    if(velocity&&!before)emit(velocity);else if(!after&&before)emit(0);
   }
-  snapshot() {
+  snapshot(midi) {
     const length = this.wasm.rustias_save(), pointer = this.wasm.rustias_preset_buffer();
     const bytes = new Uint8Array(this.wasm.memory.buffer, pointer, length);
     let json = ""; for (let i = 0; i < length; i++) json += String.fromCharCode(bytes[i]);
-    this.port.postMessage({type: "state", program: JSON.parse(json)});
+    this.port.postMessage({type: "state", program: JSON.parse(json),midi,libraryVolumes:[...this.libraryProfiles.values()].map(p=>({timbre:p.timbre,source:p.source,value:this.wasm.rustias_library_value(p.id,117)}))});
   }
   fail(error) {
     this.failed = true;
     this.port.postMessage({ type: "error", message: error.message ?? String(error) });
   }
   nativeSample() {
+    if(this.block&&this.block.buffer!==this.wasm.memory.buffer)this.block=new Float32Array(this.wasm.memory.buffer,this.pointer,256);
     if (this.nativeIndex === 128) {
       this.sequencer.beforeRender(128);this.audition.beforeRender(128);
       const pointer = this.wasm.rustias_render();
@@ -120,7 +136,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
         if (left[i] !== 0 || right[i] !== 0) this.audibleFrames++;
       }
       if (++this.callbacks % 20 === 0) {
-        this.port.postMessage({ type: "stats", voices: this.wasm.rustias_voices(), frames: this.wasm.rustias_frames(), audibleFrames: this.audibleFrames, peak: this.peak, callbacks: this.callbacks, sequence: this.sequencer.status() });
+        this.port.postMessage({ type: "stats", voices: this.wasm.rustias_voices(), capacity:this.wasm.rustias_voice_capacity(), frames: this.wasm.rustias_frames(), audibleFrames: this.audibleFrames, peak: this.peak, callbacks: this.callbacks, sequence: this.sequencer.status() });
         this.peak = 0;
       }
     } catch (error) { this.fail(error); }

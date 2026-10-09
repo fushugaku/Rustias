@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {SequenceClock,StepAudition,emptySequence,validateSequence,RESOLUTIONS,stepFrames} from "../web/sequence.js";
 import {drumSequenceKit,sequenceLabels} from "../web/sequence-labels.js";
-import {emptySamples,validateSamples,migrateSampleAmplifiers} from '../web/sample-state.js';
+import {emptySamples,validateSamples,migrateSampleAmplifiers,sampleValues,validSampleSource} from '../web/sample-state.js';
+import {copySteps,pasteSteps} from '../web/sequence-edit.js';
 import {PatchStore} from "../web/patches.js";
 import {verifyRdl} from './verify-rdl.mjs';
 
@@ -148,8 +149,65 @@ api.rustias_stop();control(142,0);control(116,0);control(52,127);api.rustias_dru
 features.push('PCM amplifier: independent live Key track / Level offset / manual Source gain / MIDI volume, per-instrument CC7 receive and persistence');
 const legacyPcm=emptySamples();legacyPcm.version=1;legacyPcm.slots[0]={source:'808:kick-01',mode:2};
 const legacyGain=structuredClone(ampProgram);legacyGain.timbres[0][115]=8000;const upgradedSamples=validateSamples(legacyPcm),upgradedGain=migrateSampleAmplifiers(legacyGain,legacyPcm,upgradedSamples);
-assert.equal(upgradedSamples.version,2);assert.equal(upgradedGain.drums[0][115],8000,'Older PCM patches keep their common manual gain');assert.equal(legacyGain.drums[0][115],32512,'Migration leaves the source patch intact');
+assert.equal(upgradedSamples.version,3);assert.equal(upgradedGain.drums[0][115],8000,'Older PCM patches keep their common manual gain');assert.equal(legacyGain.drums[0][115],32512,'Migration leaves the source patch intact');
 upgradedGain.drums[0][115]=11000;assert.equal(migrateSampleAmplifiers(upgradedGain,upgradedSamples,upgradedSamples).drums[0][115],11000,'New patches preserve independent gain edits');
+
+// Web-only voice masks must work above bit 31; native profiles stay at 24.
+assert.equal(api.rustias_voice_capacity(),48);
+api.rustias_init();control(3,0);control(4,127);control(5,127);control(6,8);
+for(let note=36;note<84;note++)api.rustias_note(0,note,100);
+assert.equal(api.rustias_voices(),48,'48 independent native voices allocate');render(1000);
+for(let note=60;note<84;note++)api.rustias_note(0,note,0);
+render(14000);assert.equal(api.rustias_voices(),24,'Upper voice-mask bits release without touching lower voices');
+for(let note=36;note<60;note++)api.rustias_note(0,note,0);render(14000);assert.equal(api.rustias_voices(),0);
+api.rustias_init();control(67,1);control(68,8);
+for(let note=36;note<42;note++)api.rustias_note(0,note,100);
+assert.equal(api.rustias_voices(),48,'Six 8-voice Unison groups fill the expanded pool');
+api.rustias_note(0,42,100);assert.equal(api.rustias_voices(),48,'Full-pool replacement never exceeds 48');render(1000);api.rustias_stop();
+api.rustias_init();control(0,4);control(20,1);control(21,3);control(29,2);control(154,10);control(31,30);control(78,1);control(79,schema[79].max);
+for(let note=36;note<84;note++)api.rustias_note(0,note,100);assert.equal(api.rustias_voices(),48,'Cost accounting allows 48 fully processed voices');render(3000);api.rustias_stop();
+features.push('Web-only 48-voice native allocation, high-bit release and 8-voice Unison; desktop capacity remains 24');
+
+const libraryValues=sampleValues(schema.map(p=>p.default));libraryValues[9]=127;libraryValues[7]=64;libraryValues[6]=8;
+function libraryUpload(asset,data){const pointer=api.rustias_library_sample_buffer(asset,data.length);assert.ok(pointer);new Float32Array(api.memory.buffer,pointer,data.length).set(data);assert.equal(api.rustias_library_sample_commit(asset,data.length),1);}
+function libraryProfile(id,asset,timbre=0,mode=2,values=libraryValues){assert.equal(api.rustias_library_profile(id,asset,timbre,mode),1);values.forEach((v,p)=>assert.equal(api.rustias_library_control(id,p,v),1));api.rustias_library_sync();}
+function libraryControl(id,parameter,value){assert.equal(api.rustias_library_control(id,parameter,value),1);api.rustias_library_sync();}
+const sine=Float32Array.from({length:4800},(_,i)=>.15*Math.sin(i*2*Math.PI*440/48000));
+api.rustias_init();assert.equal(api.rustias_library_sample_buffer(0,100),0);assert.equal(api.rustias_library_profile(100,9,0,0),0);
+libraryUpload(99,sine);libraryProfile(321,99,2);libraryProfile(322,99,1);
+assert.equal(api.rustias_library_note(2,321,100),1);assert.equal(api.rustias_voices(),1,'Any sample plays on another timbre with Drum mode off');const directDry=rms(render().slice(3000));assert.ok(directDry>.001);
+libraryControl(322,7,0);assert.ok(rms(render().slice(3000))>directDry*.9,'Profiles on separate timbres edit independently');
+libraryControl(321,7,0);assert.ok(rms(render().slice(3000))<.00001,'Direct sample amplifier edits are live');libraryControl(321,7,64);
+libraryControl(321,9,0);libraryControl(321,1,10);assert.ok(rms(render().slice(3000))<directDry*.5,'Direct sample filters use their own native graph');libraryControl(321,9,127);
+control(140,1);control(140,0);assert.equal(api.rustias_voices(),1,'Kit mode switches preserve independent sequence samples');
+assert.equal(api.rustias_library_control(321,7,128),0);assert.equal(api.rustias_library_note(0,321,100),0,'Profile ownership is enforced');
+libraryControl(321,116,1);api.rustias_midi(0xb2,7,0);assert.equal(api.rustias_library_value(321,117),0);assert.ok(rms(render().slice(3000))<.00001,'Direct samples receive CC7 on their own timbre');api.rustias_midi(0xb2,7,127);
+for(let i=0;i<50;i++)api.rustias_library_note(2,321,100);assert.equal(api.rustias_voices(),48,'PCM allocation reaches 48');
+api.rustias_note(0,60,100);assert.equal(api.rustias_voices(),48,'Native and PCM share one 48-voice limit');
+api.rustias_library_note(2,321,100);assert.equal(api.rustias_voices(),48,'PCM can replace a native voice in a full pool');render(1000);api.rustias_stop();
+for(let i=0;i<48;i++)api.rustias_note(0,36+i,100);assert.equal(api.rustias_voices(),48);api.rustias_library_note(2,321,100);assert.equal(api.rustias_voices(),48);api.rustias_stop();
+api.rustias_library_note(2,321,100);api.rustias_midi(0xb0,120,0);assert.equal(api.rustias_voices(),1,'All Sound Off on the kit channel preserves samples on other timbres');api.rustias_library_note(2,321,0);render(10000);assert.equal(api.rustias_voices(),0,'Library Gate/Loop follows note off');
+api.rustias_library_reset();assert.equal(api.rustias_library_note(2,321,100),0,'Switching patch discards previous sequence samples');
+api.rustias_init();libraryUpload(99,sine);
+for(let i=0;i<50;i++){const values=[...libraryValues];values[7]=i<2?64:0;libraryProfile(i+1,99,2,2,values);api.rustias_library_note(2,i+1,100);}
+assert.equal(api.rustias_voices(),48);assert.ok(rms(render(6000))<.00001,'Same-frame overload steals the oldest samples, rather than repeatedly replacing the newest slot');
+features.push('Arbitrary sequence samples beyond the 16 kit slots, independent timbre profiles, live DSP, MIDI, release and mixed 48-voice stealing');
+
+for(const kind of ['pcm','native','library','timbre']){
+  const levels=[];for(const db of [0,12]){
+    if(kind==='pcm')pcmSetup(48000,2);else api.rustias_init();
+    if(kind==='native'){control(140,1);control(3,0);control(4,127);control(5,127);control(7,30);}
+    if(kind==='library'){libraryUpload(99,sine);libraryProfile(321,99,2);}
+    assert.equal(api.rustias_drum_gain(db),1);
+    if(kind==='pcm'||kind==='native')api.rustias_drum_pad(0,100);else if(kind==='library')api.rustias_library_note(2,321,100);else api.rustias_note(1,69,100);
+    levels.push(rms(render().slice(3000)));
+  }
+  const ratio=levels[1]/levels[0];assert.ok(Math.abs(ratio-(kind==='timbre'?1:10**(12/20)))<.06,`${kind} kit gain ratio ${ratio}`);
+}
+assert.equal(api.rustias_drum_gain(25),0);assert.equal(api.rustias_drum_gain(-25),0);
+const sampleState=emptySamples();sampleState.kitGain=19;sampleState.library.push({source:'909:bt7a0d7',timbre:2,mode:2,name:'909 Kick',values:libraryValues});
+assert.deepEqual(validateSamples(sampleState,schema),sampleState,'Gain and per-source parameters round-trip in browser patches');
+features.push('Shared -24…+24 dB Drum Kit Gain boosts native and PCM drums, leaves melodic synths unchanged and persists');
 
 const manifest=JSON.parse(fs.readFileSync(new URL("../web/samples/manifest.json",import.meta.url)));
 assert.equal(manifest.samples.length,224);assert.equal(manifest.banks.find(bank=>bank.id==='808').license,"CC0-1.0");const hashes=new Set();
@@ -190,18 +248,31 @@ const mixed=emptySequence();mixed.tracks.forEach((track,t)=>{track.length=1;trac
 for(let t=0;t<4;t++){const onsets=mixedEvents.filter(e=>e.t===t).map(e=>e.time),period=stepFrames(120,mixed.tracks[t].resolution);assert.equal(onsets[0],0);onsets.forEach((time,i)=>assert.ok(time>=i*period&&time-i*period<128,"Each resolution retains a bounded native onset"));assert.equal(onsets.length,Math.floor(96000/period)+1);}
 const resolutionAudition=[];const quarterAudition=new StepAudition((t,n,v)=>resolutionAudition.push(v));quarterAudition.play(0,{notes:[60],velocity:100,gate:100},120,"1/4");for(let i=0;i<100;i++)quarterAudition.beforeRender();assert.deepEqual(resolutionAudition,[100],"Audition uses the track's quarter-note duration");for(let i=0;i<100;i++)quarterAudition.beforeRender();assert.deepEqual(resolutionAudition,[100,0]);
 const heard=[];const audition=new StepAudition((t,n,v)=>heard.push({t,n,v}));audition.play(2,{notes:[60,64,67],velocity:113,gate:80},120);assert.deepEqual(heard.map(e=>e.n),[60,64,67]);assert.ok(heard.every(e=>e.t===2&&e.v===113));for(let i=0;i<50;i++)audition.beforeRender();assert.equal(heard.filter(e=>!e.v).length,3,"Audition releases the whole chord");heard.length=0;audition.play(1,{notes:[62,65],velocity:87,gate:50},120);audition.play(1,{notes:[62,65,69],velocity:87,gate:50},120);assert.deepEqual(heard.filter(e=>e.v).map(e=>e.n),[62,65,62,65,69],"Every edit restarts all selected notes");audition.stop();
+const sampleSequence=emptySequence();sampleSequence.tracks[0].steps[14]={notes:[60,64],samples:['808:kick-01','909:bt7a0d7'],velocity:87,gate:52};sampleSequence.tracks[0].steps[16]={notes:[],samples:['custom:qa-123'],velocity:113,gate:100};
+const copied=copySteps(sampleSequence,0,17,14),pasted=pasteSteps(sampleSequence,copied,3,30);assert.equal(pasted.count,4);assert.deepEqual(pasted.sequence.tracks[3].steps.slice(30,34),copied.steps);assert.equal(pasted.sequence.tracks[3].length,34,'Paste expands the destination loop');
+pasted.sequence.tracks[3].steps[30].samples.push('909:handclp1');assert.equal(sampleSequence.tracks[0].steps[14].samples.length,2,'Paste never aliases the original');assert.equal(copied.steps[0].samples.length,2,'Pasting leaves the reusable clipboard intact');
+const kitClipboard=copySteps(sampleSequence,0,14,14,{instruments:[{note:60,source:'808:kick-01'},{note:64,source:'909:st7t7s7'}]});
+const movedKit=pasteSteps(sampleSequence,kitClipboard,2,0);assert.deepEqual(movedKit.sequence.tracks[2].steps[0].notes,[]);assert.deepEqual(movedKit.sequence.tracks[2].steps[0].samples,['808:kick-01','909:bt7a0d7','909:st7t7s7'],'Drum triggers retain sample identity when copied to another timbre');
+assert.deepEqual(pasteSteps(sampleSequence,kitClipboard,0,18).sequence.tracks[0].steps[18].notes,[60,64],'Copy within the kit preserves its live MIDI assignments');
+const sameTrack=pasteSteps(sampleSequence,copied,0,18);assert.deepEqual(sameTrack.sequence.tracks[0].steps.slice(18,22),copied.steps);
+const endPaste=pasteSteps(sampleSequence,copied,1,126);assert.equal(endPaste.count,2);assert.ok(endPaste.truncated);assert.equal(endPaste.sequence.tracks[1].length,128,'Paste at the end truncates without wrapping');
+const sampleEvents=[];const sampleClock=new SequenceClock((t,n,v)=>sampleEvents.push({t,n,v}));sampleSequence.tracks[0].steps[0]=sampleSequence.tracks[0].steps[14];sampleSequence.tracks.slice(1).forEach(t=>t.enabled=false);sampleClock.setConfig(sampleSequence);sampleClock.play();sampleClock.beforeRender();assert.deepEqual(sampleEvents.map(e=>e.n),[60,64,'808:kick-01','909:bt7a0d7']);sampleClock.stop();assert.equal(sampleEvents.filter(e=>!e.v).length,4,'Clock releases pitches and samples together');
+const directAudition=[];new StepAudition((t,n,v)=>directAudition.push(n)).play(0,sampleSequence.tracks[0].steps[0],120);assert.deepEqual(directAudition,[60,64,'808:kick-01','909:bt7a0d7']);
+const fullChord=emptySequence();fullChord.tracks[0].steps[0].notes=Array.from({length:48},(_,i)=>36+i);assert.equal(validateSequence(fullChord).tracks[0].steps[0].notes.length,48);fullChord.tracks[0].steps[0].samples=['808:kick-01'];assert.throws(()=>validateSequence(fullChord),'A step cannot request over 48 events');
+features.push('Range Copy/Paste across timbres and pattern banks preserves gaps, chords, samples, velocity and gate, without aliases or end-of-pattern wrapping');
+
 const fakeStorage=new Map();fakeStorage.getItem=fakeStorage.get.bind(fakeStorage);fakeStorage.setItem=fakeStorage.set.bind(fakeStorage);const patches=new PatchStore(fakeStorage);const snapshot={version:2,engine:program,sequencer:sequence,samples:{version:1,slots:Array.from({length:16},()=>({source:"synth",mode:0}))}};
 const patch=patches.save("Four timbres",snapshot);assert.deepEqual(new PatchStore(fakeStorage).list()[0].snapshot,snapshot);patches.save("Renamed",snapshot,patch.id);assert.equal(patches.list().length,1);patches.saveSession({snapshot,selected:3,volume:45});assert.deepEqual(patches.session().snapshot,snapshot);
 features.push("four synchronized polyphonic sequencers up to 128 steps, complete chord audition, per-track straight/triplet/dotted resolution, gate, mute, length, reset, tempo and browser patch persistence");
 
-const sequenceSource = fs.readFileSync(new URL("../web/sequence.js", import.meta.url),"utf8").replace(/^export /gm, "");
+const sequenceSource = fs.readFileSync(new URL("../web/sequence.js", import.meta.url),"utf8").replace(/^export /gm, "").replace(/^import .*;\n/gm,"");
 const workletSource = fs.readFileSync(new URL("../web/worklet.js", import.meta.url), "utf8");
 const reports = [];
 for (const sampleRate of [48000, 44100]) {
   let Processor;
   const messages = [];
   vm.runInNewContext(sequenceSource + "\n" + workletSource.replace(/^import .*;\n/gm,""), {
-    sampleRate, WebAssembly, Float32Array, Uint8Array,
+    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,
     AudioWorkletProcessor: class { constructor() { this.port = { postMessage: message => messages.push(message) }; } },
     registerProcessor: (_name, processor) => { Processor = processor; },
   });
@@ -226,8 +297,22 @@ for (const sampleRate of [48000, 44100]) {
   assert.ok(Math.abs(hz - 440) < 3, `A4 tuning at ${sampleRate} Hz: ${hz}`);
   const nativeFrames = processor.wasm.rustias_frames();
   assert.ok(Math.abs(nativeFrames - frames * 48000 / sampleRate) <= 128, "Resampling must retain the native clock");
+  processor.process([],[[new Float32Array(64),new Float32Array(64)]]);
+  const beforeGrowth=processor.wasm.memory.buffer;
+  processor.port.onmessage({data:{type:'library-sample',asset:100,request:78,data:new Float32Array(1440000).fill(.01)}});
+  assert.notEqual(processor.wasm.memory.buffer,beforeGrowth,'A large sample exercises actual Wasm memory growth during a partial audio block');
+  const grownLeft=new Float32Array(128),grownRight=new Float32Array(128);processor.process([],[[grownLeft,grownRight]]);
+  assert.ok([...grownLeft,...grownRight].every(Number.isFinite),'Sample uploads preserve valid audio across memory growth at both output rates');
   processor.port.onmessage({data:{type:"audition",timbre:1,step:{notes:[60,64,67],velocity:100,gate:75}}});assert.equal(processor.wasm.rustias_voices(),4,"Audition sounds the complete chord on its edited timbre");
   for(let block=0;block<100;block++)processor.process([],[[new Float32Array(128),new Float32Array(128)]]);assert.equal(processor.wasm.rustias_voices(),1,"Audition preserves the manually held note");
+  processor.port.onmessage({data:{type:'library-sample',asset:99,request:77,data:sine.slice()}});
+  processor.port.onmessage({data:{type:'library-profile',id:321,asset:99,timbre:3,source:'909:bt7a0d7',mode:2,values:libraryValues}});
+  assert.ok(messages.some(m=>m.type==='sample-ready'&&m.request===77&&m.ok));
+  processor.port.onmessage({data:{type:'audition',timbre:3,step:{notes:[72],samples:['909:bt7a0d7'],velocity:100,gate:75}}});assert.equal(processor.wasm.rustias_voices(),3,'Worklet audition combines melodic notes and arbitrary samples');
+  for(let block=0;block<150;block++)processor.process([],[[new Float32Array(128),new Float32Array(128)]]);assert.equal(processor.wasm.rustias_voices(),1,'Worklet releases the direct sample and chord without dropping the manual note');
+  const directLane=emptySequence();directLane.tracks.forEach((track,t)=>{track.enabled=t===3;});directLane.tracks[3].steps[0].samples=['909:bt7a0d7'];
+  processor.port.onmessage({data:{type:'sequencer',config:directLane}});processor.port.onmessage({data:{type:'sequence-play'}});processor.process([],[[new Float32Array(128),new Float32Array(128)]]);assert.equal(processor.wasm.rustias_voices(),2,'Worklet clock triggers arbitrary samples');processor.port.onmessage({data:{type:'sequence-stop'}});
+  for(let block=0;block<150;block++)processor.process([],[[new Float32Array(128),new Float32Array(128)]]);assert.equal(processor.wasm.rustias_voices(),1);
   const lane=emptySequence();lane.tracks[0].steps[0].notes=[69];lane.tracks.slice(1).forEach(t=>t.enabled=false);
   processor.port.onmessage({data:{type:"sequencer",config:lane}});processor.port.onmessage({data:{type:"sequence-play"}});processor.process([],[[new Float32Array(128),new Float32Array(128)]]);
   processor.port.onmessage({data:{type:"sequence-stop"}});assert.equal(processor.wasm.rustias_voices(),1,"Sequence Stop must preserve the manual note");

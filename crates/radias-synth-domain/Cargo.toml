@@ -2,3 +2,6 @@
 name = "radias-synth-domain"
 version.workspace = true
 edition.workspace = true
+
+[features]
+web-polyphony = []

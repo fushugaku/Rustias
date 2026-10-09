@@ -213,6 +213,12 @@ impl Synthesizer {
     pub fn active_count(&self) -> usize {
         self.pool.active_count()
     }
+    pub fn set_drum_gain(&mut self, gain: f64) {
+        self.pool.set_drum_gain(gain);
+    }
+    pub fn steal_oldest_voice(&mut self) -> bool {
+        self.pool.steal_oldest_voice()
+    }
     pub fn held_count(&self) -> usize {
         self.pool.held_count()
     }

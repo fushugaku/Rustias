@@ -524,10 +524,24 @@ impl StandaloneSynth {
     }
     /// A PCM adapter can use the same instrument controllers and DSP graph.
     pub fn drum_program(&self, index: usize) -> DrumInstrumentProgram {
+        self.compile_drum_values(&self.drum_settings[index])
+    }
+    /// Compile a browser PCM profile through the same graph as a drum row.
+    pub fn compile_drum_values(&self, values: &Values) -> DrumInstrumentProgram {
         DrumInstrumentProgram {
-            controls: controls(&self.drum_settings[index]),
-            graph: self.graph(&self.drum_settings[index]),
+            controls: controls(values),
+            graph: self.graph(values),
         }
+    }
+    pub fn valid_parameter(&self, id: usize, value: i32) -> bool {
+        self.spec.get(id).is_some_and(|p| {
+            value >= p.min
+                && value <= p.max
+                && !p
+                    .values
+                    .as_ref()
+                    .is_some_and(|allowed| !allowed.contains(&value))
+        })
     }
     pub fn control(&mut self, t: u8, id: usize, value: i32) -> bool {
         if t >= 4 || id >= self.spec.len() {

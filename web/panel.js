@@ -46,7 +46,7 @@ export function makePicker({label,options,value,onChange,short,searchable=false,
   const picker={button,options,value,onChange,render(next,override){picker.value=next;const option=picker.options.find(o=>o.value===next),name=override??option?.label;text.textContent=short?.(name)??name??String(next);button.title=`${label}: ${name??next}`;}};
   const choose=next=>{picker.render(next);onChange(next);};
   function open(){
-    if(openPicker===picker){closePicker();return;}closePicker();typedChoice="";openPicker=picker;popup.replaceChildren();popup.setAttribute("aria-label",label);
+    if(openPicker===picker){closePicker();return;}closePicker();(button.closest("dialog[open]")??document.body).append(popup);typedChoice="";openPicker=picker;popup.replaceChildren();popup.setAttribute("aria-label",label);
     const rect=button.getBoundingClientRect(),width=Math.min(Math.max(rect.width,searchable?260:180),innerWidth-16);
     popup.style.width=`${width}px`;popup.style.left=`${Math.min(Math.max(8,rect.left),innerWidth-width-8)}px`;
     const spaceBelow=innerHeight-rect.bottom-12,spaceAbove=rect.top-12;
@@ -73,6 +73,22 @@ popup.addEventListener("keydown",event=>{
   else if(!searching&&event.key.length===1&&!event.metaKey&&!event.ctrlKey&&!event.altKey){event.preventDefault();clearTimeout(typedChoiceTimer);typedChoice+=event.key.toLowerCase();typedChoiceTimer=setTimeout(()=>{typedChoice="";},650);const match=items.find(item=>item.textContent.toLowerCase().startsWith(typedChoice)||item.textContent.toLowerCase().replace(/^(808 |\d{3} · )/,"").startsWith(typedChoice));match?.focus();}
 
 });
+export function makeDial({label,min,max,defaultValue,read,onChange,format=String,display=v=>v,native=v=>v,step=1,numberStep=1}){
+  const button=document.createElement('button'),number=document.createElement('input');
+  button.type='button';button.className='knob';button.setAttribute('role','slider');button.setAttribute('aria-label',`${label} dial`);button.setAttribute('aria-valuemin',min);button.setAttribute('aria-valuemax',max);button.innerHTML='<span class="knob-face"></span>';
+  number.type='number';number.className='dial-value';number.min=display(min);number.max=display(max);number.step=numberStep;number.setAttribute('aria-label',label);
+  const set=value=>onChange(Math.max(min,Math.min(max,Math.round(value))));
+  number.addEventListener('input',()=>{if(number.value!==''&&number.validity.valid)set(native(Number(number.value)));});
+  for(const event of ['change','blur'])number.addEventListener(event,()=>{if(number.value!==''&&number.validity.valid)set(native(Number(number.value)));number.value=display(read());});
+  let drag;button.addEventListener('pointerdown',event=>{if(event.button!==0)return;button.setPointerCapture(event.pointerId);drag={y:event.clientY,value:read()};event.preventDefault();});
+  button.addEventListener('pointermove',event=>{if(drag)set(drag.value+(drag.y-event.clientY)*(max-min)/127*(event.shiftKey?.12:.8));});
+  for(const event of ['pointerup','pointercancel','lostpointercapture'])button.addEventListener(event,()=>{drag=null;});
+  button.addEventListener('wheel',event=>{event.preventDefault();set(read()-Math.sign(event.deltaY)*step);},{passive:false});
+  button.addEventListener('keydown',event=>{const steps={ArrowUp:step,ArrowRight:step,ArrowDown:-step,ArrowLeft:-step,PageUp:10*step,PageDown:-10*step};if(event.key in steps){event.preventDefault();set(read()+steps[event.key]);}else if(['Home','End'].includes(event.key)){event.preventDefault();set(event.key==='Home'?min:max);}});button.addEventListener('dblclick',()=>set(defaultValue));
+  return {button,number,render(value=read()){
+    button.style.setProperty('--angle',`${-135+(value-min)/(max-min)*270}deg`);button.setAttribute('aria-valuenow',value);button.setAttribute('aria-valuetext',format(value));if(document.activeElement!==number)number.value=display(value);number.title=format(value);
+  }};
+}
 export function createPanel({parameters,readValues,setControl,format,disabled,displayValue,nativeValue}){
   const fields=new Map();
   function field(id){
@@ -90,16 +106,8 @@ export function createPanel({parameters,readValues,setControl,format,disabled,di
       const picker=makePicker({label:aria,options,value:readValues()[id],onChange:v=>setControl(id,v),short:s=>s?.replace("Waveform","Wave").replace("Ring + Sync","Ring/Sync").replace("WavShape","WS").replace("Timbre","Tmbre").replace("Highest","High").replace("Lowest","Low").replace("SubOSC ","Sub ")});
       picker.button.id=label.htmlFor;wrap.append(picker.button);fields.set(id,{wrap,picker,inputs:[picker.button]});
     }else{
-      const button=document.createElement("button"),number=document.createElement("input");button.type="button";button.className="knob";button.setAttribute("role","slider");button.setAttribute("aria-label",`${aria} dial`);button.setAttribute("aria-valuemin",p.min);button.setAttribute("aria-valuemax",p.max);button.innerHTML='<span class="knob-face"></span>';
-      number.id=label.htmlFor;number.type="number";number.className="dial-value";number.min=displayValue(p,p.min);number.max=displayValue(p,p.max);number.step=id===89?0.1:1;number.setAttribute("aria-label",aria);
-      number.addEventListener("input",()=>{if(number.value!==""&&number.validity.valid)setControl(id,nativeValue(p,Number(number.value)));});
-      number.addEventListener("change",()=>{if(number.value!==""&&number.validity.valid)setControl(id,nativeValue(p,Number(number.value)));number.value=displayValue(p,readValues()[id]);});number.addEventListener("blur",()=>{number.value=displayValue(p,readValues()[id]);});
-      let drag;button.addEventListener("pointerdown",event=>{if(event.button!==0)return;button.setPointerCapture(event.pointerId);drag={y:event.clientY,value:readValues()[id]};event.preventDefault();});
-      button.addEventListener("pointermove",event=>{if(drag)setControl(id,drag.value+(drag.y-event.clientY)*(p.max-p.min)/127*(event.shiftKey?.12:.8));});
-      for(const event of ["pointerup","pointercancel","lostpointercapture"])button.addEventListener(event,()=>{drag=null;});
-      button.addEventListener("wheel",event=>{event.preventDefault();setControl(id,readValues()[id]-Math.sign(event.deltaY)*(id===89?10:1));},{passive:false});
-      button.addEventListener("keydown",event=>{const steps={ArrowUp:1,ArrowRight:1,ArrowDown:-1,ArrowLeft:-1,PageUp:10,PageDown:-10};if(event.key in steps){event.preventDefault();setControl(id,readValues()[id]+steps[event.key]);}else if(["Home","End"].includes(event.key)){event.preventDefault();setControl(id,event.key==="Home"?p.min:p.max);}});button.addEventListener("dblclick",()=>setControl(id,p.default));
-      wrap.classList.add("dial-parameter");wrap.append(button,number);fields.set(id,{wrap,button,number,inputs:[button,number]});
+      const dial=makeDial({label:aria,min:p.min,max:p.max,defaultValue:p.default,read:()=>readValues()[id],onChange:v=>setControl(id,v),format:v=>format(id,v),display:v=>displayValue(p,v),native:v=>nativeValue(p,v),step:id===89?10:1,numberStep:id===89?0.1:1});
+      dial.number.id=label.htmlFor;wrap.classList.add("dial-parameter");wrap.append(dial.button,dial.number);fields.set(id,{wrap,dial,inputs:[dial.button,dial.number]});
     }
     return wrap;
   }
@@ -120,7 +128,7 @@ export function createPanel({parameters,readValues,setControl,format,disabled,di
       if(f.picker)f.picker.render(value,overrides[id]);
       if(f.switchButton){f.switchButton.setAttribute("aria-pressed",!!value);f.switchText.textContent=value?"On":"Off";}
       if(f.buttons)f.buttons.forEach((b,i)=>b.setAttribute("aria-pressed",i===value));
-      if(f.button){f.button.style.setProperty("--angle",`${-135+(value-p.min)/(p.max-p.min)*270}deg`);f.button.setAttribute("aria-valuenow",value);f.button.setAttribute("aria-valuetext",format(id,value));if(document.activeElement!==f.number)f.number.value=displayValue(p,value);f.number.title=format(id,value);}
+      f.dial?.render(value);
     }
   }};
 }

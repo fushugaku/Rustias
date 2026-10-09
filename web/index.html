@@ -25,7 +25,7 @@
     <p id="error" class="error" role="alert" hidden></p>
     <div id="rack" class="rack" aria-label="Complete synthesis panel"></div>
     <section class="sequencer" aria-label="Polyphonic sequencer">
-      <div class="sequence-heading"><h2>POLYPHONIC SEQUENCER</h2><div class="sequence-transport"><button id="seq-reset">Reset</button><button id="seq-play" disabled>Play</button></div></div>
+      <div class="sequence-heading"><h2>POLYPHONIC SEQUENCER</h2><div class="sequence-tools"><button id="seq-select" aria-pressed="false">Select</button><button id="seq-copy" disabled>Copy</button><button id="seq-paste" disabled>Paste</button><button id="seq-undo" aria-label="Undo paste" disabled>↶</button><span id="seq-selection" role="status"></span></div><div class="sequence-transport"><button id="seq-reset">Reset</button><button id="seq-play" disabled>Play</button></div></div>
       <div class="sequence-scroll"><div id="sequence-tracks"></div></div>
     </section>
     <footer class="performance-footer">
@@ -33,7 +33,7 @@
         <div class="keybed-heading"><span id="keybed-title">KEYBOARD</span><div class="octaves"><button id="octave-down" aria-label="Lower octave">−</button><span id="octave-label">C4–D♯5</span><button id="octave-up" aria-label="Higher octave">+</button></div></div>
         <div id="keys" class="keys" aria-label="Keyboard"></div>
       </div>
-      <div class="monitor"><div class="connection"><span id="led" class="led"></span><span id="status" role="status" aria-live="polite">Loading Rust engine…</span></div><div class="monitor-right"><span><b id="voices">0</b> voices</span><meter id="meter" min="0" max="1" value="0" aria-label="Output level"></meter><label class="volume">Volume<input id="volume" type="range" min="0" max="100" value="30"></label><a href="https://github.com/fushugaku/Rustias#webassembly" aria-label="About this build">GitHub ↗</a></div></div>
+      <div class="monitor"><div class="connection"><span id="led" class="led"></span><span id="status" role="status" aria-live="polite">Loading Rust engine…</span></div><div class="monitor-right"><span><b id="voices">0</b> / <span id="voice-capacity">48</span> voices</span><meter id="meter" min="0" max="1" value="0" aria-label="Output level"></meter><label class="volume">Volume<input id="volume" type="range" min="0" max="100" value="30"></label><a href="https://github.com/fushugaku/Rustias#webassembly" aria-label="About this build">GitHub ↗</a></div></div>
     </footer>
     <noscript>JavaScript is required to load the WebAssembly synthesizer.</noscript>
   </main>
@@ -41,7 +41,8 @@
     <div class="dialog-heading"><h2 id="step-title"></h2><div class="step-navigation"><button id="step-prev" aria-label="Previous step">←</button><button id="step-next" aria-label="Next step">→</button><button id="step-close" aria-label="Close step editor">×</button></div></div>
     <div class="chord-octaves"><button id="step-octave-down" aria-label="Lower sequence octave">−</button><span id="step-octave"></span><button id="step-octave-up" aria-label="Higher sequence octave">+</button></div>
     <div id="step-notes" class="chord-keyboard"></div><p id="step-selected" class="selected-chord"></p>
-    <div class="step-properties"><label>Velocity<input id="step-velocity" type="number" min="1" max="127" value="100"></label><label>Gate %<input id="step-gate" type="number" min="1" max="100" value="75"></label><button id="step-clear">Clear</button><button id="step-copy">Copy next</button></div>
+    <div class="step-library"><div id="step-sample-source"></div><button id="step-sample-upload">Upload</button></div><div id="step-samples" class="sequence-samples"></div>
+    <div class="step-properties"><label>Velocity<input id="step-velocity" type="number" min="1" max="127" value="100"></label><label>Gate %<input id="step-gate" type="number" min="1" max="100" value="75"></label><button id="step-clear">Clear</button><button id="step-copy">Copy next</button><button id="step-paste" disabled>Paste</button></div>
   </dialog>
   <div id="patch-save-menu" class="choice-popup" popover="auto" role="menu" aria-label="Save patch"><button id="save-current-patch" role="menuitem">Save current</button><button id="save-copy" role="menuitem">Save copy…</button></div>
   <dialog id="patch-editor" class="editor-dialog patch-dialog"><form id="patch-form"><div class="dialog-heading"><h2 id="patch-title">Save patch</h2><button id="patch-cancel" type="button" aria-label="Cancel saving patch">×</button></div><label for="patch-name">Name</label><input id="patch-name" type="text" maxlength="64" required><button id="patch-confirm" type="submit">Save patch</button></form></dialog>

@@ -5,6 +5,7 @@ use radias_synth_domain::midi_clock::{
     SequencedClockCounter, TempoUpdateLatch, accepts_clock, interval_to_tenths_bpm,
     propagation_suppressed, selected_clock_mode,
 };
+use radias_synth_domain::voice_allocation::VOICE_COUNT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClockPulse {
@@ -12,17 +13,17 @@ pub enum ClockPulse {
     TimerOne,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ControllerClockBank {
-    pub voices: [[LfoTempoState; 2]; 24],
+    pub voices: [[LfoTempoState; 2]; VOICE_COUNT],
     /// Two synthesis LFOs and two effect LFOs for each timbre.
     pub timbres: [[LfoTempoState; 4]; 4],
     pub global: LfoTempoState,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TempoDivisions {
-    pub voices: [[u8; 2]; 24],
+    pub voices: [[u8; 2]; VOICE_COUNT],
     pub timbres: [[u8; 4]; 4],
     pub global: u8,
 }
@@ -75,6 +76,24 @@ pub struct InstrumentClock {
     countdown: u32,
 }
 
+impl Default for ControllerClockBank {
+    fn default() -> Self {
+        Self {
+            voices: [[Default::default(); 2]; VOICE_COUNT],
+            timbres: [[Default::default(); 4]; 4],
+            global: Default::default(),
+        }
+    }
+}
+impl Default for TempoDivisions {
+    fn default() -> Self {
+        Self {
+            voices: [[0; 2]; VOICE_COUNT],
+            timbres: [[0; 4]; 4],
+            global: 0,
+        }
+    }
+}
 impl InstrumentClock {
     pub fn internal(tables: LfoTempoTables, tempo: u16) -> Self {
         let mut inputs = [ClockInputState::default(); 3];
@@ -89,7 +108,7 @@ impl InstrumentClock {
         let mut clock = Self {
             bank: ControllerClockBank::default(),
             divisions: TempoDivisions {
-                voices: [[8; 2]; 24],
+                voices: [[8; 2]; VOICE_COUNT],
                 timbres: [[8; 4]; 4],
                 global: 8,
             },

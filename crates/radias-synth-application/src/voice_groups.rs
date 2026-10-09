@@ -1,7 +1,7 @@
 //! Original01EBE4 retunes surviving members after a physical actor is stolen.
 use radias_synth_domain::{
     note_groups::NoteGroups,
-    voice_allocation::{VOICE_COUNT, VoiceClaim},
+    voice_allocation::{VOICE_COUNT, VOICE_MASK, VoiceClaim, VoiceMask},
     voice_group::{GroupOffsets, VoiceGroupProgram, VoiceGroupSlots, VoiceGroupTables},
 };
 
@@ -9,7 +9,7 @@ use radias_synth_domain::{
 /// the selected physical groups. Both offsets are recomputed on every call.
 #[allow(clippy::too_many_arguments)]
 pub fn edit_selected_groups(
-    selected: u32,
+    selected: VoiceMask,
     program: VoiceGroupProgram,
     primary: u8,
     groups: &NoteGroups,
@@ -19,7 +19,7 @@ pub fn edit_selected_groups(
     offsets: &mut [GroupOffsets; VOICE_COUNT],
     tables: &VoiceGroupTables,
     seed: &mut u16,
-) -> Option<u32> {
+) -> Option<VoiceMask> {
     let requested_bank = if primary & 63 == 8 {
         1
     } else if program.raw & 128 != 0 {
@@ -27,7 +27,7 @@ pub fn edit_selected_groups(
     } else {
         0
     };
-    let mut remaining = selected & 0x00ff_ffff;
+    let mut remaining = selected & VOICE_MASK;
     while remaining != 0 {
         let mask = groups.take_selected_group(&mut remaining, claims);
         let bank = mask.count_ones() as u8 - 1;
@@ -47,14 +47,14 @@ pub fn edit_selected_groups(
             offsets[slot] = tables.offsets(program, bank, slots.indices[slot], seed)?;
         }
     }
-    Some(selected & 0x00ff_ffff)
+    Some(selected & VOICE_MASK)
 }
 
 /// The caller supplies pre-note identity and the allocator's temporary flags.
 /// No allocation, envelope restart or private-LFO restart occurs in this step.
 #[allow(clippy::too_many_arguments)]
 pub fn repair_retired_groups(
-    retired: u32,
+    retired: VoiceMask,
     program: VoiceGroupProgram,
     primary: u8,
     groups: &NoteGroups,
@@ -64,8 +64,8 @@ pub fn repair_retired_groups(
     offsets: &mut [GroupOffsets; VOICE_COUNT],
     tables: &VoiceGroupTables,
     seed: &mut u16,
-) -> Option<u32> {
-    let mut remaining = retired & 0x00ff_ffff;
+) -> Option<VoiceMask> {
+    let mut remaining = retired & VOICE_MASK;
     let mut repaired = 0;
     let requested_bank = if primary & 63 == 8 {
         1

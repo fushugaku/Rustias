@@ -27,17 +27,18 @@ const keyNames = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", 
 const computerKeys = ["a", "w", "s", "e", "d", "f", "t", "g", "y", "h", "u", "j", "k", "o", "l", "p"];
 let selected = 0, octave = 4, context, node, module, midiAccess, audioStarting;
 const held = new Map(), noteCounts = new Map();
-let sampleUI;
-let panel, programPicker, sequenceUI, activeSavedPatch=null, autosaveTimer, sequenceRequest=0, auditionRequest=0;
+let sampleUI,editingSample=null;
+let panel, programPicker, sequenceUI, activeSavedPatch=null, autosaveTimer, sequenceRequest=0, auditionRequest=0,sequenceConfigRequest=0;
 let rdlSource=null,lastRdlMasks;
 const patchStore=new PatchStore(window.localStorage);
 const send = message => node?.port.postMessage(message);
 const global = id => timbres[0].values[id];
 const isDrum = () => global(140) !== 0 && global(141) === selected;
-const isSample = () => isDrum() && sampleUI?.assigned(global(142));
+const isSample = () => !!editingSample || isDrum() && sampleUI?.assigned(global(142));
+const sampleProfile = () => editingSample?sampleUI?.findProfile(editingSample.timbre,editingSample.source):null;
 const instrumentParameter = id => parameters[id].scope !== "global" && (isSample() && id >= 114 && id <= 117 || !(id >= 59 && id <= 72 || id >= 114 && id <= 120 || id >= 137 && id <= 139 || id >= 150 && id <= 151 || id === 153));
-const values = () => parameters.map(p => p.id === 118 ? (isSample() ? 0 : timbres[selected].values[67] ? timbres[selected].values[68] - 1 : 0) : isDrum() && instrumentParameter(p.id) ? drums[global(142)][p.id] : timbres[selected].values[p.id]);
-function unavailableSource(){return rdlSource?.unavailable.find(s=>isDrum()?s.drum===global(142):s.drum==null&&s.timbre===selected);}
+const values = () => parameters.map(p => p.id === 118 ? (isSample() ? 0 : timbres[selected].values[67] ? timbres[selected].values[68] - 1 : 0) : editingSample && instrumentParameter(p.id) ? sampleProfile()?.values[p.id]??p.default : isDrum() && instrumentParameter(p.id) ? drums[global(142)][p.id] : timbres[selected].values[p.id]);
+function unavailableSource(){if(editingSample)return;return rdlSource?.unavailable.find(s=>isDrum()?s.drum===global(142):s.drum==null&&s.timbre===selected);}
 function muteMasks(){const masks=rdlMasks(rdlSource);for(let i=0;i<16;i++)if(sampleUI?.assigned(i))masks.drums&=~(1<<i);return masks;}
 function syncRdlMasks(){if(!node)return;const masks=muteMasks(),key=`${masks.timbres}:${masks.drums}`;if(key!==lastRdlMasks){send({type:'rdl-muted',...masks});lastRdlMasks=key;}}
 function loadEngine(program=state()){const unavailable=muteMasks();send({type:'load',program,unavailable});lastRdlMasks=`${unavailable.timbres}:${unavailable.drums}`;}
@@ -60,9 +61,9 @@ function format(id, value) {
   return String(value);
 }
 function disabled(id, v) {
-  if(isDrum()&&sampleUI?.assigned(global(142))&&[0,10,11,12,13,14,15,16,17,18,19].includes(id))return true;
-  if(isDrum()&&sampleUI?.assigned(global(142))&&[59,60,61,62,63,64,65,66,67,68,69,70,139].includes(id))return true;
-  if(isDrum()&&sampleUI?.assigned(global(142))&&[6,35,39].includes(id)&&sampleUI.getConfig().slots[global(142)].mode===0)return true;
+  if(isSample()&&[0,10,11,12,13,14,15,16,17,18,19].includes(id))return true;
+  if(isSample()&&[59,60,61,62,63,64,65,66,67,68,69,70,139].includes(id))return true;
+  if(isSample()&&[6,35,39].includes(id)&&(sampleProfile()?.mode??sampleUI.getConfig().slots[global(142)].mode)===0)return true;
   if(unavailableSource()&&[10,11,12].includes(id))return true;
   if (id === 10) return v[0] >= 4;
   if (id === 154) return v[29] !== 2;
@@ -78,16 +79,19 @@ function disabled(id, v) {
   if ([79, 87].includes(id)) return v[id - 1] === 0;
   if ([77, 85].includes(id)) return v[id - 1] === 0;
   if ([143, 144, 145].includes(id)) return v[140] === 0;
-  if ([146, 147].includes(id)) return !isDrum();
+  if(id===146&&editingSample)return true;
+  if ([146, 147].includes(id)) return !isDrum()&&!editingSample;
   return false;
 }
 function setControl(id, value, fromUser = true) {
+  if([140,141,142].includes(id))editingSample=null;
   const p = parameters[id]; value = Math.max(p.min, Math.min(p.max, Math.round(value)));
   const v = values(); if (disabled(id, v)) return;
   if (id === 119 && value > v[120] || id === 120 && value < v[119]) return;
   if (p.values && !p.values.includes(value)) return;
   if(id===0)replaceSource(selected,isDrum()?global(142):null);
   if (p.scope === "global") for (const t of timbres) t.values[id] = value;
+  else if(editingSample&&instrumentParameter(id))sampleUI.controlLibrary(selected,editingSample.source,id,value);
   else (isDrum() && instrumentParameter(id) ? drums[global(142)] : timbres[selected].values)[id] = value;
   if (id === 0 && value >= 4) (isDrum() ? drums[global(142)] : timbres[selected].values)[10] = 0;
   if ([66,137,138,139,150].includes(id)) {
@@ -95,20 +99,21 @@ function setControl(id, value, fromUser = true) {
     for (const t of timbres) if ((t.values[72] === 16 ? global(148) : t.values[72]) === channel) t.values[id] = value;
   }
   if (fromUser) timbres[selected].preset = "custom";
-  send(isSample() && id >= 114 && id <= 117 ? {type:"drum-control",instrument:global(142),parameter:id,value} : {type: "control", timbre: selected, parameter: id, value}); updateControls(); updateKeys(); scheduleSession();
+  if(!(editingSample&&instrumentParameter(id)))send(isSample() && id >= 114 && id <= 117 ? {type:"drum-control",instrument:global(142),parameter:id,value} : {type: "control", timbre: selected, parameter: id, value}); updateControls(); updateKeys(); scheduleSession();
 }
 function updateControls() {
   const v = values();
   const missing=unavailableSource();
-  const pcm=isDrum()&&sampleUI?.assigned(global(142)),sourceLabel=pcm?'Sample':missing?`${missing.label} ×`:null;
+  const pcm=isSample(),sourceLabel=pcm?'Sample':missing?`${missing.label} ×`:null;
   panel?.render(v,sourceLabel?{0:sourceLabel}:{}); sampleUI?.render();syncRdlMasks();
-  sequenceUI?.setDrumKit(drumSequenceKit(timbres[0].values,drums,sampleUI?.instrumentNames()));
+  sequenceUI?.setDrumKit(drumSequenceKit(timbres[0].values,drums,sampleUI?.instrumentNames(),sampleUI?.getConfig().slots.map(s=>s.source)));
   $('#rdl-details').hidden=!rdlSource;$('#wave-display').toggleAttribute('hidden',!!missing||pcm);
   document.querySelector('.module-filter1 h2').textContent=v[9]===127?'FILTER 1 · THRU':'FILTER 1';
   $("#wave-display").setAttribute("aria-label", `${names[v[0]]} waveform`);
   const paths = ["M0 60 L60 12 L60 60 L120 12 L120 60 L180 12 L180 60 L240 12", "M0 60 V12 H30 V60 H60 V12 H90 V60 H120 V12 H150 V60 H180 V12 H210 V60 H240", "M0 36 L30 12 L60 36 L90 60 L120 36 L150 12 L180 36 L210 60 L240 36", `M${Array.from({length: 121}, (_, i) => `${i * 2} ${36 - 24 * Math.sin(i / 120 * 4 * Math.PI)}`).join(" L")}`, `M${Array.from({length: 61}, (_, i) => `${i * 4} ${12 + (i * 17 % 49)}`).join(" L")}`, `M${Array.from({length: 121}, (_, i) => `${i * 2} ${36 - 24 * Math.sin(i / 120 * 10 * Math.PI) * Math.sin(i / 120 * 2 * Math.PI)}`).join(" L")}`];
   $("#wave-path").setAttribute("d", paths[v[0]]);
-  $("#edit-context").textContent = isDrum() ? `Drum ${String(global(142) + 1).padStart(2, "0")} · Timbre ${String(selected + 1).padStart(2, "0")}` : `Timbre ${String(selected + 1).padStart(2, "0")}`;
+  $("#edit-context").textContent = editingSample ? `T${selected+1} · ${sampleUI.sampleName(editingSample.source)}` : isDrum() ? `Drum ${String(global(142) + 1).padStart(2, "0")} · Timbre ${String(selected + 1).padStart(2, "0")}` : `Timbre ${String(selected + 1).padStart(2, "0")}`;
+  $("#edit-context").title=$("#edit-context").textContent;
   programPicker?.render(activeSavedPatch?`saved:${activeSavedPatch}`:timbres[selected].preset);
 }
 function displayValue(p, value) { return p.id === 89 ? value / 10 : [72, 148, 141, 142].includes(p.id) ? value + 1 : value - (p.center ?? 0); }
@@ -116,8 +121,9 @@ function nativeValue(p, value) { return p.id === 89 ? value * 10 : [72, 148, 141
 panel=createPanel({parameters,readValues:values,setControl,format,disabled,displayValue,nativeValue});
 programPicker=makePicker({label:"Program",options:[{value:"init",label:"INIT"},{value:"pad",label:"Warm pad"},{value:"pulse",label:"Pulse bass"},{value:"pluck",label:"Soft pluck"},{value:"custom",label:"Custom"}],value:"init",onChange:applyPreset,searchable:true});
 $("#preset").append(programPicker.button);
-document.querySelectorAll("[data-timbre]").forEach(button => button.addEventListener("click", () => { selected = Number(button.dataset.timbre); document.querySelectorAll("[data-timbre]").forEach(tab => tab.setAttribute("aria-selected", tab === button)); updateControls(); updateKeys(); scheduleSession(); }));
+document.querySelectorAll("[data-timbre]").forEach(button => button.addEventListener("click", () => { editingSample=null;selected = Number(button.dataset.timbre); document.querySelectorAll("[data-timbre]").forEach(tab => tab.setAttribute("aria-selected", tab === button)); updateControls(); updateKeys(); scheduleSession(); }));
 function applyPreset(preset) {
+  editingSample=null;
   if(preset.startsWith("saved:")){const patch=patchStore.list().find(p=>p.id===preset.slice(6));if(patch)try{loadSnapshot(patch.snapshot);activeSavedPatch=patch.id;updateControls();scheduleSession();}catch(error){showError(error);}return;}
   if (!(preset in presets)) return;
   activeSavedPatch=null;stopSequence();
@@ -150,18 +156,22 @@ function normalizeEngine(value){
 function snapshot(){return {version:2,engine:state(),sequencer:sequenceUI.getConfig(),samples:sampleUI?.getConfig?.()??null,...(rdlSource?{rdl:structuredClone(rdlSource)}:{})};}
 function loadSnapshot(value){
   const previousSamples=value.version===2?value.samples:null,samples=sampleUI.validateConfig(previousSamples),program=migrateSampleAmplifiers(normalizeEngine(value.version===2?value.engine:value),previousSamples,samples),sequence=validateSequence(value.version===2?value.sequencer:emptySequence()),source=validateRdlSource(value.version===2?value.rdl:null);
-  stop();$('#error').hidden=true;rdlSource=source;for(const t of timbres)t.preset="custom";
+  stop();editingSample=null;$('#error').hidden=true;rdlSource=source;for(const t of timbres)t.preset="custom";
   const samplesReady=sampleUI?.setConfig(samples);acceptState(program);sequenceUI.setConfig(sequence);loadEngine(program);send({type:"sequencer",config:sequence});
   samplesReady?.then(updateControls).catch(showError);
 }
 function scheduleSession(){clearTimeout(autosaveTimer);autosaveTimer=setTimeout(saveSession,300);}
 function saveSession(){try{patchStore.saveSession({snapshot:snapshot(),activeSavedPatch,selected,volume:Number($("#volume").value)});}catch(error){showError(new Error(`Could not save this patch in the browser: ${error.message}`));}}
 function refreshLibrary(){programPicker.options=programPicker.options.filter(o=>!String(o.value).startsWith("saved:"));for(const patch of patchStore.list())programPicker.options.push({value:`saved:${patch.id}`,label:patch.snapshot.rdl?`${String(patch.snapshot.rdl.slot+1).padStart(3,'0')} · ${patch.name}`:patch.name});updateControls();}
-sequenceUI=createSequencer({onChange:config=>{send({type:"sequencer",config});scheduleSession();},onPlay:playSequence,onStop:stopSequence,onReset:()=>send({type:"sequence-reset"}),onSelectTimbre:t=>{$(`[data-timbre="${t}"]`).click();},onSelectDrum:(instrument,timbre)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();setControl(142,instrument,false);},onAudition:auditionStep});
+sequenceUI=createSequencer({onChange:configureSequence,onPlay:playSequence,onStop:stopSequence,onReset:()=>send({type:"sequence-reset"}),onSelectTimbre:t=>{$(`[data-timbre="${t}"]`).click();},onSelectDrum:(instrument,timbre)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();setControl(142,instrument,false);},onAudition:auditionStep,onError:showError,
+  onSample:(timbre,source)=>sampleUI.ensureLibrary(timbre,source),onEditSample:(timbre,source)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();sampleUI.editProfile(timbre,source);editingSample={timbre,source};updateControls();scheduleSession();},
+  onCopySamples:(from,to,sources)=>sampleUI.copyProfiles(from,to,sources),onUploadSample:(timbre,onReady)=>sampleUI.uploadForSequence(timbre,onReady)});
 sequenceUI.setReady(false);
-async function playSequence(){const request=++sequenceRequest;try{await startAudio();if(request!==sequenceRequest)return;send({type:"sequencer",config:sequenceUI.getConfig()});send({type:"sequence-play"});sequenceUI.setStatus({running:true,positions:[0,0,0,0]});}catch(error){showError(error);}}
-async function auditionStep(timbre,step,resolution){const request=++auditionRequest;try{await startAudio();if(request===auditionRequest)send({type:"audition",timbre,step,resolution});}catch(error){showError(error);}}
-function stopSequence(){sequenceRequest++;send({type:"sequence-stop"});sequenceUI?.setStatus({running:false,positions:[-1,-1,-1,-1]});}
+function configureSequence(config){const request=++sequenceConfigRequest;scheduleSession();if(!node)return;if(context?.state!=="running"){send({type:"sequencer",config});return;}prepareSequenceSamples(config).then(()=>{if(request===sequenceConfigRequest)send({type:"sequencer",config});}).catch(error=>{if(request===sequenceConfigRequest)showError(error);});}
+async function prepareSequenceSamples(config){await Promise.all(config.tracks.flatMap((track,timbre)=>track.enabled?[...new Set(track.steps.slice(0,track.length).flatMap(step=>step.samples??[]))].map(source=>sampleUI.ensureLibrary(timbre,source)):[]));}
+async function playSequence(){const request=++sequenceRequest;try{await startAudio();await prepareSequenceSamples(sequenceUI.getConfig());if(request!==sequenceRequest)return;send({type:"sequencer",config:sequenceUI.getConfig()});send({type:"sequence-play"});sequenceUI.setStatus({running:true,positions:[0,0,0,0]});}catch(error){showError(error);}}
+async function auditionStep(timbre,step,resolution){const request=++auditionRequest;try{await startAudio();await Promise.all((step.samples??[]).map(source=>sampleUI.ensureLibrary(timbre,source)));if(request===auditionRequest)send({type:"audition",timbre,step,resolution});}catch(error){showError(error);}}
+function stopSequence(){sequenceRequest++;sequenceConfigRequest++;send({type:"sequence-stop"});sequenceUI?.setStatus({running:false,positions:[-1,-1,-1,-1]});}
 function newPatchDialog(copy=false){
   const patches=patchStore.list(),existing=patches.find(p=>p.id===activeSavedPatch),base=existing?.name??programPicker.options.find(o=>o.value===programPicker.value)?.label??'Patch';
   let name=`Patch ${String(patches.length+1).padStart(2,'0')}`;
@@ -267,11 +277,11 @@ async function setupAudio() {
         if(sampleUI?.handleMessage(data))return;
         if (data.type === "ready") { clearTimeout(timeout); resolve(); }
         else if (data.type === "error") { clearTimeout(timeout); reject(new Error(data.message)); showError(new Error(data.message)); }
-        else if (data.type === "state") {acceptState(data.program);scheduleSession();}
+        else if (data.type === "state") {sampleUI.acceptVolumes(data.libraryVolumes,data.program,data.midi);acceptState(data.program);scheduleSession();}
         else if (data.type === "warning") showError(new Error(data.message));
         else if (data.type === "stats") {
           if(data.sequence)sequenceUI.setStatus(data.sequence);
-          $("#voices").textContent = data.voices; $("#meter").value = data.peak;
+          $("#voice-capacity").textContent=data.capacity;$("#voices").textContent = data.voices; $("#meter").value = data.peak;
           document.body.dataset.frames = data.frames; document.body.dataset.audibleFrames = data.audibleFrames; document.body.dataset.peak = data.peak; document.body.dataset.callbacks = data.callbacks;
         }
       };
@@ -351,11 +361,11 @@ function prepareSampleInstrument(instrument){
   for(const [parameter,value] of [[3,0],[4,127],[5,127],[6,32],[9,0],[1,127],[2,0],[114,0],[115,32512],[116,0],[117,127]]){drums[instrument][parameter]=value;send({type:"drum-control",instrument,parameter,value});}
 }
 function enableDrumKit(){if(!global(140))setControl(140,1);if(!isDrum())$(`[data-timbre="${global(141)}"]`).click();}
-sampleUI=createDrumSamples({getInstrument:()=>global(142),isDrum,ensureAudio:startAudio,onError:showError,onChange:()=>{updateControls();scheduleSession();},onAssign:(instrument,fresh)=>{enableDrumKit();if(fresh)prepareSampleInstrument(instrument);},onKit:bank=>{
+sampleUI=createDrumSamples({parameters,getDrumValues:i=>drums[i],getEditingSample:()=>editingSample,onLibraryChange:()=>sequenceUI.setSamples(sampleUI?.options()??[]),onPreview:(timbre,source)=>auditionStep(timbre,{notes:[],samples:[source],velocity:100,gate:100},"1/4"),getInstrument:()=>global(142),isDrum,ensureAudio:startAudio,onError:showError,onChange:()=>{updateControls();scheduleSession();},onAssign:(instrument,fresh)=>{enableDrumKit();if(fresh)prepareSampleInstrument(instrument);},onKit:bank=>{
   enableDrumKit();for(let i=0;i<16;i++){prepareSampleInstrument(i);for(const [parameter,value] of [[146,60+i],[147,([3,4].includes(i)||bank==='909'&&[14,15].includes(i))?1:0]]){drums[i][parameter]=value;send({type:"drum-control",instrument:i,parameter,value});}}
   setControl(142,0);
 }});
-sampleUI.ready.then(updateControls,()=>{});
+sampleUI.ready.then(()=>{sequenceUI.setSamples(sampleUI.options());updateControls();},()=>{});
 refreshLibrary();
 try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(session.snapshot);activeSavedPatch=session.activeSavedPatch??null;if(Number.isInteger(session.selected)&&session.selected>=0&&session.selected<4)$(`[data-timbre="${session.selected}"]`).click();if(Number.isFinite(session.volume))$("#volume").value=session.volume;}}catch(error){showError(new Error(`Could not restore the saved session: ${error.message}`));}
 updateControls(); updateKeys(); document.body.dataset.parameterCount = parameters.length;

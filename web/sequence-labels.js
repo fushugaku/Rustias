@@ -3,10 +3,11 @@ export const noteName=note=>`${pitches[note%12]}${Math.floor(note/12)-1}`;
 
 // The sequencer keeps MIDI notes. Match the same triggers as WebEngine::note,
 // including kit transpose and multiple instruments assigned to one trigger.
-export function drumSequenceKit(global,drums,names=[]){
+export function drumSequenceKit(global,drums,names=[],sources=[]){
   if(!global[140])return null;
   return {timbre:global[141],instruments:drums.map((values,index)=>({
     note:values[146]+global[145]-64,
+    source:sources[index],
     name:names[index]??`Drum ${String(index+1).padStart(2,'0')}`,
   }))};
 }

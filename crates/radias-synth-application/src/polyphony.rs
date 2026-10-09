@@ -12,7 +12,10 @@ use radias_synth_domain::{
     fixed::saturate,
     pan::{StereoFrame, VoiceBus},
     processor_link::{ProcessorLink, scale_slave},
-    voice_allocation::{AllocationOwner, VOICE_COUNT, VoiceAllocator, VoiceAssignment},
+    voice_allocation::{
+        AllocationOwner, VOICE_COUNT, VOICES_PER_PROCESSOR, VoiceAllocator, VoiceAssignment,
+        VoiceMask,
+    },
     waveform::WaveformTable,
 };
 
@@ -122,6 +125,8 @@ pub struct PolyphonicRenderer {
     prepared_note_tag: Option<u8>,
     program_common: Option<radias_synth_domain::program_binding::ProgramCommon>,
     drum_groups: radias_synth_domain::drum_groups::DrumVoiceGroups,
+    drum_gain: f64,
+    drum_slots: [bool; VOICE_COUNT],
 }
 impl Default for PolyphonicRenderer {
     fn default() -> Self {
@@ -175,6 +180,8 @@ impl Default for PolyphonicRenderer {
             prepared_note_tag: None,
             program_common: None,
             drum_groups: Default::default(),
+            drum_gain: 1.0,
+            drum_slots: [false; VOICE_COUNT],
         }
     }
 }
@@ -193,7 +200,7 @@ impl PolyphonicRenderer {
             self.allocator.budget.costs[slot],
         ))
     }
-    pub fn retire_drum_group(&mut self, timbre: u8, event: u32, group: u8) -> u32 {
+    pub fn retire_drum_group(&mut self, timbre: u8, event: u32, group: u8) -> VoiceMask {
         if timbre as usize >= TIMBRE_COUNT {
             return 0;
         }
@@ -481,12 +488,12 @@ impl PolyphonicRenderer {
     }
     pub fn edit_selected_group_members(
         &mut self,
-        selected: u32,
+        selected: VoiceMask,
         program: radias_synth_domain::voice_group::VoiceGroupProgram,
         primary: u8,
         groups: &radias_synth_domain::note_groups::NoteGroups,
         claims: &[radias_synth_domain::voice_allocation::VoiceClaim; VOICE_COUNT],
-    ) -> u32 {
+    ) -> VoiceMask {
         let Some(tables) = &self.voice_group_tables else {
             return 0;
         };
@@ -507,7 +514,7 @@ impl PolyphonicRenderer {
         self.publish_group_offsets(changed, previous);
         changed
     }
-    pub fn retire_timbre_for_program_edit(&mut self, timbre: u8) -> u32 {
+    pub fn retire_timbre_for_program_edit(&mut self, timbre: u8) -> VoiceMask {
         if timbre as usize >= TIMBRE_COUNT {
             return 0;
         }
@@ -548,12 +555,12 @@ impl PolyphonicRenderer {
     /// A caller with a separate allocation clock supplies its temporary flags.
     pub fn repair_retired_group_members(
         &mut self,
-        retired: u32,
+        retired: VoiceMask,
         program: radias_synth_domain::voice_group::VoiceGroupProgram,
         primary: u8,
         groups: &radias_synth_domain::note_groups::NoteGroups,
         claims: &[radias_synth_domain::voice_allocation::VoiceClaim; VOICE_COUNT],
-    ) -> u32 {
+    ) -> VoiceMask {
         let Some(tables) = &self.voice_group_tables else {
             return 0;
         };
@@ -576,7 +583,7 @@ impl PolyphonicRenderer {
     }
     fn publish_group_offsets(
         &mut self,
-        changed: u32,
+        changed: VoiceMask,
         previous: [radias_synth_domain::voice_group::GroupOffsets; VOICE_COUNT],
     ) {
         for (slot, previous) in previous.iter().enumerate() {
@@ -613,8 +620,8 @@ impl PolyphonicRenderer {
         &mut self,
         timbre: u8,
         primary: u8,
-        selected: u32,
-        retired: u32,
+        selected: VoiceMask,
+        retired: VoiceMask,
         previous_claims: &[radias_synth_domain::voice_allocation::VoiceClaim; VOICE_COUNT],
     ) {
         let mut temporary = self.allocator.claims;
@@ -705,7 +712,7 @@ impl PolyphonicRenderer {
         channels: [u8; TIMBRE_COUNT],
         event: u32,
         tables: Option<&ControllerTables>,
-    ) -> u32 {
+    ) -> VoiceMask {
         use radias_synth_domain::sustain::SustainState;
         for (timbre, channel) in channels.iter().enumerate() {
             self.sustain_states[timbre].receive(*channel, event);
@@ -742,7 +749,7 @@ impl PolyphonicRenderer {
             auxiliary.release(tables);
         }
     }
-    fn release_mono_owner(&mut self, timbre: u8, tables: Option<&ControllerTables>) -> u32 {
+    fn release_mono_owner(&mut self, timbre: u8, tables: Option<&ControllerTables>) -> VoiceMask {
         let mut released = 0;
         for slot in 0..VOICE_COUNT {
             let claim = &mut self.allocator.claims[slot];
@@ -789,7 +796,7 @@ impl PolyphonicRenderer {
     }
     /// Single-trigger Mono retargets every held voice belonging to this
     /// timbre, retaining EG/LFO timing, oscillator phases and filter memory.
-    pub fn legato(&mut self, timbre: u8, note: u8, velocity: u8) -> u32 {
+    pub fn legato(&mut self, timbre: u8, note: u8, velocity: u8) -> VoiceMask {
         if timbre as usize >= TIMBRE_COUNT || note > 127 {
             return 0;
         }
@@ -1076,7 +1083,7 @@ impl PolyphonicRenderer {
         self.physical_frames = core::array::from_fn(|slot| {
             Some(
                 radias_synth_domain::voice_frame::VoiceFrameState::from_boot(
-                    &seeds[slot / 12],
+                    &seeds[slot / VOICES_PER_PROCESSOR],
                     slot % 12,
                 ),
             )
@@ -1639,7 +1646,7 @@ impl PolyphonicRenderer {
         }
         self.install(assignment.slot as usize, assignment.displaced, voice);
     }
-    pub fn install(&mut self, slot: usize, displaced: u32, mut voice: ActiveVoice) {
+    pub fn install(&mut self, slot: usize, displaced: VoiceMask, mut voice: ActiveVoice) {
         self.drum_groups.groups[slot] = 0;
         if voice.uses_program_common
             && let Some(common) = self.program_common
@@ -1709,6 +1716,25 @@ impl PolyphonicRenderer {
     }
     pub fn active_count(&self) -> usize {
         self.voices.iter().filter(|v| v.is_some()).count()
+    }
+    pub fn set_drum_gain(&mut self, gain: f64) {
+        self.drum_gain = gain;
+    }
+    pub fn steal_oldest_voice(&mut self) -> bool {
+        let slot = self
+            .allocator
+            .order
+            .0
+            .iter()
+            .copied()
+            .map(usize::from)
+            .find(|&slot| self.voices[slot].is_some());
+        if let Some(slot) = slot {
+            self.remove(slot);
+            true
+        } else {
+            false
+        }
     }
     pub fn held_count(&self) -> usize {
         self.voices.iter().flatten().filter(|v| v.held).count()
@@ -2481,22 +2507,49 @@ impl PolyphonicRenderer {
             if processor == 0 {
                 buses[0] = self.link.advance(buses[1]);
             }
-            for (local, voice) in self.voices[processor * 12..processor * 12 + 12]
+            for (local, voice) in self.voices
+                [processor * VOICES_PER_PROCESSOR..(processor + 1) * VOICES_PER_PROCESSOR]
                 .iter_mut()
                 .enumerate()
             {
-                let slot = processor * 12 + local;
+                let slot = processor * VOICES_PER_PROCESSOR + local;
                 let Some(active) = voice else {
                     if let Some(frame) = &mut self.physical_frames[slot] {
-                        let bus = &mut buses[slot / 12][frame.stereo_bus.index()];
-                        *bus = frame.stereo_cache.advance(*bus);
+                        let bus = &mut buses[slot / VOICES_PER_PROCESSOR][frame.stereo_bus.index()];
+                        if self.drum_slots[slot] && self.drum_gain != 1.0 {
+                            let sample = frame.stereo_cache.advance(Default::default());
+                            bus.left = Sample(radias_synth_domain::fixed::saturate(
+                                bus.left.0 as i64 + (sample.left.0 as f64 * self.drum_gain) as i64,
+                            ));
+                            bus.right = Sample(radias_synth_domain::fixed::saturate(
+                                bus.right.0 as i64
+                                    + (sample.right.0 as f64 * self.drum_gain) as i64,
+                            ));
+                        } else {
+                            *bus = frame.stereo_cache.advance(*bus);
+                        }
                     }
                     continue;
                 };
-                let bus = &mut buses[slot / 12][active.bus.index()];
-                *bus = active
-                    .renderer
-                    .next_on_bus(table, events(active.program), *bus);
+                let bus = &mut buses[slot / VOICES_PER_PROCESSOR][active.bus.index()];
+                self.drum_slots[slot] = active.drum_instrument.is_some();
+                if self.drum_slots[slot] && self.drum_gain != 1.0 {
+                    let sample = active.renderer.next_on_bus(
+                        table,
+                        events(active.program),
+                        Default::default(),
+                    );
+                    bus.left = Sample(radias_synth_domain::fixed::saturate(
+                        bus.left.0 as i64 + (sample.left.0 as f64 * self.drum_gain) as i64,
+                    ));
+                    bus.right = Sample(radias_synth_domain::fixed::saturate(
+                        bus.right.0 as i64 + (sample.right.0 as f64 * self.drum_gain) as i64,
+                    ));
+                } else {
+                    *bus = active
+                        .renderer
+                        .next_on_bus(table, events(active.program), *bus);
+                }
                 if self.physical_frames[slot].is_some() {
                     let cache = self.physical_frames[slot].unwrap().stereo_cache;
                     let mut frame = radias_synth_domain::voice_frame::VoiceFrameState::capture(

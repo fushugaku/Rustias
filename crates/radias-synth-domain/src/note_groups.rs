@@ -1,21 +1,32 @@
 //! Original007860 oldest queue match and0084a8 physical group identities.
-use crate::voice_allocation::{AllocationOwner, VOICE_COUNT, VoiceClaim, VoiceOrder};
+use crate::voice_allocation::{
+    AllocationOwner, VOICE_COUNT, VOICE_MASK, VoiceClaim, VoiceMask, VoiceOrder,
+};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NoteGroups {
     pub counter: u16,
     pub ages: [u16; VOICE_COUNT],
     pub tags: [u8; VOICE_COUNT],
+}
+impl Default for NoteGroups {
+    fn default() -> Self {
+        Self {
+            counter: 0,
+            ages: [0; VOICE_COUNT],
+            tags: [0; VOICE_COUNT],
+        }
+    }
 }
 impl NoteGroups {
     /// Original01EB48 partitions a selected mask by the complete age/tag/note
     /// identity, including the held bit, without an owner or active-flag test.
     pub fn take_selected_group(
         &self,
-        remaining: &mut u32,
+        remaining: &mut VoiceMask,
         claims: &[VoiceClaim; VOICE_COUNT],
-    ) -> u32 {
-        *remaining &= 0x00ff_ffff;
+    ) -> VoiceMask {
+        *remaining &= VOICE_MASK;
         if *remaining == 0 {
             return 0;
         }
@@ -37,8 +48,12 @@ impl NoteGroups {
     /// survivors outside this iteration's remaining retired mask. Earlier
     /// consumed identities can participate in a later iteration. The flag branch
     /// intentionally uses that byte in the low identity field, as SH3 does.
-    pub fn surviving_group(&self, remaining: &mut u32, claims: &[VoiceClaim; VOICE_COUNT]) -> u32 {
-        *remaining &= 0x00ff_ffff;
+    pub fn surviving_group(
+        &self,
+        remaining: &mut VoiceMask,
+        claims: &[VoiceClaim; VOICE_COUNT],
+    ) -> VoiceMask {
+        *remaining &= VOICE_MASK;
         if *remaining == 0 {
             return 0;
         }
@@ -73,7 +88,7 @@ impl NoteGroups {
     pub fn dispatch(&mut self) {
         self.counter = self.counter.wrapping_add(1);
     }
-    pub fn assign(&mut self, mask: u32, event: u32) {
+    pub fn assign(&mut self, mask: VoiceMask, event: u32) {
         for slot in 0..VOICE_COUNT {
             if mask & (1 << slot) != 0 {
                 self.ages[slot] = self.counter;
@@ -89,7 +104,7 @@ impl NoteGroups {
         claims: &[VoiceClaim; VOICE_COUNT],
         owner: AllocationOwner,
         event: u32,
-    ) -> u32 {
+    ) -> VoiceMask {
         let matches = |slot: usize| {
             claims[slot].owner == owner
                 && claims[slot].note_flags & 128 != 0

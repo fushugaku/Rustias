@@ -1,5 +1,6 @@
 //! Instrument Unison groups, distinct from OSC1's five-phase Unison mode.
 use crate::lfo::LfoState;
+use crate::voice_allocation::{VOICE_COUNT, VoiceMask};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VoiceGroupProgram {
@@ -56,23 +57,23 @@ pub struct GroupOffsets {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VoiceGroupSlots {
-    pub timbres: [u8; 24],
-    pub indices: [u8; 24],
-    pub stereo: [u8; 24],
+    pub timbres: [u8; VOICE_COUNT],
+    pub indices: [u8; VOICE_COUNT],
+    pub stereo: [u8; VOICE_COUNT],
 }
 impl Default for VoiceGroupSlots {
     fn default() -> Self {
         Self {
-            timbres: [255; 24],
-            indices: [0; 24],
-            stereo: [0; 24],
+            timbres: [255; VOICE_COUNT],
+            indices: [0; VOICE_COUNT],
+            stereo: [0; VOICE_COUNT],
         }
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GroupAssignment {
-    pub selected: u32,
-    pub displaced: u32,
+    pub selected: VoiceMask,
+    pub displaced: VoiceMask,
     pub bank: u8,
 }
 impl VoiceGroupTables {

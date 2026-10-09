@@ -1,7 +1,7 @@
 //! SYS007E78 retires an active exclusive group in physical actor order.
 use crate::{
     note_groups::NoteGroups,
-    voice_allocation::{AllocationOwner, VOICE_COUNT, VoiceClaim, VoiceOrder},
+    voice_allocation::{AllocationOwner, VOICE_COUNT, VoiceClaim, VoiceMask, VoiceOrder},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,7 +29,7 @@ impl DrumVoiceGroups {
         claims: &mut [VoiceClaim; VOICE_COUNT],
         order: &mut VoiceOrder,
         declared_costs: &mut [u16; VOICE_COUNT],
-    ) -> u32 {
+    ) -> VoiceMask {
         if request.group == 0 {
             return 0;
         }

@@ -16,6 +16,7 @@ struct WebEngine {
     preset: Vec<u8>,
     frames: u32,
     peak: f32,
+    drum_gain: f64,
 }
 thread_local! {
     static ENGINE: RefCell<Option<Box<WebEngine>>> = const { RefCell::new(None) };
@@ -35,6 +36,7 @@ pub extern "C" fn rustias_init() {
             preset: vec![0; PRESET_CAPACITY],
             frames: 0,
             peak: 0.0,
+            drum_gain: 1.0,
         }));
     });
 }
@@ -62,7 +64,7 @@ pub extern "C" fn rustias_control(timbre: u32, parameter: u32, value: i32) -> u3
             };
             if accepted {
                 if matches!(parameter, 140 | 141) {
-                    e.sampler.stop();
+                    e.sampler.stop_kit();
                     e.held_drums = [[0; 128]; 4];
                 }
                 e.sampler.sync(&e.synth);
@@ -186,6 +188,7 @@ pub extern "C" fn rustias_load(length: u32) -> u32 {
         e.sampler.stop();
         e.held_drums = [[0; 128]; 4];
         e.synth = synth;
+        e.synth.engine.set_drum_gain(e.drum_gain);
         e.unavailable_timbres = 0;
         e.unavailable_drums = 0;
         e.sampler.sync(&e.synth);
@@ -258,6 +261,19 @@ pub extern "C" fn rustias_peak() -> f32 {
 }
 
 impl WebEngine {
+    fn limit_voices(&mut self, new_sample: bool) {
+        let capacity = radias_synth_domain::voice_allocation::VOICE_COUNT;
+        while self.synth.engine.active_count() + self.sampler.active_count() > capacity {
+            let removed = if new_sample {
+                self.synth.engine.steal_oldest_voice() || self.sampler.steal_oldest_voice()
+            } else {
+                self.sampler.steal_oldest_voice() || self.synth.engine.steal_oldest_voice()
+            };
+            if !removed {
+                break;
+            }
+        }
+    }
     // These extra PCM amplifier settings live in the existing per-drum rows.
     // The desktop/native drum controller continues to use its original inputs.
     fn drum_control(&mut self, instrument: usize, parameter: usize, value: i32) -> bool {
@@ -292,7 +308,11 @@ impl WebEngine {
             if velocity != 0 && self.unavailable_timbres & (1 << t) != 0 {
                 return true;
             }
-            return self.synth.note(t, note, velocity);
+            let accepted = self.synth.note(t, note, velocity);
+            if velocity != 0 {
+                self.limit_voices(false);
+            }
+            return accepted;
         }
         let settings = self.synth.settings[t as usize];
         if velocity != 0
@@ -343,9 +363,16 @@ impl WebEngine {
                 }
             }
             self.sampler.trigger(&self.synth, instrument, velocity);
+            if velocity != 0 {
+                self.limit_voices(true);
+            }
             true
         } else {
-            self.synth.drum_pad(instrument as u8, velocity)
+            let accepted = self.synth.drum_pad(instrument as u8, velocity);
+            if velocity != 0 {
+                self.limit_voices(false);
+            }
+            accepted
         }
     }
     fn midi(&mut self, status: u8, first: u8, second: u8) {
@@ -359,6 +386,13 @@ impl WebEngine {
             }
         } else {
             self.synth.midi(status, first, second);
+            if status & 240 == 0xb0 {
+                for t in 0..4 {
+                    if self.channel(t) == channel {
+                        self.sampler.library_midi(t as u8, first, second);
+                    }
+                }
+            }
             let owner = self.synth.settings[0][141] as usize;
             if status & 240 == 0xb0 && self.channel(owner) == channel {
                 if first == 7 && self.synth.settings[0][140] != 0 {
@@ -372,7 +406,7 @@ impl WebEngine {
                     self.held_drums[owner] = [0; 128];
                 }
                 if first == 120 {
-                    self.sampler.stop();
+                    self.sampler.stop_kit();
                 }
                 if first == 123 {
                     for i in 0..16 {
@@ -432,5 +466,122 @@ pub extern "C" fn rustias_sample_mode(instrument: u32, mode: u32) -> u32 {
             .borrow_mut()
             .as_mut()
             .is_some_and(|e| e.sampler.set_mode(instrument as usize, mode as u8)) as u32
+    })
+}
+
+/// Shared browser capacity for native synthesis and PCM voices together.
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_voice_capacity() -> u32 {
+    radias_synth_domain::voice_allocation::VOICE_COUNT as u32
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_drum_gain(db: i32) -> u32 {
+    if !(-24..=24).contains(&db) {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        state.borrow_mut().as_mut().is_some_and(|e| {
+            e.drum_gain = 10.0_f64.powf(db as f64 / 20.0);
+            e.synth.engine.set_drum_gain(e.drum_gain);
+            e.sampler.set_gain(e.drum_gain);
+            true
+        }) as u32
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_library_sample_buffer(asset: u32, frames: u32) -> *mut f32 {
+    ENGINE.with(|state| {
+        state
+            .borrow_mut()
+            .as_mut()
+            .map_or(std::ptr::null_mut(), |e| {
+                e.sampler.library_buffer(asset, frames as usize)
+            })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_library_sample_commit(asset: u32, frames: u32) -> u32 {
+    ENGINE.with(|state| {
+        state
+            .borrow_mut()
+            .as_mut()
+            .is_some_and(|e| e.sampler.library_commit(asset, frames as usize)) as u32
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_library_profile(id: u32, asset: u32, timbre: u32, mode: u32) -> u32 {
+    if timbre >= 4 || mode > 2 {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        state.borrow_mut().as_mut().is_some_and(|e| {
+            e.sampler
+                .library_profile(&e.synth, id, asset, timbre as u8, mode as u8)
+        }) as u32
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_library_control(id: u32, parameter: u32, value: i32) -> u32 {
+    ENGINE.with(|state| {
+        state.borrow_mut().as_mut().is_some_and(|e| {
+            e.sampler
+                .library_control(&e.synth, id, parameter as usize, value)
+        }) as u32
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_library_value(id: u32, parameter: u32) -> i32 {
+    ENGINE.with(|state| {
+        state
+            .borrow()
+            .as_ref()
+            .map_or(0, |e| e.sampler.library_value(id, parameter as usize))
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_library_sync() {
+    ENGINE.with(|state| {
+        if let Some(e) = state.borrow_mut().as_mut() {
+            e.sampler.sync(&e.synth);
+        }
+    });
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_library_reset() {
+    ENGINE.with(|state| {
+        if let Some(e) = state.borrow_mut().as_mut() {
+            e.sampler.library_reset();
+        }
+    });
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_library_note(timbre: u32, id: u32, velocity: u32) -> u32 {
+    if timbre >= 4 || velocity > 127 {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        state.borrow_mut().as_mut().is_some_and(|e| {
+            if velocity != 0
+                && e.sampler.library_owned(id, timbre as u8)
+                && e.synth.settings[0][140] != 0
+                && e.synth.settings[0][141] == timbre as i32
+            {
+                let group = e.sampler.library_value(id, 147);
+                if group != 0 {
+                    for i in 0..16 {
+                        if !e.sampler.assigned(i) && e.synth.drum_settings[i][147] == group {
+                            e.synth.drum_pad(i as u8, 0);
+                        }
+                    }
+                }
+            }
+            let accepted = e
+                .sampler
+                .library_trigger(&e.synth, timbre as u8, id, velocity as u8);
+            if velocity != 0 {
+                e.limit_voices(true);
+            }
+            accepted
+        }) as u32
     })
 }

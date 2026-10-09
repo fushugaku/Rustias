@@ -10,7 +10,7 @@ fi
 "$rustias_cargo_bin" build --release --locked --target wasm32-unknown-unknown -p radias-web \
   --config 'profile.release.panic="abort"'
 mkdir -p dist
-cp web/index.html web/styles.css web/app.js web/panel.js web/sequence.js web/sequence-labels.js web/sequencer-ui.js web/patches.js web/samples.js web/sample-state.js web/worklet.js web/rdl.js web/rdl-worker.js web/favicon.svg dist/
+cp web/index.html web/styles.css web/app.js web/panel.js web/sequence.js web/sequence-labels.js web/sequence-edit.js web/sequencer-ui.js web/patches.js web/samples.js web/sample-state.js web/worklet.js web/rdl.js web/rdl-worker.js web/favicon.svg dist/
 cp crates/radias-synth-infrastructure/src/parameters.json dist/parameters.json
 cp "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/radias_web.wasm" dist/rustias.wasm
 mkdir -p dist/samples
