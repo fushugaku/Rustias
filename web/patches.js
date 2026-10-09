@@ -38,9 +38,9 @@ function unpack(value){
 }
 const valid=patch=>typeof patch?.id==='string'&&typeof patch.name==='string'&&patch.snapshot;
 export class PatchStore{
-  constructor(storage){this.storage=storage;}
+  constructor(storage,{library=LIBRARY,legacy=LEGACY}={}){this.storage=storage;this.libraryKey=library;this.legacyKey=legacy;}
   list(){
-    const current=this.storage.getItem(LIBRARY),legacy=this.storage.getItem(LEGACY);
+    const current=this.storage.getItem(this.libraryKey),legacy=this.legacyKey?this.storage.getItem(this.legacyKey):null;
     if(current===this.cachedCurrent&&legacy===this.cachedLegacy&&this.cached)return this.cached;
     let patches=[],old=[];
     try{if(current){const value=unpack(JSON.parse(current));if(Array.isArray(value))patches=value.filter(valid);}}catch{}
@@ -52,7 +52,7 @@ export class PatchStore{
   write(patches){
     // One setItem is atomic, including on QuotaExceededError. Keep the old
     // key readable for patches created by an already-open older browser tab.
-    this.storage.setItem(LIBRARY,pack(patches));this.cached=null;
+    this.storage.setItem(this.libraryKey,pack(patches));this.cached=null;
   }
   save(name,snapshot,id){
     const patches=[...this.list()],patch={id:id??crypto.randomUUID(),name:name.trim().slice(0,64)||'Untitled',snapshot,updatedAt:Date.now()},index=patches.findIndex(p=>p.id===patch.id);
@@ -66,4 +66,8 @@ export class PatchStore{
   }
   session(){try{return JSON.parse(this.storage.getItem(SESSION)??'null');}catch{return null;}}
   saveSession(value){this.storage.setItem(SESSION,JSON.stringify(value));}
+}
+
+export class TimbreStore extends PatchStore{
+  constructor(storage){super(storage,{library:"rustias.timbres.v1",legacy:null});}
 }

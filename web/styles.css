@@ -98,3 +98,11 @@
 #circuit-canvas .module-scale .parameter:nth-child(n+5){height:108px}
 #circuit-canvas .module-scale .parameter:nth-child(n+5) .knob{display:flex}
 #circuit-canvas .module-scale .parameter:nth-child(n+5) .dial-value{background:transparent;border:0;height:28px}
+
+.program-caption{font:9px ui-monospace,SFMono-Regular,monospace;color:#aeb4bb;letter-spacing:.06em}
+.program #edit-context{overflow:hidden;text-overflow:ellipsis;max-width:100%}
+#patch-save-menu hr{border:0;border-top:1px solid #a4adb5;margin:4px}
+#patch-save-menu a[role=menuitem]{display:flex;align-items:center;min-height:44px;padding:8px 12px;font:11px ui-monospace,SFMono-Regular,monospace;color:#334d61;border-radius:2px}
+#patch-save-menu a[role=menuitem]:hover,#patch-save-menu a[role=menuitem]:focus{background:#aec9db}
+@media(max-width:800px){.program-select,.sound-select{flex:1;min-width:128px}.program-files{margin-left:0}}
+@media(max-width:520px){.workspace{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.workspace .program-select,.workspace .sound-select{width:auto;min-width:0}.program-caption,.program #edit-context{font-size:9px}.workspace .program-files{grid-column:1/-1;justify-content:flex-end}.program-files .tool-button{min-width:44px}}

@@ -1,11 +1,11 @@
 import {createCircuitEditor} from "./circuit-ui.js";
-import {validateCircuits,audioCircuit,emptyCircuits} from "./circuit.js";
+import {audioCircuit,emptyCircuits} from "./circuit.js";
 import {createDrumSamples} from "./samples.js";
 import {createSequencer} from "./sequencer-ui.js";
 import {drumSequenceKit} from "./sequence-labels.js";
-import {migrateSampleAmplifiers} from './sample-state.js';
-import {emptySequence,validateSequence} from "./sequence.js";
-import {PatchStore} from "./patches.js";
+import {emptySequence} from "./sequence.js";
+import {PatchStore,TimbreStore} from "./patches.js";
+import {normalizeEngine as checkEngine,normalizeProgram,captureTimbre,normalizeTimbre,applyTimbre,SLOT_PARAMETERS} from "./programs.js";
 import {MAX_RDL_BYTES,readRdl,rdlPatches,validateRdlSource,rdlMasks} from './rdl.js';
 import {createPanel,makePicker,isChoosing} from "./panel.js";
 const $ = selector => document.querySelector(selector);
@@ -17,7 +17,7 @@ try {
   parameters = await response.json();
 } catch (error) { showError(error); throw error; }
 const defaults = parameters.map(p => p.default);
-const timbres = Array.from({length: 4}, (_, i) => ({values: defaults.map((v, id) => id === 72 ? i : v), preset: "init"}));
+const timbres = Array.from({length: 4}, (_, i) => ({values: defaults.map((v, id) => id === 72 ? i : v), preset: "init",name:"INIT",savedId:null,modified:false}));
 const drums = Array.from({length: 16}, (_, i) => defaults.map((v, id) => ({3: 0, 4: 32, 5: 0, 6: 20, 146: 60 + i})[id] ?? v));
 const presets = {
   init: {}, pad: {0: 2, 1: 78, 2: 35, 3: 80, 4: 64, 5: 108, 6: 78, 7: 100, 67: 1, 68: 2, 69: 18, 70: 75},
@@ -30,9 +30,13 @@ const computerKeys = ["a", "w", "s", "e", "d", "f", "t", "g", "y", "h", "u", "j"
 let selected = 0, octave = 4, context, node, module, midiAccess, audioStarting;
 const held = new Map(), noteCounts = new Map();
 let sampleUI,circuitUI,circuitTimer,editingSample=null;
-let panel, programPicker, sequenceUI, activeSavedPatch=null, autosaveTimer, sequenceRequest=0, auditionRequest=0,sequenceConfigRequest=0;
+let panel, programPicker, timbrePicker, sequenceUI, activeSavedPatch=null,programState="init",programDirty=false,patchDialogKind="program",patchDialogSlot=0, autosaveTimer, sequenceRequest=0, auditionRequest=0,sequenceConfigRequest=0;
 let rdlSource=null,lastRdlMasks;
-const patchStore=new PatchStore(window.localStorage);
+const patchStore=new PatchStore(window.localStorage),timbreStore=new TimbreStore(window.localStorage);
+const INCLUDE_TIMBRE_SEQUENCE=false;
+const factorySounds=[{value:"init",label:"INIT"},{value:"pad",label:"Warm pad"},{value:"pulse",label:"Pulse bass"},{value:"pluck",label:"Soft pluck"},{value:"custom",label:"Custom"}];
+function markProgram(){programDirty=true;if(!activeSavedPatch)programState="custom";}
+function markTimbre(t=selected){timbres[t].modified=true;markProgram();}
 const send = message => node?.port.postMessage(message);
 const global = id => timbres[0].values[id];
 const isDrum = () => global(140) !== 0 && global(141) === selected;
@@ -101,7 +105,7 @@ function setControl(id, value, fromUser = true) {
     const channel = timbres[selected].values[72] === 16 ? global(148) : timbres[selected].values[72];
     for (const t of timbres) if ((t.values[72] === 16 ? global(148) : t.values[72]) === channel) t.values[id] = value;
   }
-  if (fromUser) timbres[selected].preset = "custom";
+  if(fromUser){markProgram();if(p.scope!=="global"&&!SLOT_PARAMETERS.has(id))markTimbre();}
   if(circuitUI?.getConfig().tracks[selected].enabled){clearTimeout(circuitTimer);const timbre=selected;circuitTimer=setTimeout(()=>sendCircuits(timbre),60);}
   if(!(editingSample&&instrumentParameter(id)))send(isSample() && id >= 114 && id <= 117 ? {type:"drum-control",instrument:global(142),parameter:id,value} : {type: "control", timbre: selected, parameter: id, value}); updateControls(); updateKeys(); scheduleSession();
 }
@@ -118,28 +122,36 @@ function updateControls() {
   $("#wave-path").setAttribute("d", paths[v[0]]);
   $("#edit-context").textContent = editingSample ? `T${selected+1} · ${sampleUI.sampleName(editingSample.source)}` : isDrum() ? `Drum ${String(global(142) + 1).padStart(2, "0")} · Timbre ${String(selected + 1).padStart(2, "0")}` : `Timbre ${String(selected + 1).padStart(2, "0")}`;
   $("#edit-context").title=$("#edit-context").textContent;
-  programPicker?.render(activeSavedPatch?`saved:${activeSavedPatch}`:timbres[selected].preset);
+  const programLabel=patchStore.list().find(p=>p.id===activeSavedPatch)?.name??(programState==='init'?'INIT':'Unsaved');
+  programPicker?.render(activeSavedPatch?`saved:${activeSavedPatch}`:programState,programLabel+(programDirty?' *':''));
+  const sound=timbres[selected],saved=timbreStore.list().find(p=>p.id===sound.savedId);
+  timbrePicker?.render(saved?`saved:${sound.savedId}`:factorySounds.some(p=>p.value===sound.preset)?sound.preset:'custom',sound.name+(sound.modified?' *':''));
 }
 function displayValue(p, value) { return p.id === 89 ? value / 10 : [72, 148, 141, 142].includes(p.id) ? value + 1 : value - (p.center ?? 0); }
 function nativeValue(p, value) { return p.id === 89 ? value * 10 : [72, 148, 141, 142].includes(p.id) ? value - 1 : value + (p.center ?? 0); }
 panel=createPanel({parameters,readValues:values,setControl,format,disabled,displayValue,nativeValue});
-programPicker=makePicker({label:"Program",options:[{value:"init",label:"INIT"},{value:"pad",label:"Warm pad"},{value:"pulse",label:"Pulse bass"},{value:"pluck",label:"Soft pluck"},{value:"custom",label:"Custom"}],value:"init",onChange:applyPreset,searchable:true});
+programPicker=makePicker({label:"Program",options:[{value:"init",label:"New program"},{value:"custom",label:"Unsaved"}],value:"init",onChange:applyProgram,searchable:true,searchLabel:'Search programs'});
+timbrePicker=makePicker({label:"Timbre sound",options:[...factorySounds],value:"init",onChange:applyPreset,searchable:true,searchLabel:'Search timbres'});$('#timbre-preset').append(timbrePicker.button);
 $("#preset").append(programPicker.button);
 document.querySelectorAll("[data-timbre]").forEach(button => button.addEventListener("click", () => { editingSample=null;selected = Number(button.dataset.timbre); document.querySelectorAll("[data-timbre]").forEach(tab => tab.setAttribute("aria-selected", tab === button)); circuitUI?.select(); updateControls(); updateKeys(); scheduleSession(); }));
-function applyPreset(preset) {
-  editingSample=null;
-  if(preset.startsWith("saved:")){const patch=patchStore.list().find(p=>p.id===preset.slice(6));if(patch)try{loadSnapshot(patch.snapshot);activeSavedPatch=patch.id;updateControls();scheduleSession();}catch(error){showError(error);}return;}
-  if (!(preset in presets)) return;
-  activeSavedPatch=null;stopSequence();
-  releaseAll();
-  replaceSource(selected,isDrum()?global(142):null);
-  for (const p of parameters) {
-    if (p.scope === "global" || p.readonly || [71, 72, 119, 120, 137, 138, 139, 146, 147, 150, 151, 153].includes(p.id) || isDrum() && !instrumentParameter(p.id)) continue;
-    const value = presets[preset][p.id] ?? p.default;
-    (isDrum() ? drums[global(142)] : timbres[selected].values)[p.id] = value;
+function applyProgram(value){
+  if(value==='init'){
+    const engine={version:1,timbres:Array.from({length:4},(_,i)=>defaults.map((v,id)=>id===72?i:v)),drums:Array.from({length:16},(_,i)=>defaults.map((v,id)=>({3:0,4:32,5:0,6:20,146:60+i})[id]??v))};
+    loadSnapshot({version:2,engine,sequencer:emptySequence(),timbreInfo:Array.from({length:4},()=>({name:'INIT',preset:'init',savedId:null,modified:false}))});activeSavedPatch=null;programState='init';programDirty=false;updateControls();saveSession();return;
   }
-  // Load the full program in one command so dependent controls reset together.
-  timbres[selected].preset = preset; loadEngine(); updateControls(); updateKeys(); scheduleSession();
+  if(!value.startsWith('saved:'))return;const patch=patchStore.list().find(p=>p.id===value.slice(6));if(!patch)return;
+  try{loadSnapshot(patch.snapshot);activeSavedPatch=patch.id;programDirty=false;updateControls();scheduleSession();}catch(error){showError(error);}
+}
+function loadTimbre(saved,name,id=null,preset='custom'){
+  const target=selected,next=applyTimbre(snapshot(),target,saved,parameters);
+  next.timbreInfo[target]={name:name.slice(0,64),preset,savedId:id,modified:false};
+  loadSnapshot(next);markProgram();updateControls();scheduleSession();
+}
+function applyPreset(preset){
+  if(preset.startsWith('saved:')){const saved=timbreStore.list().find(p=>p.id===preset.slice(6));if(saved)try{loadTimbre(saved.snapshot,saved.name,saved.id);}catch(error){showError(error);}return;}
+  if(!Object.hasOwn(presets,preset))return;
+  const sound={kind:'rustias-timbre',version:1,values:defaults.map((v,id)=>presets[preset][id]??v),circuit:emptyCircuits().tracks[0],library:[]};
+  try{loadTimbre(sound,factorySounds.find(s=>s.value===preset).label,null,preset);}catch(error){showError(error);}
 }
 function state() { return {version: 1, timbres: timbres.map(t => [...t.values]), drums: drums.map(v => [...v])}; }
 function acceptState(program) {
@@ -147,65 +159,68 @@ function acceptState(program) {
   for (let i = 0; i < 16; i++) drums[i] = [...program.drums[i]];
   updateControls(); updateKeys();
 }
-function normalizeEngine(value){
-  const program=structuredClone(value);
-  if(program?.version!==1||program.timbres?.length!==4||program.drums?.length!==16)throw new Error("Choose a Rustias patch or program file.");
-  for(const v of [...program.timbres,...program.drums]){
-    if(Array.isArray(v)&&v.length===153)v.push(v[151]);
-    if(Array.isArray(v)&&v.length===154){const legacy=v[29];v.push(legacy===3?0:legacy===2?1:legacy>=4?legacy-2:1);if(legacy>=2)v[29]=2;}
-    if(!Array.isArray(v)||v.length!==parameters.length||parameters.some(p=>!Number.isInteger(v[p.id])||v[p.id]<p.min||v[p.id]>p.max||p.values&&!p.values.includes(v[p.id]))||v[0]>=4&&v[10]!==0||v[119]>v[120])throw new Error("The program contains invalid parameters.");
-  }
-  if(parameters.some(p=>p.scope==="global"&&program.timbres.some(v=>v[p.id]!==program.timbres[0][p.id])))throw new Error("Global settings must agree across timbres.");return program;
-}
-function snapshot(){return {version:2,engine:state(),sequencer:sequenceUI.getConfig(),samples:sampleUI?.getConfig?.()??null,circuits:circuitUI?.getConfig()??emptyCircuits(timbres.map(t=>t.values)),...(rdlSource?{rdl:structuredClone(rdlSource)}:{})};}
+function normalizeEngine(value){return checkEngine(value,parameters);}
+function snapshot(){return {kind:'rustias-program',version:2,engine:state(),sequencer:sequenceUI.getConfig(),samples:sampleUI?.getConfig?.()??null,circuits:circuitUI?.getConfig()??emptyCircuits(timbres.map(t=>t.values)),timbreInfo:timbres.map(({name,preset,savedId,modified})=>({name,preset,savedId,modified})),volume:Number($('#volume').value),...(rdlSource?{rdl:structuredClone(rdlSource)}:{})};}
 function loadSnapshot(value){
-  const previousSamples=value.version===2?value.samples:null,samples=sampleUI.validateConfig(previousSamples),program=migrateSampleAmplifiers(normalizeEngine(value.version===2?value.engine:value),previousSamples,samples),sequence=validateSequence(value.version===2?value.sequencer:emptySequence()),source=validateRdlSource(value.version===2?value.rdl:null),circuits=validateCircuits(value.version===2?value.circuits:null,program.timbres);
-  stop();editingSample=null;$('#error').hidden=true;rdlSource=source;for(const t of timbres)t.preset="custom";
-  const samplesReady=sampleUI?.setConfig(samples);circuitUI?.setConfig(circuits);acceptState(program);sequenceUI.setConfig(sequence);loadEngine(program);send({type:"sequencer",config:sequence});
+  const checked=normalizeProgram(value,parameters),{engine:program,samples,sequencer:sequence,circuits}=checked;
+  stop();editingSample=null;$('#error').hidden=true;rdlSource=checked.rdl??null;
+  checked.timbreInfo.forEach((info,i)=>Object.assign(timbres[i],info));
+  programState='custom';programDirty=false;
+  circuitUI?.setConfig(circuits);acceptState(program);sequenceUI.setConfig(sequence);
+  if(checked.volume!=null){$('#volume').value=checked.volume;send({type:'gain',value:checked.volume/100});}
+  const samplesReady=sampleUI?.setConfig(samples);loadEngine(program);send({type:'sequencer',config:sequence});
   samplesReady?.then(updateControls).catch(showError);
 }
 function scheduleSession(){clearTimeout(autosaveTimer);autosaveTimer=setTimeout(saveSession,300);}
-function saveSession(){try{patchStore.saveSession({snapshot:snapshot(),activeSavedPatch,selected,volume:Number($("#volume").value)});}catch(error){showError(new Error(`Could not save this patch in the browser: ${error.message}`));}}
-function refreshLibrary(){programPicker.options=programPicker.options.filter(o=>!String(o.value).startsWith("saved:"));for(const patch of patchStore.list())programPicker.options.push({value:`saved:${patch.id}`,label:patch.snapshot.rdl?`${String(patch.snapshot.rdl.slot+1).padStart(3,'0')} · ${patch.name}`:patch.name});updateControls();}
+function saveSession(){try{patchStore.saveSession({snapshot:snapshot(),activeSavedPatch,programState,programDirty,selected,volume:Number($("#volume").value)});}catch(error){showError(new Error(`Could not save this patch in the browser: ${error.message}`));}}
+function refreshLibrary(){
+  programPicker.options=[{value:'init',label:'New program'},{value:'custom',label:'Unsaved'},...patchStore.list().map(p=>({value:`saved:${p.id}`,label:p.snapshot.rdl?`${String(p.snapshot.rdl.slot+1).padStart(3,'0')} · ${p.name}`:p.name}))];
+  timbrePicker.options=[...factorySounds,...timbreStore.list().map(p=>({value:`saved:${p.id}`,label:p.name}))];updateControls();
+}
 sequenceUI=createSequencer({onChange:configureSequence,onPlay:playSequence,onStop:stopSequence,onReset:()=>send({type:"sequence-reset"}),onSelectTimbre:t=>{$(`[data-timbre="${t}"]`).click();},onSelectDrum:(instrument,timbre)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();setControl(142,instrument,false);},onAudition:auditionStep,onError:showError,
   onSample:(timbre,source)=>sampleUI.ensureLibrary(timbre,source),onEditSample:(timbre,source)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();sampleUI.editProfile(timbre,source);editingSample={timbre,source};updateControls();scheduleSession();},
   onCopySamples:(from,to,sources)=>sampleUI.copyProfiles(from,to,sources),onUploadSample:(timbre,onReady)=>sampleUI.uploadForSequence(timbre,onReady)});
 sequenceUI.setReady(false);
-function configureSequence(config){const request=++sequenceConfigRequest;scheduleSession();if(!node)return;if(context?.state!=="running"){send({type:"sequencer",config});return;}prepareSequenceSamples(config).then(()=>{if(request===sequenceConfigRequest)send({type:"sequencer",config});}).catch(error=>{if(request===sequenceConfigRequest)showError(error);});}
+function configureSequence(config){const request=++sequenceConfigRequest;markProgram();updateControls();scheduleSession();if(!node)return;if(context?.state!=="running"){send({type:"sequencer",config});return;}prepareSequenceSamples(config).then(()=>{if(request===sequenceConfigRequest)send({type:"sequencer",config});}).catch(error=>{if(request===sequenceConfigRequest)showError(error);});}
 async function prepareSequenceSamples(config){await Promise.all(config.tracks.flatMap((track,timbre)=>track.enabled?[...new Set(track.steps.slice(0,track.length).flatMap(step=>step.samples??[]))].map(source=>sampleUI.ensureLibrary(timbre,source)):[]));}
 async function playSequence(){const request=++sequenceRequest;try{await startAudio();await prepareSequenceSamples(sequenceUI.getConfig());if(request!==sequenceRequest)return;send({type:"sequencer",config:sequenceUI.getConfig()});send({type:"sequence-play"});sequenceUI.setStatus({running:true,positions:[0,0,0,0]});}catch(error){showError(error);}}
 async function auditionStep(timbre,step,resolution){const request=++auditionRequest;try{await startAudio();await Promise.all((step.samples??[]).map(source=>sampleUI.ensureLibrary(timbre,source)));if(request===auditionRequest)send({type:"audition",timbre,step,resolution});}catch(error){showError(error);}}
 function stopSequence(){sequenceRequest++;sequenceConfigRequest++;send({type:"sequence-stop"});sequenceUI?.setStatus({running:false,positions:[-1,-1,-1,-1]});}
-function newPatchDialog(copy=false){
-  const patches=patchStore.list(),existing=patches.find(p=>p.id===activeSavedPatch),base=existing?.name??programPicker.options.find(o=>o.value===programPicker.value)?.label??'Patch';
-  let name=`Patch ${String(patches.length+1).padStart(2,'0')}`;
-  if(copy){const names=new Set(patches.map(p=>p.name));let n=1;do{const suffix=` copy${n===1?'':` ${n}`}`;name=base.slice(0,64-suffix.length)+suffix;n++;}while(names.has(name));}
-  $('#patch-title').textContent=copy?'Save a copy':'Save patch';$('#patch-confirm').textContent=copy?'Save copy':'Save patch';$('#patch-name').value=name;
+function newPatchDialog(copy=false,kind='program'){
+  patchDialogKind=kind;patchDialogSlot=selected;const store=kind==='program'?patchStore:timbreStore,records=store.list(),id=kind==='program'?activeSavedPatch:timbres[selected].savedId,existing=records.find(p=>p.id===id),base=existing?.name??(kind==='program'?'Program':timbres[selected].name);
+  let name=`${kind==='program'?'Program':'Timbre'} ${String(records.length+1).padStart(2,'0')}`;
+  if(copy){const names=new Set(records.map(p=>p.name));let n=1;do{const suffix=` copy${n===1?'':` ${n}`}`;name=base.slice(0,64-suffix.length)+suffix;n++;}while(names.has(name));}
+  $('#patch-title').textContent=`Save ${kind}${copy?' copy':''}`;$('#patch-confirm').textContent=copy?'Save copy':`Save ${kind}`;$('#patch-name').value=name;
   $('#patch-editor').showModal();$('#patch-name').focus();$('#patch-name').select();
 }
 function saveCurrentPatch(){
-  const existing=patchStore.list().find(p=>p.id===activeSavedPatch);
-  if(!existing){newPatchDialog();return;}
-  try{patchStore.save(existing.name,snapshot(),existing.id);refreshLibrary();saveSession();}catch(error){showError(error);}
+  const existing=patchStore.list().find(p=>p.id===activeSavedPatch);if(!existing){newPatchDialog();return;}
+  try{patchStore.save(existing.name,snapshot(),existing.id);programDirty=false;refreshLibrary();saveSession();}catch(error){showError(error);}
+}
+function saveCurrentTimbre(){
+  const existing=timbreStore.list().find(p=>p.id===timbres[selected].savedId);if(!existing){newPatchDialog(false,'timbre');return;}
+  try{timbreStore.save(existing.name,captureTimbre(snapshot(),selected,parameters,{sequence:INCLUDE_TIMBRE_SEQUENCE}),existing.id);timbres[selected].modified=false;markProgram();refreshLibrary();saveSession();}catch(error){showError(error);}
 }
 $('#save-patch').addEventListener('click',saveCurrentPatch);
 const saveOptions=$('#patch-save-options'),saveMenu=$('#patch-save-menu');
 function closeSaveMenu(returnFocus=false){if(saveMenu.hidePopover)saveMenu.hidePopover();else saveMenu.hidden=true;saveOptions.setAttribute('aria-expanded','false');if(returnFocus)saveOptions.focus();}
 function openSaveMenu(){
   if(saveOptions.getAttribute('aria-expanded')==='true'){closeSaveMenu();return;}
-  const rect=saveOptions.getBoundingClientRect(),width=Math.min(180,innerWidth-16);
+  const rect=saveOptions.getBoundingClientRect(),width=Math.min(220,innerWidth-16);
   saveMenu.style.width=`${width}px`;saveMenu.style.left=`${Math.max(8,Math.min(rect.right-width,innerWidth-width-8))}px`;
-  const below=innerHeight-rect.bottom;saveMenu.style.top=below>=110?`${rect.bottom+4}px`:'auto';saveMenu.style.bottom=below>=110?'auto':`${innerHeight-rect.top+4}px`;
+  const below=innerHeight-rect.bottom,above=rect.top-12,down=below>=Math.min(240,above);saveMenu.style.top=down?`${rect.bottom+4}px`:'auto';saveMenu.style.bottom=down?'auto':`${innerHeight-rect.top+4}px`;saveMenu.style.maxHeight=`${Math.max(120,Math.min(320,down?below-12:above))}px`;
   if(saveMenu.showPopover)saveMenu.showPopover();else saveMenu.hidden=false;saveOptions.setAttribute('aria-expanded','true');$('#save-current-patch').focus();
 }
 saveOptions.addEventListener('click',openSaveMenu);saveOptions.addEventListener('keydown',event=>{if(event.key==='ArrowDown'){event.preventDefault();openSaveMenu();}});
 saveMenu.addEventListener('toggle',event=>{if(event.newState==='closed')saveOptions.setAttribute('aria-expanded','false');});
-saveMenu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeSaveMenu(true);}else if(['ArrowUp','ArrowDown','Home','End'].includes(event.key)){event.preventDefault();const items=[...saveMenu.querySelectorAll('[role=menuitem]')],i=items.indexOf(document.activeElement);items[event.key==='Home'?0:event.key==='End'?1:(i+1)%2].focus();}else if(event.key==='Tab')closeSaveMenu(true);});
+saveMenu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeSaveMenu(true);}else if(['ArrowUp','ArrowDown','Home','End'].includes(event.key)){event.preventDefault();const items=[...saveMenu.querySelectorAll('[role=menuitem]')],i=items.indexOf(document.activeElement);items[event.key==='Home'?0:event.key==='End'?items.length-1:(i+(event.key==='ArrowUp'?-1:1)+items.length)%items.length].focus();}else if(event.key==='Tab')closeSaveMenu(true);});
 document.addEventListener('pointerdown',event=>{if(!saveMenu.contains(event.target)&&!saveOptions.contains(event.target))closeSaveMenu();});
-$('#save-current-patch').addEventListener('click',()=>{closeSaveMenu(true);saveCurrentPatch();});$('#save-copy').addEventListener('click',()=>{closeSaveMenu();newPatchDialog(true);});
-$("#patch-cancel").addEventListener("click",()=>$("#patch-editor").close());$("#patch-form").addEventListener("submit",event=>{event.preventDefault();try{const saved=patchStore.save($("#patch-name").value,snapshot());activeSavedPatch=saved.id;refreshLibrary();saveSession();$("#patch-editor").close();}catch(error){showError(error);}});
+$('#save-current-patch').addEventListener('click',()=>{closeSaveMenu(true);saveCurrentPatch();});$('#save-copy').addEventListener('click',()=>{closeSaveMenu();newPatchDialog(true);});$('#save-timbre').addEventListener('click',()=>{closeSaveMenu(true);saveCurrentTimbre();});$('#save-timbre-copy').addEventListener('click',()=>{closeSaveMenu();newPatchDialog(true,'timbre');});
+$("#patch-cancel").addEventListener("click",()=>$("#patch-editor").close());$("#patch-form").addEventListener("submit",event=>{event.preventDefault();try{const name=$("#patch-name").value;if(patchDialogKind==='program'){const saved=patchStore.save(name,snapshot());activeSavedPatch=saved.id;programDirty=false;}else{const saved=timbreStore.save(name,captureTimbre(snapshot(),patchDialogSlot,parameters,{sequence:INCLUDE_TIMBRE_SEQUENCE}));Object.assign(timbres[patchDialogSlot],{name:saved.name,preset:'custom',savedId:saved.id,modified:false});markProgram();}refreshLibrary();saveSession();$("#patch-editor").close();}catch(error){showError(error);}});
 window.addEventListener("pagehide",saveSession);
 
+let timbreDownloadUrl;
+$('#export-timbre').addEventListener('click',event=>{try{if(timbreDownloadUrl)URL.revokeObjectURL(timbreDownloadUrl);timbreDownloadUrl=URL.createObjectURL(new Blob([JSON.stringify({...captureTimbre(snapshot(),selected,parameters,{sequence:INCLUDE_TIMBRE_SEQUENCE}),name:timbres[selected].name},null,2)],{type:'application/json'}));event.currentTarget.href=timbreDownloadUrl;closeSaveMenu();}catch(error){event.preventDefault();showError(error);}});
 let programDownloadUrl;
 $("#save-program").addEventListener("click", event => {
   if (programDownloadUrl) URL.revokeObjectURL(programDownloadUrl);
@@ -245,7 +260,9 @@ $("#program-file").addEventListener("change", async event => {
       ]);
     }else{
       if(file.size>1024*1024)throw new Error('Choose a JSON patch up to 1 MiB.');
-      loadSnapshot(JSON.parse(new TextDecoder().decode(buffer)));activeSavedPatch=null;updateControls();scheduleSession();
+      const imported=JSON.parse(new TextDecoder().decode(buffer));
+      if(imported.kind==='rustias-timbre'){const sound=normalizeTimbre(imported,parameters),saved=timbreStore.save(String(imported.name??file.name.replace(/\.json$/i,'')).slice(0,64),sound);loadTimbre(saved.snapshot,saved.name,saved.id);refreshLibrary();}
+      else{loadSnapshot(imported);activeSavedPatch=null;programState='custom';programDirty=false;updateControls();scheduleSession();}
     }
   } catch (error) { showError(error); } finally { event.target.value = '';button.textContent='Import';button.disabled=!module; }
 });
@@ -338,7 +355,7 @@ document.addEventListener("keyup", event => up(`key-${event.key.toLowerCase()}`)
 document.addEventListener("visibilitychange", () => { if (document.hidden) stop(); });
 $("#octave-down").addEventListener("click", () => { releaseAll(); octave = Math.max(0, octave - 1); updateKeys(); });
 $("#octave-up").addEventListener("click", () => { releaseAll(); octave = Math.min(7, octave + 1); updateKeys(); });
-$("#volume").addEventListener("input", event => {send({type: "gain", value: Number(event.target.value) / 100});scheduleSession();});
+$("#volume").addEventListener("input", event => {send({type: "gain", value: Number(event.target.value) / 100});markProgram();updateControls();scheduleSession();});
 $("#panic").addEventListener("click", stop);
 $("#power").addEventListener("click", async () => { try { if (context?.state === "running") { stop(); await context.suspend(); updatePower(); } else await startAudio(); } catch (error) { showError(error); } });
 $("#midi").addEventListener("click", async () => {
@@ -365,14 +382,14 @@ function prepareSampleInstrument(instrument){
   for(const [parameter,value] of [[3,0],[4,127],[5,127],[6,32],[9,0],[1,127],[2,0],[114,0],[115,32512],[116,0],[117,127]]){drums[instrument][parameter]=value;send({type:"drum-control",instrument,parameter,value});}
 }
 function enableDrumKit(){if(!global(140))setControl(140,1);if(!isDrum())$(`[data-timbre="${global(141)}"]`).click();}
-sampleUI=createDrumSamples({parameters,getDrumValues:i=>drums[i],getEditingSample:()=>editingSample,onLibraryChange:()=>sequenceUI.setSamples(sampleUI?.options()??[]),onPreview:(timbre,source)=>auditionStep(timbre,{notes:[],samples:[source],velocity:100,gate:100},"1/4"),getInstrument:()=>global(142),isDrum,ensureAudio:startAudio,onError:showError,onChange:()=>{updateControls();scheduleSession();},onAssign:(instrument,fresh)=>{enableDrumKit();if(fresh)prepareSampleInstrument(instrument);},onKit:bank=>{
+sampleUI=createDrumSamples({parameters,getDrumValues:i=>drums[i],getEditingSample:()=>editingSample,onLibraryChange:()=>sequenceUI.setSamples(sampleUI?.options()??[]),onPreview:(timbre,source)=>auditionStep(timbre,{notes:[],samples:[source],velocity:100,gate:100},"1/4"),getInstrument:()=>global(142),isDrum,ensureAudio:startAudio,onError:showError,onChange:()=>{markProgram();updateControls();scheduleSession();},onAssign:(instrument,fresh)=>{enableDrumKit();if(fresh)prepareSampleInstrument(instrument);},onKit:bank=>{
   enableDrumKit();for(let i=0;i<16;i++){prepareSampleInstrument(i);for(const [parameter,value] of [[146,60+i],[147,([3,4].includes(i)||bank==='909'&&[14,15].includes(i))?1:0]]){drums[i][parameter]=value;send({type:"drum-control",instrument:i,parameter,value});}}
   setControl(142,0);
 }});
 sampleUI.ready.then(()=>{sequenceUI.setSamples(sampleUI.options());updateControls();},()=>{});
-circuitUI=createCircuitEditor({getValues:values,getSelected:()=>selected,onError:showError,onChange:(_config,audio)=>{if(audio){$("#error").hidden=true;sendCircuits(selected);}scheduleSession();}});
+circuitUI=createCircuitEditor({getValues:values,getSelected:()=>selected,onError:showError,onChange:(_config,audio)=>{markTimbre();if(audio){$("#error").hidden=true;sendCircuits(selected);}scheduleSession();}});
 refreshLibrary();
-try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(session.snapshot);activeSavedPatch=session.activeSavedPatch??null;if(Number.isInteger(session.selected)&&session.selected>=0&&session.selected<4)$(`[data-timbre="${session.selected}"]`).click();if(Number.isFinite(session.volume))$("#volume").value=session.volume;}}catch(error){showError(new Error(`Could not restore the saved session: ${error.message}`));}
+try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(session.snapshot);activeSavedPatch=session.activeSavedPatch??null;programState=session.programState??"custom";programDirty=session.programDirty??false;if(Number.isInteger(session.selected)&&session.selected>=0&&session.selected<4)$(`[data-timbre="${session.selected}"]`).click();if(Number.isFinite(session.volume))$("#volume").value=session.volume;}}catch(error){showError(new Error(`Could not restore the saved session: ${error.message}`));}
 updateControls(); updateKeys(); document.body.dataset.parameterCount = parameters.length;
 try {
   const response = await fetch(new URL("./rustias.wasm", import.meta.url)); if (!response.ok) throw new Error(`Could not load the Rust engine (${response.status}).`);

@@ -9,6 +9,7 @@ import {copySteps,pasteSteps} from '../web/sequence-edit.js';
 import {PatchStore} from "../web/patches.js";
 import {defaultCircuit,validateCircuits,connect,audioCircuit} from "../web/circuit.js";
 import {verifyRdl} from './verify-rdl.mjs';
+import {verifyPrograms} from './verify-programs.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
@@ -364,4 +365,5 @@ for (const sampleRate of [48000, 44100]) {
   assert.ok(!messages.some(message => message.type === "error"));
   reports.push({ sampleRate, outputFrames: frames, nativeFrames, measuredA4Hz: Number(hz.toFixed(2)), peak: workletPeak });
 }
+features.push(verifyPrograms(schema,module));
 console.log(JSON.stringify({ passed: true, wasmBytes: fs.statSync(path).size, runtimeImports: [], nativePeak: peak, parameters: schema.length, features, audioWorklet: reports }, null, 2));
