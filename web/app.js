@@ -42,6 +42,7 @@ function replaceSource(timbre,drum){if(rdlSource)rdlSource.unavailable=rdlSource
 function format(id, value) {
   const p = parameters[id];
   if (p.options) return p.options[(p.values ?? p.options.map((_, i) => p.min + i)).indexOf(value)];
+  if(id===9){const types=['LPF 24','LPF 12','BPF','HPF','Thru'];if(value===127)return 'Thru';const i=Math.floor(value/32),part=value%32;return part?`${types[i]} → ${types[i+1]} ${Math.round(part/32*100)}%`:types[i];}
   if ([1, 22].includes(id)) { const hz = 30 * 200 ** (value / 127); return hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` : `${Math.round(hz)} Hz`; }
   if ([3, 4, 6, 32, 33, 35, 36, 37, 39, 59].includes(id)) {
     if (id === 59 && value === 0) return "Off";
@@ -57,6 +58,8 @@ function format(id, value) {
 }
 function disabled(id, v) {
   if(isDrum()&&sampleUI?.assigned(global(142))&&[0,10,11,12,13,14,15,16,17,18,19].includes(id))return true;
+  if(isDrum()&&sampleUI?.assigned(global(142))&&[59,60,61,62,63,64,65,66,67,68,69,70,139].includes(id))return true;
+  if(isDrum()&&sampleUI?.assigned(global(142))&&[6,35,39].includes(id)&&sampleUI.getConfig().slots[global(142)].mode===0)return true;
   if(unavailableSource()&&[10,11,12].includes(id))return true;
   if (id === 10) return v[0] >= 4;
   if (id === 154) return v[29] !== 2;
@@ -93,8 +96,10 @@ function setControl(id, value, fromUser = true) {
 function updateControls() {
   const v = values();
   const missing=unavailableSource();
-  panel?.render(v,missing?{0:isDrum()&&sampleUI?.assigned(global(142))?'Sample':`${missing.label} ×`}:{}); sampleUI?.render();syncRdlMasks();
-  $('#rdl-details').hidden=!rdlSource;$('#wave-display').toggleAttribute('hidden',!!missing);
+  const pcm=isDrum()&&sampleUI?.assigned(global(142)),sourceLabel=pcm?'Sample':missing?`${missing.label} ×`:null;
+  panel?.render(v,sourceLabel?{0:sourceLabel}:{}); sampleUI?.render();syncRdlMasks();
+  $('#rdl-details').hidden=!rdlSource;$('#wave-display').toggleAttribute('hidden',!!missing||pcm);
+  document.querySelector('.module-filter1 h2').textContent=v[9]===127?'FILTER 1 · THRU':'FILTER 1';
   $("#wave-display").setAttribute("aria-label", `${names[v[0]]} waveform`);
   const paths = ["M0 60 L60 12 L60 60 L120 12 L120 60 L180 12 L180 60 L240 12", "M0 60 V12 H30 V60 H60 V12 H90 V60 H120 V12 H150 V60 H180 V12 H210 V60 H240", "M0 36 L30 12 L60 36 L90 60 L120 36 L150 12 L180 36 L210 60 L240 36", `M${Array.from({length: 121}, (_, i) => `${i * 2} ${36 - 24 * Math.sin(i / 120 * 4 * Math.PI)}`).join(" L")}`, `M${Array.from({length: 61}, (_, i) => `${i * 4} ${12 + (i * 17 % 49)}`).join(" L")}`, `M${Array.from({length: 121}, (_, i) => `${i * 2} ${36 - 24 * Math.sin(i / 120 * 10 * Math.PI) * Math.sin(i / 120 * 2 * Math.PI)}`).join(" L")}`];
   $("#wave-path").setAttribute("d", paths[v[0]]);
@@ -233,6 +238,7 @@ function updateKeys() {
     const label = drum ? `Drum ${String(index + 1).padStart(2, "0")}` : noteLabel(note);
     key.querySelector("span").textContent = drum ? String(index + 1).padStart(2, "0") : label; key.setAttribute("aria-label", label);
     key.setAttribute("aria-pressed", (noteCounts.get(drum ? `drum:${index}` : `${selected}:${note}`) ?? 0) > 0);
+    key.classList.toggle('editing',drum&&global(142)===index);
     key.classList.toggle("black", !drum && [1, 3, 6, 8, 10].includes(index % 12));
   });
   $("#octave-label").textContent = drum ? "01–16" : `${noteLabel((octave + 1) * 12)}–${noteLabel((octave + 1) * 12 + 15)}`;
@@ -276,6 +282,7 @@ function updatePower() {
 }
 async function down(source, note, instrument) {
   if (held.has(source) || !module) return;
+  if(isDrum())setControl(142,instrument,false);
   const entry = {timbre: selected, note, instrument: isDrum() ? instrument : undefined, pending: true, released: false}; held.set(source, entry);
   try { await startAudio(); } catch (error) { held.delete(source); showError(error); return; }
   if (held.get(source) !== entry) return;
@@ -336,7 +343,7 @@ fullscreenButton.addEventListener("click",async()=>{
 });
 document.addEventListener("fullscreenchange",updateFullscreen);document.addEventListener("webkitfullscreenchange",updateFullscreen);updateFullscreen();
 function prepareSampleInstrument(instrument){
-  for(const [parameter,value] of [[3,0],[4,127],[5,127],[6,32],[9,127],[1,127],[2,0]]){drums[instrument][parameter]=value;send({type:"drum-control",instrument,parameter,value});}
+  for(const [parameter,value] of [[3,0],[4,127],[5,127],[6,32],[9,0],[1,127],[2,0]]){drums[instrument][parameter]=value;send({type:"drum-control",instrument,parameter,value});}
 }
 function enableDrumKit(){if(!global(140))setControl(140,1);if(!isDrum())$(`[data-timbre="${global(141)}"]`).click();}
 sampleUI=createDrumSamples({getInstrument:()=>global(142),isDrum,ensureAudio:startAudio,onError:showError,onChange:()=>{updateControls();scheduleSession();},onAssign:(instrument,fresh)=>{enableDrumKit();if(fresh)prepareSampleInstrument(instrument);},onKit:()=>{

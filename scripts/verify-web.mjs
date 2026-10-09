@@ -115,6 +115,17 @@ api.rustias_sample_clear(0);api.rustias_stop();api.rustias_drum_pad(0,100);asser
 pcmSetup(400,2);api.rustias_note(0,60,100);control(146,72);api.rustias_note(0,60,0);render(6000);assert.equal(api.rustias_voices(),0,"Reassigning a trigger must still release the original PCM note");
 features.push("browser PCM: one-shot, gate, loop, MIDI, Expression, native filters, Drive / 11 WS types, choke and source replacement");
 
+// Kit level is shared; ordinary synth controls address the selected drum.
+pcmSetup(48000,2);upload(1,Float32Array.from({length:48000},(_,i)=>0.4*Math.sin(i*2*Math.PI*440/48000)),2);
+for(const [id,value] of [[3,0],[4,127],[5,127],[6,20],[9,127]])assert.equal(api.rustias_drum_control(1,id,value),1);
+api.rustias_drum_pad(1,100);const drum1Dry=rms(render());control(7,0);assert.ok(rms(render())>drum1Dry*.9,'Editing drum 1 must not mute sounding drum 2');
+control(142,1);control(7,0);assert.ok(rms(render().slice(3000))<.00001,'Amp level controls the selected PCM drum live');
+control(7,100);assert.ok(rms(render())>.001,'Amp level restores the PCM drum live');
+control(9,0);control(1,15);assert.ok(rms(render().slice(3000))<drum1Dry*.5,'Cutoff changes the selected PCM drum live');
+control(9,127);control(8,0);render();const pannedLeft=api.rustias_render(),leftBlock=new Float32Array(api.memory.buffer,pannedLeft,256);assert.ok(leftBlock.filter((_,i)=>i%2===1).every(x=>Math.abs(x)<.00001),'Instrument pan reaches PCM');
+control(8,64);control(90,4);control(91,11);control(92,110);control(83,86);const patchLow=rms(render());const patchHigh=rms(render());assert.ok(Math.abs(patchLow-patchHigh)>.0001,'LFO2 -> amp modulation changes PCM');
+features.push('selected PCM drum: independent live amp, cutoff, pan and LFO/virtual-patch processing');
+
 const manifest=JSON.parse(fs.readFileSync(new URL("../web/samples/manifest.json",import.meta.url)));
 assert.equal(manifest.samples.length,64);assert.equal(manifest.license,"CC0-1.0");const hashes=new Set();
 for(const sample of manifest.samples){const data=fs.readFileSync(new URL(`../web/samples/${sample.file}`,import.meta.url));assert.equal(data.toString("ascii",0,4),"RIFF");assert.equal(data.toString("ascii",8,12),"WAVE");assert.ok(sample.duration>0);assert.equal(createHash("sha256").update(data).digest("hex"),sample.sha256);hashes.add(sample.sha256);}
