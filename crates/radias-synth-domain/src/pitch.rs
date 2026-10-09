@@ -29,6 +29,13 @@ pub struct PitchTable {
     pub fractions: [i16; 128],
 }
 
+/// Two-part fractional interpolation used by D544/D5d4. The packet receiver
+/// supplies the original ROM words; saturation or word storage is selected at
+/// the caller's actual publication boundary.
+pub fn fractional_increment(base: i32, fraction: i16) -> i64 {
+    i64::from(base) + crate::fixed::multiply_q15(base, fraction)
+}
+
 impl PitchTable {
     pub fn increment(&self, pitch: PitchCode) -> PhaseIncrement {
         let code = pitch.raw() as usize;

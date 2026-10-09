@@ -66,6 +66,7 @@ struct MonoFixture {
     decision: Option<radias_synth_domain::mono_notes::MonoDecision>,
     inherit_timbre: bool,
     decisions: usize,
+    last_action: u8,
 }
 struct NativePitchFixture {
     controller: radias_synth_application::note_pitch::NotePitchController,
@@ -445,6 +446,7 @@ impl ModulatedVoice {
                         return Err(format!("Native Mono decision/queue differs: {event}").into());
                     }
                     mono.decisions += 1;
+                    mono.last_action = action as u8;
                 }
                 "clock_one" | "clock_four" => {
                     if self.initialization_events || self.index >= self.initial_matrix {
@@ -993,7 +995,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let waveform = tables.waveform()?;
     let pitch = tables.pitch()?;
     let bandwidth = tables.bandwidth()?;
-    for name in args.iter().skip(1) {
+    let native_rates = args.iter().any(|arg| arg == "--native-rates");
+    let rate_tables = radias_synth_infrastructure::firmware::amplifier_rate_table(&system)?;
+    for name in args
+        .iter()
+        .skip(1)
+        .filter(|arg| arg.as_str() != "--native-rates")
+    {
         let output = root.join("runs/native-clone");
         let raw = fs::read(output.join(format!("{name}-voice-va-inputs.bin")))?;
         let mut plan = PreparedVoice::from_reference_va_parameters(&raw)?;
@@ -1005,6 +1013,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for event in &mut events {
             event["controller"] = "amp".into();
         }
+        if native_rates {
+            for line in
+                fs::read_to_string(output.join(format!("{name}-amplifier-packet-events.jsonl")))?
+                    .lines()
+            {
+                let mut event: Value = serde_json::from_str(line)?;
+                event["controller"] = "amp_delivery".into();
+                events.push(event);
+            }
+        }
         let auxiliary_path = output.join(format!("{name}-native-aux-events.jsonl"));
         let auxiliary_enabled = auxiliary_path.exists();
         let pan_path = output.join(format!("{name}-native-pan-events.jsonl"));
@@ -1013,6 +1031,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mixer_enabled = mixer_path.exists();
         let secondary_path = output.join(format!("{name}-native-secondary-events.jsonl"));
         let secondary_enabled = secondary_path.exists();
+        let shaper_path = output.join(format!("{name}-native-shaper-controller-events.jsonl"));
+        let shaper_enabled = shaper_path.exists();
         let primary_path = output.join(format!("{name}-native-primary-control-events.jsonl"));
         let primary_enabled = primary_path.exists()
             && matches!(
@@ -1111,6 +1131,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     events.push(event);
                 }
             }
+            if shaper_enabled {
+                for line in fs::read_to_string(shaper_path)?.lines() {
+                    let mut event: Value = serde_json::from_str(line)?;
+                    event["controller"] = "shaper".into();
+                    events.push(event);
+                }
+            }
             if primary_enabled {
                 for line in fs::read_to_string(primary_path)?.lines() {
                     let mut event: Value = serde_json::from_str(line)?;
@@ -1118,6 +1145,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     events.push(event);
                 }
             }
+            events.sort_by_key(|e| (e["frame"].as_u64().unwrap(), e["order"].as_u64().unwrap()));
+        }
+        if native_rates && !auxiliary_enabled {
             events.sort_by_key(|e| (e["frame"].as_u64().unwrap(), e["order"].as_u64().unwrap()));
         }
         let original = fs::read(output.join(format!("{name}-original-complete-mix.wav")))?;
@@ -1129,6 +1159,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut renderer = VoiceRenderer::new(plan.initial, plan.parameters);
         if auxiliary_enabled {
             renderer.control_slew(plan.control_slew, (plan.reference_start_frame & 3) as u8);
+        }
+        if shaper_enabled {
+            renderer.set_shaper_immediate(plan.parameters.shaper);
         }
         let mut modulation = ModulatedVoice::load(
             &output.join(format!("{name}-native-modulation-events.jsonl")),
@@ -1181,6 +1214,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         decision: None,
                         inherit_timbre: true,
                         decisions: 0,
+                        last_action: 0,
                     });
                 }
                 controller.note_pitch = Some(NativePitchFixture {
@@ -1211,12 +1245,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             controller.matrix(&lfo, &modulation_tables);
             if secondary_enabled {
                 controller.secondary_relative = Some(0);
-                controller.secondary_sync = plan.parameters.secondary_modulation.sync;
+                controller.secondary_sync =
+                    if events.iter().any(|event| event["kind"] == "secondary_sync") {
+                        false
+                    } else {
+                        plan.parameters.secondary_modulation.sync
+                    };
             }
         }
         let mut secondary_relative = 0i16;
         let mut secondary_compilations = 0usize;
         let mut secondary_commits = 0usize;
+        let mut secondary_sync_commits = 0usize;
+        let mut shaper_target = None;
+        let mut shaper_compilations = 0usize;
+        let mut shaper_commits = 0usize;
+        let mut shaper_target_changes = 0usize;
+        let mut prior_shaper_depth = None;
         let mut envelope = AmpEnvelope::default();
         let mut auxiliary = [radias_synth_domain::mod_envelope::ModEnvelope::default(); 2];
         let mut auxiliary_ticks = 0usize;
@@ -1311,6 +1356,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut target = 0;
         let mut state_errors = 0;
         let mut target_errors = 0;
+        let mut rate_errors = 0usize;
+        let mut rate_requests = 0usize;
+        let mut rate_commits = 0usize;
+        let mut soft_bindings = 0usize;
+        let mut amplifier_delivery =
+            radias_synth_domain::amplifier_delivery::AmplifierDelivery::default();
+        let mut pending_rate = 0u16;
+        if native_rates {
+            renderer.set_envelope_rate(0);
+        }
         let mut commits = 0;
         let mut ticks = 0;
         let mut current = parameters(
@@ -1692,9 +1747,103 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     event_index += 1;
                     continue;
                 }
+                if event["controller"] == "shaper" {
+                    if kind == "shaper_compile" {
+                        let modulated = modulation
+                            .as_ref()
+                            .ok_or("Shaper matrix absent")?
+                            .controller
+                            .patches
+                            .targets
+                            .controls[8];
+                        if field(event, "input", 3)? != u32::from(modulated as u16) {
+                            return Err(format!(
+                                "Shaper virtual patch differs at frame {frame}: {modulated} != {}",
+                                event["input"][3]
+                            )
+                            .into());
+                        }
+                        let packed = field(event, "input", 0)? as u8;
+                        let mode = radias_synth_application::shaper::ShaperMode::from_allocation(
+                            packed & 3,
+                            event["type"].as_u64().ok_or("Shaper type absent")? as u8 & 15,
+                        )
+                        .ok_or("Invalid shaper mode")?;
+                        let program = radias_synth_application::shaper::ShaperProgram {
+                            mode,
+                            position: if packed & 16 != 0 {
+                                radias_synth_domain::waveshaper::ShaperPosition::PreAmp
+                            } else {
+                                radias_synth_domain::waveshaper::ShaperPosition::PreFilter
+                            },
+                            control: radias_synth_domain::controller_shaper::ShaperControl {
+                                depth: field(event, "input", 1)? as u8,
+                                manual_offset: field(event, "input", 2)? as i16,
+                                modulation: modulated,
+                            },
+                        };
+                        shaper_target =
+                            program.parameters_with_pitch(plan.parameters.primary_pitch_code);
+                        shaper_compilations += 1;
+                    } else if kind == "shaper_commit" {
+                        let Some(mut compiled) = shaper_target else {
+                            // The original template copy also writes zero
+                            // DEPTH while the shaper is Off.
+                            if event["pc"].as_u64() != Some(0xd534)
+                                || event["expected_target"].as_u64() != Some(0)
+                            {
+                                return Err("Shaper commit without native compiler".into());
+                            }
+                            renderer.set_shaper_immediate(None);
+                            shaper_commits += 1;
+                            event_index += 1;
+                            continue;
+                        };
+                        let depth = if event["pc"].as_u64() == Some(0xd534) {
+                            0
+                        } else {
+                            compiled.coefficients.depth()
+                        };
+                        if event["expected_target"].as_u64() != Some(u64::from(depth as u16)) {
+                            return Err(format!(
+                                "Shaper native DEPTH compiler differs at frame {frame}"
+                            )
+                            .into());
+                        }
+                        compiled.coefficients.set_depth(depth);
+                        if prior_shaper_depth.is_some_and(|old| old != depth) {
+                            shaper_target_changes += 1;
+                        }
+                        prior_shaper_depth = Some(depth);
+                        renderer.set_shaper(Some(compiled));
+                        shaper_commits += 1;
+                    } else {
+                        return Err("Unknown shaper controller event".into());
+                    }
+                    event_index += 1;
+                    continue;
+                }
                 if event["controller"] == "secondary" {
                     let controller = modulation.as_mut().ok_or("Secondary matrix absent")?;
-                    if kind == "secondary_relative" {
+                    if kind == "secondary_sync" {
+                        // Actor-copy D534 copies the program's stored Sync
+                        // flag too; it is not an unconditional flag reset.
+                        let sync = event["selection"]
+                            .as_u64()
+                            .ok_or("Secondary packed selection absent")?
+                            as u8
+                            & 0x20
+                            != 0;
+                        if event["expected_sync"].as_u64() != Some(if sync { 0x7fff } else { 0 }) {
+                            return Err(format!(
+                                "Secondary SYNC allocation differs at frame {frame}"
+                            )
+                            .into());
+                        }
+                        controller.secondary_sync = sync;
+                        renderer.set_secondary_sync(sync);
+                        secondary_sync_commits += 1;
+                    } else if kind == "secondary_relative" {
                         let modulated =
                             controller.controller.patches.targets.oscillator_pitch_q16[1];
                         if event["expected_modulation"].as_u64() != Some(modulated as u32 as u64) {
@@ -1879,6 +2028,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     event_index += 1;
                     continue;
                 }
+                if event["controller"] == "amp_delivery" {
+                    match kind {
+                        "packet_request" => {
+                            let action =
+                                event["action"].as_u64().ok_or("AMP packet action absent")?;
+                            let packet = match action {
+                                0 | 1 => {
+                                    let soft = modulation.as_ref().and_then(|m|m.mono.as_ref()).is_some_and(|m|m.last_action == 3);
+                                    if soft != (action == 1) { rate_errors += 1; }
+                                    soft_bindings += usize::from(soft);
+                                    amplifier_delivery.binding(&rate_tables, event["attack"].as_u64().ok_or("Attack absent")? as u8,
+                                        event["attack_modulation"].as_u64().ok_or("Attack modulation absent")? as i16, target, soft)
+                                }
+                                2 => {
+                                    if event["expected_mode_before"].as_u64() != Some(u64::from(amplifier_delivery.mode)) {rate_errors += 1;}
+                                    amplifier_delivery.service(&rate_tables,target)
+                                }
+                                3 => radias_synth_domain::amplifier_delivery::AmplifierDelivery::reset(&rate_tables),
+                                _ => return Err("Unknown AMP packet action".into()),
+                            };
+                            if let radias_synth_domain::amplifier_delivery::AmplifierPacket::RateAndTarget {rate,..}=packet {pending_rate=rate;}
+                            rate_requests += 1;
+                        }
+                        "rate_commit" => {
+                            let rate = if event["pc"].as_u64() == Some(0xd534) {
+                                0
+                            } else {
+                                pending_rate
+                            };
+                            if event["expected_rate"].as_u64() != Some(u64::from(rate)) {
+                                rate_errors += 1;
+                            }
+                            renderer.set_envelope_rate(rate as i16);
+                            rate_commits += 1;
+                        }
+                        _ => return Err("Unknown AMP delivery event".into()),
+                    }
+                    event_index += 1;
+                    continue;
+                }
                 if kind != "commit" {
                     current = parameters(event)?;
                 }
@@ -1901,6 +2090,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .as_bool()
                                 .ok_or("Release acknowledgement absent")?,
                         );
+                        if envelope.stage
+                            == radias_synth_domain::amp_envelope::EnvelopeStage::ReleaseHold
+                        {
+                            amplifier_delivery.release_zero();
+                        }
                         ticks += 1;
                     }
                     "release" => {
@@ -2012,10 +2206,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         wav::write_buses(
-            &output.join(format!("{name}-rust-controller-mix.wav")),
+            &output.join(format!(
+                "{name}-rust-controller{}.wav",
+                if native_rates {
+                    "-amp-delivery"
+                } else {
+                    "-mix"
+                }
+            )),
             &frames,
         )?;
-        let passed = state_errors == 0 && target_errors == 0 && commits > 10 && ticks > 10;
+        let passed = state_errors == 0
+            && target_errors == 0
+            && rate_errors == 0
+            && commits > 10
+            && ticks > 10;
         let report = serde_json::json!({"name":name,"frames":length,"state_errors":state_errors,"target_errors":target_errors,
             "controller_ticks":ticks,"amplifier_commits":commits,"computed_adsr":true,"computed_amplifier_targets":true,
             "controller_event_times":"original reference observation; fixed device clock qualification remains separate","passed":passed,
@@ -2034,6 +2239,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "native_portamento_rate_compilations":modulation.as_ref().and_then(|m|m.note_pitch.as_ref()).map_or(0,|p|p.portamento_rate_compilations),
             "original_base_pitch_and_vibrato_depth_replayed":modulation.as_ref().is_none_or(|m|m.note_pitch.is_none())});
         let mut report = report;
+        report["native_AMP_rate_state_computed"] = native_rates.into();
+        report["AMP_rate_errors"] = rate_errors.into();
+        report["AMP_rate_requests"] = rate_requests.into();
+        report["AMP_rate_commits"] = rate_commits.into();
+        report["native_Mono_soft_binding_decisions"] = soft_bindings.into();
+        report["original_AMP_smoothing_rates_replayed"] = (!native_rates).into();
         report["computed_tempo_lfo"] = modulation
             .as_ref()
             .is_some_and(|m| m.tempo.is_some())
@@ -2062,6 +2273,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         report["computed_mixer_smoothing"] = mixer_enabled.into();
         report["computed_secondary_pitch_compilations"] = secondary_compilations.into();
         report["computed_secondary_commits"] = secondary_commits.into();
+        report["computed_secondary_sync_commits"] = secondary_sync_commits.into();
+        report["computed_shaper_modulation_from_native_envelopes"] = shaper_enabled.into();
+        report["computed_shaper_compilations"] = shaper_compilations.into();
+        report["computed_shaper_commits"] = shaper_commits.into();
+        report["computed_shaper_target_changes"] = shaper_target_changes.into();
+        report["recorded_shaper_modulation_or_depth_targets_used_to_render"] = false.into();
         report["computed_primary_control_compilations"] = primary_control_compilations.into();
         report["computed_primary_phase_compilations"] = primary_phase_compilations.into();
         report["computed_primary_phase_commits"] = primary_phase_commits.into();
@@ -2070,7 +2287,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         report["computed_primary_waveform_initial_coefficients"] = primary_enabled.into();
         report["computed_primary_control_commits"] = primary_control_commits.into();
         fs::write(
-            output.join(format!("{name}-envelope-voice-parity.json")),
+            output.join(format!(
+                "{name}-envelope-voice{}-parity.json",
+                if native_rates { "-amp-delivery" } else { "" }
+            )),
             serde_json::to_vec_pretty(&report)?,
         )?;
         println!("{report}");

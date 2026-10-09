@@ -4,7 +4,7 @@ use radias_synth_domain::{
 };
 use std::{fs, path::PathBuf};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let root = PathBuf::from(std::env::args().nth(1).unwrap_or(".".into()));
+    let root = PathBuf::from(std::env::args().nth(1).unwrap_or("..".into()));
     let raw = fs::read(root.join("runs/native-clone/original-pan.bin"))?;
     let mut errors = 0;
     for (i, r) in raw.chunks_exact(24).enumerate() {

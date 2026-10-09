@@ -1,3 +1,5 @@
+import {createCircuitEditor} from "./circuit-ui.js";
+import {validateCircuits,audioCircuit,emptyCircuits} from "./circuit.js";
 import {createDrumSamples} from "./samples.js";
 import {createSequencer} from "./sequencer-ui.js";
 import {drumSequenceKit} from "./sequence-labels.js";
@@ -27,7 +29,7 @@ const keyNames = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", 
 const computerKeys = ["a", "w", "s", "e", "d", "f", "t", "g", "y", "h", "u", "j", "k", "o", "l", "p"];
 let selected = 0, octave = 4, context, node, module, midiAccess, audioStarting;
 const held = new Map(), noteCounts = new Map();
-let sampleUI,editingSample=null;
+let sampleUI,circuitUI,circuitTimer,editingSample=null;
 let panel, programPicker, sequenceUI, activeSavedPatch=null, autosaveTimer, sequenceRequest=0, auditionRequest=0,sequenceConfigRequest=0;
 let rdlSource=null,lastRdlMasks;
 const patchStore=new PatchStore(window.localStorage);
@@ -41,7 +43,8 @@ const values = () => parameters.map(p => p.id === 118 ? (isSample() ? 0 : timbre
 function unavailableSource(){if(editingSample)return;return rdlSource?.unavailable.find(s=>isDrum()?s.drum===global(142):s.drum==null&&s.timbre===selected);}
 function muteMasks(){const masks=rdlMasks(rdlSource);for(let i=0;i<16;i++)if(sampleUI?.assigned(i))masks.drums&=~(1<<i);return masks;}
 function syncRdlMasks(){if(!node)return;const masks=muteMasks(),key=`${masks.timbres}:${masks.drums}`;if(key!==lastRdlMasks){send({type:'rdl-muted',...masks});lastRdlMasks=key;}}
-function loadEngine(program=state()){const unavailable=muteMasks();send({type:'load',program,unavailable});lastRdlMasks=`${unavailable.timbres}:${unavailable.drums}`;}
+function loadEngine(program=state()){const unavailable=muteMasks();send({type:'load',program,unavailable});sendCircuits();lastRdlMasks=`${unavailable.timbres}:${unavailable.drums}`;}
+function sendCircuits(timbre){if(!circuitUI)return;const config=circuitUI.getConfig();for(const [t,circuit]of config.tracks.entries())if(timbre==null||t===timbre)send({type:'circuit',timbre:t,circuit:audioCircuit(circuit)});}
 function replaceSource(timbre,drum){if(rdlSource)rdlSource.unavailable=rdlSource.unavailable.filter(s=>drum==null?s.drum!=null||s.timbre!==timbre:s.drum!==drum);}
 function format(id, value) {
   const p = parameters[id];
@@ -99,6 +102,7 @@ function setControl(id, value, fromUser = true) {
     for (const t of timbres) if ((t.values[72] === 16 ? global(148) : t.values[72]) === channel) t.values[id] = value;
   }
   if (fromUser) timbres[selected].preset = "custom";
+  if(circuitUI?.getConfig().tracks[selected].enabled){clearTimeout(circuitTimer);const timbre=selected;circuitTimer=setTimeout(()=>sendCircuits(timbre),60);}
   if(!(editingSample&&instrumentParameter(id)))send(isSample() && id >= 114 && id <= 117 ? {type:"drum-control",instrument:global(142),parameter:id,value} : {type: "control", timbre: selected, parameter: id, value}); updateControls(); updateKeys(); scheduleSession();
 }
 function updateControls() {
@@ -121,7 +125,7 @@ function nativeValue(p, value) { return p.id === 89 ? value * 10 : [72, 148, 141
 panel=createPanel({parameters,readValues:values,setControl,format,disabled,displayValue,nativeValue});
 programPicker=makePicker({label:"Program",options:[{value:"init",label:"INIT"},{value:"pad",label:"Warm pad"},{value:"pulse",label:"Pulse bass"},{value:"pluck",label:"Soft pluck"},{value:"custom",label:"Custom"}],value:"init",onChange:applyPreset,searchable:true});
 $("#preset").append(programPicker.button);
-document.querySelectorAll("[data-timbre]").forEach(button => button.addEventListener("click", () => { editingSample=null;selected = Number(button.dataset.timbre); document.querySelectorAll("[data-timbre]").forEach(tab => tab.setAttribute("aria-selected", tab === button)); updateControls(); updateKeys(); scheduleSession(); }));
+document.querySelectorAll("[data-timbre]").forEach(button => button.addEventListener("click", () => { editingSample=null;selected = Number(button.dataset.timbre); document.querySelectorAll("[data-timbre]").forEach(tab => tab.setAttribute("aria-selected", tab === button)); circuitUI?.select(); updateControls(); updateKeys(); scheduleSession(); }));
 function applyPreset(preset) {
   editingSample=null;
   if(preset.startsWith("saved:")){const patch=patchStore.list().find(p=>p.id===preset.slice(6));if(patch)try{loadSnapshot(patch.snapshot);activeSavedPatch=patch.id;updateControls();scheduleSession();}catch(error){showError(error);}return;}
@@ -153,11 +157,11 @@ function normalizeEngine(value){
   }
   if(parameters.some(p=>p.scope==="global"&&program.timbres.some(v=>v[p.id]!==program.timbres[0][p.id])))throw new Error("Global settings must agree across timbres.");return program;
 }
-function snapshot(){return {version:2,engine:state(),sequencer:sequenceUI.getConfig(),samples:sampleUI?.getConfig?.()??null,...(rdlSource?{rdl:structuredClone(rdlSource)}:{})};}
+function snapshot(){return {version:2,engine:state(),sequencer:sequenceUI.getConfig(),samples:sampleUI?.getConfig?.()??null,circuits:circuitUI?.getConfig()??emptyCircuits(timbres.map(t=>t.values)),...(rdlSource?{rdl:structuredClone(rdlSource)}:{})};}
 function loadSnapshot(value){
-  const previousSamples=value.version===2?value.samples:null,samples=sampleUI.validateConfig(previousSamples),program=migrateSampleAmplifiers(normalizeEngine(value.version===2?value.engine:value),previousSamples,samples),sequence=validateSequence(value.version===2?value.sequencer:emptySequence()),source=validateRdlSource(value.version===2?value.rdl:null);
+  const previousSamples=value.version===2?value.samples:null,samples=sampleUI.validateConfig(previousSamples),program=migrateSampleAmplifiers(normalizeEngine(value.version===2?value.engine:value),previousSamples,samples),sequence=validateSequence(value.version===2?value.sequencer:emptySequence()),source=validateRdlSource(value.version===2?value.rdl:null),circuits=validateCircuits(value.version===2?value.circuits:null,program.timbres);
   stop();editingSample=null;$('#error').hidden=true;rdlSource=source;for(const t of timbres)t.preset="custom";
-  const samplesReady=sampleUI?.setConfig(samples);acceptState(program);sequenceUI.setConfig(sequence);loadEngine(program);send({type:"sequencer",config:sequence});
+  const samplesReady=sampleUI?.setConfig(samples);circuitUI?.setConfig(circuits);acceptState(program);sequenceUI.setConfig(sequence);loadEngine(program);send({type:"sequencer",config:sequence});
   samplesReady?.then(updateControls).catch(showError);
 }
 function scheduleSession(){clearTimeout(autosaveTimer);autosaveTimer=setTimeout(saveSession,300);}
@@ -366,6 +370,7 @@ sampleUI=createDrumSamples({parameters,getDrumValues:i=>drums[i],getEditingSampl
   setControl(142,0);
 }});
 sampleUI.ready.then(()=>{sequenceUI.setSamples(sampleUI.options());updateControls();},()=>{});
+circuitUI=createCircuitEditor({getValues:values,getSelected:()=>selected,onError:showError,onChange:(_config,audio)=>{if(audio){$("#error").hidden=true;sendCircuits(selected);}scheduleSession();}});
 refreshLibrary();
 try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(session.snapshot);activeSavedPatch=session.activeSavedPatch??null;if(Number.isInteger(session.selected)&&session.selected>=0&&session.selected<4)$(`[data-timbre="${session.selected}"]`).click();if(Number.isFinite(session.volume))$("#volume").value=session.volume;}}catch(error){showError(new Error(`Could not restore the saved session: ${error.message}`));}
 updateControls(); updateKeys(); document.body.dataset.parameterCount = parameters.length;

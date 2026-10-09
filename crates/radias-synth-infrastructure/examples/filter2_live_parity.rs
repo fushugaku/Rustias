@@ -1,5 +1,8 @@
 //! Native ordinary Filter2 controller targets, coefficient slew and complete dry voice.
 use radias_synth_application::VoiceRenderer;
+use radias_synth_application::synthesis_transport::{
+    DeliveredSynthesisParameter, SynthesisParameterTransport,
+};
 use radias_synth_domain::{
     Sample,
     controller_comb::{CombCutoffControl, CombResonanceControl},
@@ -38,6 +41,7 @@ fn cutoff(p: &[serde_json::Value]) -> Result<CombCutoffControl, Box<dyn std::err
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let root = PathBuf::from(args.next().ok_or("Repository required")?);
+    let queued_controls = std::env::args().any(|arg| arg == "--queued-controls");
     let out = root.join("runs/native-clone");
     let table = MasterTables::from_host_stream(&fs::read(
         root.join("firmware/dsp-master-host-stream.bin"),
@@ -47,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frequencies = firmware::controller_filter_tables(&sys)?;
     let amp = firmware::amplifier_tables(&sys)?;
     let tables = firmware::filter2_control_tables(&sys)?;
-    for name in args {
+    for name in args.filter(|arg| arg != "--queued-controls") {
         let raw = fs::read(out.join(format!("{name}-voice-va-inputs.bin")))?;
         let plan = PreparedVoice::from_reference_va_parameters(&raw)?;
         let initial = plan
@@ -65,6 +69,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut deliveries: Vec<(u64, Filter2Coefficients)> = Vec::new();
         let mut controller_inputs = 0;
         let mut initial_context_inputs = 0;
+        let first_context = events
+            .iter()
+            .find(|e| e["kind"].as_str() == Some("coefficients"))
+            .ok_or("Initial Filter2 coefficient context absent")?;
+        let normalization = first_context["normalization"]
+            .as_u64()
+            .ok_or("Initial normalization absent")? as i32;
+        let mut transport = SynthesisParameterTransport::default();
+        let mut initial_words = [0u16; 160];
+        initial_words[94] = initial.input_gain as u16;
+        // The first unfinished compiler context supplies the not-yet-delivered
+        // resonance input. Source output coefficients never populate this bank.
+        let r = first_context["resonance"]
+            .as_u64()
+            .ok_or("Initial resonance context absent")? as u32;
+        initial_words[102] = (r >> 16) as u16;
+        initial_words[103] = r as u16;
+        transport.restore_parameters(0, initial_words);
+        transport.configure_filter2(0, normalization, initial);
+        let mut sender_origin = 0u64;
+        let mut received = None;
+        let mut queued_packets = 0usize;
         for event in events {
             let frame = event["frame"]
                 .as_u64()
@@ -102,7 +128,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             r as u32
                         } else if address == 0x205e {
                             target.input_gain = g;
-                            deliveries.push((frame, target));
+                            if !queued_controls {
+                                deliveries.push((frame, target));
+                            }
                             g as u16 as u32
                         } else {
                             return Err("Unknown Filter2 packet".into());
@@ -113,6 +141,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             "Native Filter2 controller target differs:{name}: {event}; {value}"
                         )
                         .into());
+                    }
+                    if queued_controls {
+                        let sent = match address {
+                            0x2065 => transport.filter2_frequency(sender_origin, 0, value as i32),
+                            0x2067 => transport.filter2_resonance(sender_origin, 0, value as i32),
+                            0x205e => transport.filter2_input_gain(sender_origin, 0, value as i16),
+                            _ => unreachable!(),
+                        };
+                        sent.map_err(|e| format!("Filter2 sender failed: {e:?}"))?;
+                        let elapsed = if address == 0x205e { 106 } else { 117 };
+                        transport.advance_until(sender_origin + elapsed, |_, slot, event| {
+                            assert_eq!(slot, 0);
+                            if let DeliveredSynthesisParameter::Filter2(c) = event {
+                                received = Some(c);
+                                queued_packets += 1;
+                            } else {
+                                panic!("Unexpected Filter2 receiver publication");
+                            }
+                        });
+                        sender_origin += elapsed;
+                        if transport.pending() != 0 || received.is_none() {
+                            return Err("Filter2 packet was not delivered".into());
+                        }
+                        if address == 0x205e {
+                            let c = received.take().unwrap();
+                            if c != target {
+                                return Err(
+                                    "Filter2 gain delivery rewrote earlier coefficient targets"
+                                        .into(),
+                                );
+                            }
+                            deliveries.push((frame, c));
+                        }
                     }
                     controller_inputs += 1;
                 }
@@ -152,7 +213,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     target.feedback = c.feedback;
                     target.integrator_gain = c.integrator_gain;
-                    deliveries.push((frame, target));
+                    if queued_controls {
+                        if event["normalization"].as_u64() != Some(normalization as u32 as u64) {
+                            return Err(
+                                "Controlled Filter2 normalization changed outside declared context"
+                                    .into(),
+                            );
+                        }
+                        let c = received.take().ok_or(
+                            "Filter2 source coefficient boundary has no native publication",
+                        )?;
+                        if c != target {
+                            return Err(format!(
+                                "Queued Filter2 coefficients differ: {name}: {c:?} vs {target:?}"
+                            )
+                            .into());
+                        }
+                        deliveries.push((frame, c));
+                    } else {
+                        deliveries.push((frame, target));
+                    }
                 }
                 _ => return Err("Unknown Filter2 event".into()),
             }
@@ -253,19 +333,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Sample(0),
             ]);
         }
-        wav::write_buses(
-            &out.join(format!("{name}-rust-filter2-controller-mix.wav")),
-            &frames,
-        )?;
+        let audio_suffix = if queued_controls {
+            "rust-filter2-queued-mix"
+        } else {
+            "rust-filter2-controller-mix"
+        };
+        wav::write_buses(&out.join(format!("{name}-{audio_suffix}.wav")), &frames)?;
         let passed = errors == [0; 2] && coefficient_errors == [0; 3];
         let report = serde_json::json!({"passed":passed,"name":name,"frames":plan.reference_voice_frames,
             "sample_errors":errors,"coefficient_errors":coefficient_errors,"native_target_changes":changes,
             "original_controller_inputs":controller_inputs,"initial_coefficient_context_inputs":initial_context_inputs,
             "original_initial_actor_and_controller_delivery_times_used":true,"other_original_compiled_controls_used":true,
             "native_Filter2_controller_compilation_and_slew_used":true,"recorded_audio_used_to_render":false,
+            "production_sender_and_receiver_used":queued_controls,"queued_packets":queued_packets,
+            "source_delivery_frames_and_sequential_sender_origins_declared":queued_controls,
             "original_Filter2_targets_used_to_render":false,"independent_HPI_timing_qualified":false,"complete_native_engine":false});
+        let report_suffix = if queued_controls {
+            "filter2-delivery-parity"
+        } else {
+            "filter2-live-parity"
+        };
         fs::write(
-            out.join(format!("{name}-filter2-live-parity.json")),
+            out.join(format!("{name}-{report_suffix}.json")),
             serde_json::to_vec_pretty(&report)?,
         )?;
         println!("{report}");

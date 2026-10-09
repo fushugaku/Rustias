@@ -2,7 +2,7 @@ import {validSampleSource} from "./sample-state.js";
 // Browser-only polyphonic clock. It dispatches notes to the native Wasm engine.
 export const STEPS = 128;
 export const VIEW_STEPS = 16;
-export const MAX_EVENTS = 48;
+export const MAX_EVENTS = 128;
 export const stepEvents=step=>[...step.notes,...(step.samples??[])];
 // RADIAS P15 COMN Resolutn: a step is a note value relative to BPM.
 export const RESOLUTIONS = ["1/32","1/24","3/64","1/16","1/12","3/32","1/8","1/6","3/16","1/4","1/3","3/8","1/2","2/3","3/4","1/1"];

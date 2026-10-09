@@ -20,10 +20,14 @@
         <div class="program-files"><div class="patch-save"><button id="save-patch" class="tool-button">Save</button><button id="patch-save-options" class="tool-button" aria-label="Patch save options" aria-haspopup="menu" aria-expanded="false" aria-controls="patch-save-menu">⌄</button></div><a id="save-program" class="tool-button" role="button" href="#" download="rustias-program.json">Export</a><button id="load-program" class="tool-button" title="Import a Rustias JSON patch or RADIAS RDL backup" disabled>Import</button><button id="rdl-details" class="tool-button" aria-label="RDL patch details" hidden>RDL</button><input id="program-file" type="file" accept=".json,.rdl,application/json" hidden></div>
       </div>
       <div id="performance" class="performance" aria-label="Performance controls"></div>
-      <div class="toolbar-actions"><button id="midi" class="tool-button">MIDI</button><button id="panic" class="tool-button">Stop notes</button><button id="fullscreen" class="tool-button fullscreen" aria-label="Full screen" title="Full screen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button><button id="power" class="power" disabled>Loading…</button></div>
+      <div class="toolbar-actions"><button id="build" class="tool-button" aria-pressed="false">Build</button><button id="midi" class="tool-button">MIDI</button><button id="panic" class="tool-button">Stop notes</button><button id="fullscreen" class="tool-button fullscreen" aria-label="Full screen" title="Full screen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button><button id="power" class="power" disabled>Loading…</button></div>
     </header>
     <p id="error" class="error" role="alert" hidden></p>
     <div id="rack" class="rack" aria-label="Complete synthesis panel"></div>
+    <section id="circuit" class="circuit" aria-label="Modular patch builder" hidden>
+      <div class="circuit-toolbar"><h2 id="circuit-timbre">TIMBRE 1</h2><div id="circuit-add"></div><button id="circuit-routing" aria-pressed="false">Routing Off</button><button id="circuit-disconnect" disabled>Disconnect</button><button id="circuit-undo" aria-label="Undo module edit" disabled>↶</button><button id="circuit-redo" aria-label="Redo module edit" disabled>↷</button><button id="circuit-reset">Reset modules</button><div id="circuit-zoom"></div><span id="circuit-message" role="status"></span></div>
+      <div id="circuit-viewport" class="circuit-viewport"><div id="circuit-space"><div id="circuit-canvas"><svg id="circuit-wires" aria-label="Patch cables"></svg></div></div></div>
+    </section>
     <section class="sequencer" aria-label="Polyphonic sequencer">
       <div class="sequence-heading"><h2>POLYPHONIC SEQUENCER</h2><div class="sequence-tools"><button id="seq-select" aria-pressed="false">Select</button><button id="seq-copy" disabled>Copy</button><button id="seq-paste" disabled>Paste</button><button id="seq-undo" aria-label="Undo paste" disabled>↶</button><span id="seq-selection" role="status"></span></div><div class="sequence-transport"><button id="seq-reset">Reset</button><button id="seq-play" disabled>Play</button></div></div>
       <div class="sequence-scroll"><div id="sequence-tracks"></div></div>
@@ -33,7 +37,7 @@
         <div class="keybed-heading"><span id="keybed-title">KEYBOARD</span><div class="octaves"><button id="octave-down" aria-label="Lower octave">−</button><span id="octave-label">C4–D♯5</span><button id="octave-up" aria-label="Higher octave">+</button></div></div>
         <div id="keys" class="keys" aria-label="Keyboard"></div>
       </div>
-      <div class="monitor"><div class="connection"><span id="led" class="led"></span><span id="status" role="status" aria-live="polite">Loading Rust engine…</span></div><div class="monitor-right"><span><b id="voices">0</b> / <span id="voice-capacity">48</span> voices</span><meter id="meter" min="0" max="1" value="0" aria-label="Output level"></meter><label class="volume">Volume<input id="volume" type="range" min="0" max="100" value="30"></label><a href="https://github.com/fushugaku/Rustias#webassembly" aria-label="About this build">GitHub ↗</a></div></div>
+      <div class="monitor"><div class="connection"><span id="led" class="led"></span><span id="status" role="status" aria-live="polite">Loading Rust engine…</span></div><div class="monitor-right"><span><b id="voices">0</b> / <span id="voice-capacity">128</span> voices</span><meter id="meter" min="0" max="1" value="0" aria-label="Output level"></meter><label class="volume">Volume<input id="volume" type="range" min="0" max="100" value="30"></label><a href="https://github.com/fushugaku/Rustias#webassembly" aria-label="About this build">GitHub ↗</a></div></div>
     </footer>
     <noscript>JavaScript is required to load the WebAssembly synthesizer.</noscript>
   </main>

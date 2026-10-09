@@ -1,26 +1,18 @@
-//! Direct device adapter. No firmware machine, audio queue or offline preview.
+//! Direct device and deterministic recording adapters for the same native engine.
 use crate::prepared::PreparedVoice;
 use cpal::{
     FromSample, SizedSample,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
-use radias_synth_application::amplifier::{
-    AmplifierProgram, ControllerTables,
-};
+use radias_synth_application::amplifier::{AmplifierProgram, ControllerTables};
 use radias_synth_application::mixer::MixerProgram;
 use radias_synth_application::modulation::{ModulationProgram, VoiceModulationTables};
-use radias_synth_application::polyphony::TIMBRE_COUNT;
+use radias_synth_application::polyphony::{ActiveVoice, TIMBRE_COUNT};
 use radias_synth_application::secondary::SecondaryProgram;
-use radias_synth_application::voice_envelopes::{
-    DynamicFilter, ModEnvelopeProgram,
-};
+use radias_synth_application::voice_envelopes::{DynamicFilter, ModEnvelopeProgram};
 use radias_synth_domain::{
-    bandlimit::BandwidthTable,
-    filter::FilterCoefficients,
-    pan::StereoFrame,
-    pitch::PitchTable,
-    voice_allocation::VoiceCostTables,
-    waveform::WaveformTable,
+    bandlimit::BandwidthTable, filter::FilterCoefficients, pan::StereoFrame, pitch::PitchTable,
+    voice_allocation::VoiceCostTables, waveform::WaveformTable,
 };
 use std::{
     sync::{
@@ -75,7 +67,87 @@ pub struct NativePlayer {
     tempo_available: bool,
     portamento_available: AtomicBool,
     filter2_available: AtomicBool,
-    _stream: cpal::Stream,
+    _stream: Option<cpal::Stream>,
+}
+
+/// Deterministic Q31 recording through the production command and note factory.
+/// No audio device or firmware interpreter is opened. Controls are serviced once
+/// per submitted block, as in the device callback. State advances only for the
+/// requested samples, so events never act on a precomputed future state.
+pub struct NativeOfflineRenderer {
+    player: NativePlayer,
+    generator: Generator,
+}
+impl NativeOfflineRenderer {
+    pub fn with_clock(
+        plans: Vec<PreparedVoice>,
+        table: WaveformTable,
+        tuning: Option<(PitchTable, BandwidthTable)>,
+        controller_tables: Option<ControllerTables>,
+        voice_costs: Option<VoiceCostTables>,
+        modulation_tables: Option<VoiceModulationTables>,
+        tempo_tables: Option<radias_synth_domain::lfo_tempo::LfoTempoTables>,
+    ) -> Result<Self, String> {
+        let (mut player, generator) = NativePlayer::prepare_generator(
+            plans,
+            table,
+            tuning,
+            controller_tables,
+            voice_costs,
+            modulation_tables,
+            tempo_tables,
+        )?;
+        player.device = "Native Q31 recording".into();
+        player.rate = 48_000;
+        player.gain(1.0);
+        Ok(Self { player, generator })
+    }
+    /// Uses every existing validated desktop/MIDI control without duplicating it.
+    pub fn controls(&self) -> &NativePlayer {
+        &self.player
+    }
+    /// Read-only comparison state; observing it never advances or replaces DSP data.
+    pub fn active_voice(&self, slot: usize) -> Option<&ActiveVoice> {
+        if slot >= radias_synth_domain::voice_allocation::VOICE_COUNT {
+            return None;
+        }
+        self.generator.pool.active_voice(slot)
+    }
+    pub fn amplifier_delivery_state(&self) -> (usize, bool) {
+        self.generator.pool.amplifier_delivery_state()
+    }
+    pub fn controller_service_state(
+        &self,
+    ) -> Option<(
+        radias_synth_domain::controller_service::ControllerServiceTimer,
+        u64,
+    )> {
+        self.generator.pool.controller_service_state()
+    }
+    /// Raw dry output, before the desktop monitoring gain and device conversion.
+    pub fn render_into(&mut self, output: &mut [StereoFrame]) {
+        self.generator.service();
+        let mut audible = 0;
+        let mut peak = 0.0f32;
+        for frame in output.iter_mut() {
+            *frame = self.generator.sample();
+            audible += u64::from(frame.left.0 != 0 || frame.right.0 != 0);
+            peak = peak.max(frame.left.0.unsigned_abs() as f32 / 2_147_483_648.0);
+            peak = peak.max(frame.right.0.unsigned_abs() as f32 / 2_147_483_648.0);
+        }
+        let counters = &self.player.counters;
+        self.generator.publish_voice_counters(counters);
+        counters.callbacks.fetch_add(1, Ordering::Relaxed);
+        counters
+            .native_frames
+            .fetch_add(output.len() as u64, Ordering::Relaxed);
+        counters
+            .audible_frames
+            .fetch_add(audible, Ordering::Relaxed);
+        counters
+            .output_peak
+            .store(peak.to_bits(), Ordering::Relaxed);
+    }
 }
 
 #[derive(Clone)]
@@ -113,13 +185,70 @@ impl NativeInput {
     }
 }
 
-struct Generator { synth: crate::synthesizer::Synthesizer, commands: Receiver<Command> }
-impl std::ops::Deref for Generator { type Target = crate::synthesizer::Synthesizer;
-    fn deref(&self) -> &Self::Target { &self.synth } }
-impl std::ops::DerefMut for Generator { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.synth } }
+struct Generator {
+    synth: crate::synthesizer::Synthesizer,
+    commands: Receiver<Command>,
+}
+impl std::ops::Deref for Generator {
+    type Target = crate::synthesizer::Synthesizer;
+    fn deref(&self) -> &Self::Target {
+        &self.synth
+    }
+}
+impl std::ops::DerefMut for Generator {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.synth
+    }
+}
 impl Generator {
-    fn service(&mut self) { for _ in 0..64 { let Ok(command) = self.commands.try_recv() else { break }; self.synth.apply(command); } }
-    fn sample(&mut self) -> StereoFrame { self.synth.sample() }
+    fn service(&mut self) {
+        for _ in 0..64 {
+            let Ok(command) = self.commands.try_recv() else {
+                break;
+            };
+            self.synth.apply(command);
+        }
+    }
+    fn sample(&mut self) -> StereoFrame {
+        self.synth.sample()
+    }
+    fn publish_voice_counters(&self, counters: &Counters) {
+        if self.pool.amplifier_delivery_state().1 {
+            counters.failed.store(true, Ordering::Relaxed);
+        }
+        counters
+            .active_voices
+            .store(self.pool.active_count() as u32, Ordering::Relaxed);
+        counters
+            .held_voices
+            .store(self.pool.held_count() as u32, Ordering::Relaxed);
+        for timbre in 0..TIMBRE_COUNT {
+            counters.source_gains[timbre].store(
+                self.timbres[timbre].amplifier.source_gain as u32,
+                Ordering::Relaxed,
+            );
+            counters.sustain_flags[timbre].store(
+                self.pool.sustain_state(timbre as u8).unwrap().flags as u32,
+                Ordering::Relaxed,
+            );
+            let note = (0..radias_synth_domain::voice_allocation::VOICE_COUNT)
+                .filter_map(|slot| self.pool.active_voice(slot))
+                .find(|voice| voice.held && voice.timbre as usize == timbre)
+                .map_or(0, |voice| voice.note as u32 + 1);
+            counters.held_notes[timbre].store(note, Ordering::Relaxed);
+        }
+        for slot in 0..24 {
+            counters.actor_pitch_codes[slot].store(
+                self.pool
+                    .active_voice(slot)
+                    .map_or(u32::MAX, |v| v.renderer.primary_pitch_code() as u32),
+                Ordering::Relaxed,
+            );
+        }
+        counters
+            .unsupported_drum_notes
+            .store(self.unsupported_drum_notes, Ordering::Relaxed);
+    }
 }
 
 impl NativePlayer {
@@ -241,6 +370,49 @@ impl NativePlayer {
         modulation_tables: Option<VoiceModulationTables>,
         tempo_tables: Option<radias_synth_domain::lfo_tempo::LfoTempoTables>,
     ) -> Result<Self, String> {
+        let (mut player, generator) = Self::prepare_generator(
+            plans,
+            table,
+            tuning,
+            controller_tables,
+            voice_costs,
+            modulation_tables,
+            tempo_tables,
+        )?;
+        let device = cpal::default_host()
+            .default_output_device()
+            .ok_or("Нет аудиовыхода")?;
+        let name = device
+            .description()
+            .map(|d| d.name().to_owned())
+            .unwrap_or_else(|_| "Default audio".into());
+        let supported = device.default_output_config().map_err(|e| e.to_string())?;
+        let format = supported.sample_format();
+        let config: cpal::StreamConfig = supported.into();
+        let counters = player.counters.clone();
+        let stream = match format {
+            cpal::SampleFormat::F32 => stream::<f32>(&device, &config, generator, counters),
+            cpal::SampleFormat::F64 => stream::<f64>(&device, &config, generator, counters),
+            cpal::SampleFormat::I16 => stream::<i16>(&device, &config, generator, counters),
+            cpal::SampleFormat::I32 => stream::<i32>(&device, &config, generator, counters),
+            cpal::SampleFormat::U16 => stream::<u16>(&device, &config, generator, counters),
+            _ => return Err(format!("Unsupported audio output format: {format:?}")),
+        }?;
+        stream.play().map_err(|e| e.to_string())?;
+        player.device = name;
+        player.rate = config.sample_rate;
+        player._stream = Some(stream);
+        Ok(player)
+    }
+    fn prepare_generator(
+        plans: Vec<PreparedVoice>,
+        table: WaveformTable,
+        tuning: Option<(PitchTable, BandwidthTable)>,
+        controller_tables: Option<ControllerTables>,
+        voice_costs: Option<VoiceCostTables>,
+        modulation_tables: Option<VoiceModulationTables>,
+        tempo_tables: Option<radias_synth_domain::lfo_tempo::LfoTempoTables>,
+    ) -> Result<(Self, Generator), String> {
         if plans.is_empty() {
             return Err("Native voice programs absent".into());
         }
@@ -252,16 +424,6 @@ impl NativePlayer {
         if tempo_available && !modulation_available {
             return Err("Tempo LFO requires native modulation tables".into());
         }
-        let device = cpal::default_host()
-            .default_output_device()
-            .ok_or("Нет аудиовыхода")?;
-        let name = device
-            .description()
-            .map(|d| d.name().to_owned())
-            .unwrap_or_else(|_| "Default audio".into());
-        let supported = device.default_output_config().map_err(|e| e.to_string())?;
-        let format = supported.sample_format();
-        let config: cpal::StreamConfig = supported.into();
         // Startup queues ROM adapters and four complete timbre settings before
         // CoreAudio necessarily invokes its first callback. Keep that burst
         // intact; service still handles at most 64 commands per callback.
@@ -269,30 +431,33 @@ impl NativePlayer {
         let counters = Arc::new(Counters::default());
         counters.gain.store(0.2f32.to_bits(), Ordering::Relaxed);
         let generator = Generator {
-            synth: crate::synthesizer::Synthesizer::new(plans, table, tuning, controller_tables,
-                voice_costs, modulation_tables, tempo_tables)?, commands: rx,
+            synth: crate::synthesizer::Synthesizer::new(
+                plans,
+                table,
+                tuning,
+                controller_tables,
+                voice_costs,
+                modulation_tables,
+                tempo_tables,
+            )?,
+            commands: rx,
         };
-        let stream = match format {
-            cpal::SampleFormat::F32 => stream::<f32>(&device, &config, generator, counters.clone()),
-            cpal::SampleFormat::F64 => stream::<f64>(&device, &config, generator, counters.clone()),
-            cpal::SampleFormat::I16 => stream::<i16>(&device, &config, generator, counters.clone()),
-            cpal::SampleFormat::I32 => stream::<i32>(&device, &config, generator, counters.clone()),
-            cpal::SampleFormat::U16 => stream::<u16>(&device, &config, generator, counters.clone()),
-            _ => return Err(format!("Unsupported audio output format: {format:?}")),
-        }?;
-        stream.play().map_err(|e| e.to_string())?;
-        Ok(Self {
-            commands: tx,
-            counters,
-            device: name,
-            rate: config.sample_rate,
-            modulation_available,
-            tempo_available,
-            portamento_available: AtomicBool::new(false),
-            filter2_available: AtomicBool::new(false),
-            _stream: stream,
-        })
+        Ok((
+            Self {
+                commands: tx,
+                counters,
+                device: String::new(),
+                rate: 48_000,
+                modulation_available,
+                tempo_available,
+                portamento_available: AtomicBool::new(false),
+                filter2_available: AtomicBool::new(false),
+                _stream: None,
+            },
+            generator,
+        ))
     }
+
     pub fn start(&self) -> Result<(), String> {
         self.commands
             .try_send(Command::Start)
@@ -775,6 +940,39 @@ impl NativePlayer {
     ) -> Result<(), String> {
         self.commands
             .try_send(Command::PhysicalFrames(Box::new(seeds)))
+            .map_err(|e| e.to_string())
+    }
+    pub fn configure_controller_service(
+        &self,
+        timer: radias_synth_domain::controller_service::ControllerServiceTimer,
+    ) -> Result<(), String> {
+        self.commands
+            .try_send(Command::ControllerService(timer))
+            .map_err(|e| e.to_string())
+    }
+    pub fn configure_amplifier_delivery(
+        &self,
+        rates: radias_synth_domain::amplifier_delivery::AmplifierRateTable,
+    ) -> Result<(), String> {
+        self.commands
+            .try_send(Command::AmplifierDelivery(rates))
+            .map_err(|e| e.to_string())
+    }
+    pub fn configure_constructor_filter_mix(
+        &self,
+        table: radias_synth_domain::filter_control::FilterMixTable,
+    ) -> Result<(), String> {
+        self.commands
+            .try_send(Command::ConstructorFilterMix(Box::new(table)))
+            .map_err(|e| e.to_string())
+    }
+    pub fn configure_pitch_delivery(
+        &self,
+        rom: [radias_synth_domain::pitch_receiver::PitchReceiverRom; 2],
+        dispatch: radias_synth_domain::primary_pitch_dispatch::PrimaryPitchSendTable,
+    ) -> Result<(), String> {
+        self.commands
+            .try_send(Command::PitchDelivery(Box::new(rom), dispatch))
             .map_err(|e| e.to_string())
     }
     pub fn timbre_mixer(&self, timbre: u8, program: MixerProgram) -> Result<(), String> {

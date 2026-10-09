@@ -13,6 +13,13 @@ pub struct Filter2ControlTables {
     pub input_gain: [i16; 128],
     pub linked_serial_input_gain: [i16; 128],
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Filter2Targets {
+    pub frequency: i32,
+    pub resonance: i32,
+    pub input_gain: i16,
+    pub output: Filter2Output,
+}
 impl Filter2ControlTables {
     pub fn resonance_targets(&self, route: u8, resonance: CombResonanceControl) -> (i32, i16) {
         let index = resonance.level() as usize;
@@ -23,6 +30,28 @@ impl Filter2ControlTables {
         };
         (self.resonance[index], gain)
     }
+    pub fn targets(
+        &self,
+        route: u8,
+        cutoff: CombCutoffControl,
+        resonance: CombResonanceControl,
+        frequencies: &ControllerFilterTables,
+        amplitude: &AmplifierTables,
+    ) -> Option<Filter2Targets> {
+        let output = match (route >> 4) & 3 {
+            0 => Filter2Output::LowPass,
+            1 => Filter2Output::HighPass,
+            2 => Filter2Output::BandPass,
+            _ => return None,
+        };
+        let (resonance, input_gain) = self.resonance_targets(route, resonance);
+        Some(Filter2Targets {
+            frequency: frequencies.frequency(cutoff.code(amplitude)) as i32,
+            resonance,
+            input_gain,
+            output,
+        })
+    }
     pub fn coefficients(
         &self,
         route: u8,
@@ -32,23 +61,13 @@ impl Filter2ControlTables {
         amplitude: &AmplifierTables,
         normalization: i32,
     ) -> Option<Filter2Coefficients> {
-        let output = match (route >> 4) & 3 {
-            0 => Filter2Output::LowPass,
-            1 => Filter2Output::HighPass,
-            2 => Filter2Output::BandPass,
-            _ => return None,
-        };
-        let (resonance, input_gain) = self.resonance_targets(route, resonance);
-        let c = filter_control::compile(
-            frequencies.frequency(cutoff.code(amplitude)) as i32,
-            resonance,
-            normalization,
-        );
+        let target = self.targets(route, cutoff, resonance, frequencies, amplitude)?;
+        let c = filter_control::compile(target.frequency, target.resonance, normalization);
         Some(Filter2Coefficients {
-            input_gain,
+            input_gain: target.input_gain,
             feedback: c.feedback,
             integrator_gain: c.integrator_gain,
-            output,
+            output: target.output,
         })
     }
 }

@@ -5,7 +5,7 @@ fn word(raw: &[u8], i: usize) -> u32 {
     u32::from_le_bytes(raw[i * 4..i * 4 + 4].try_into().unwrap())
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let root = PathBuf::from(std::env::args().nth(1).unwrap_or(".".into()));
+    let root = PathBuf::from(std::env::args().nth(1).unwrap_or("..".into()));
     let raw = fs::read(root.join("runs/native-clone/original-envelopes.bin"))?;
     let mut eg_errors = 0;
     for (i, r) in raw.chunks_exact(16).enumerate() {

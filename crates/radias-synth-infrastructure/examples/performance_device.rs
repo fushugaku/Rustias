@@ -70,9 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             memory: tables.word(0x4027)? as i16,
         },
     )?;
-    let map = ControlMap::from_json(&fs::read(
-        root.join("assets/native-va/filter-controls.json"),
-    )?)?;
+    let map = ControlMap::from_system(&sys)?;
     let mix = tables.filter_mix()?;
     let mut raw = fs::read(out.join("stored-four-timbres.program.bin"))?;
     for i in 0..4 {

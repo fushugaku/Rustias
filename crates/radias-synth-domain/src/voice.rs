@@ -13,6 +13,18 @@ use crate::{
     waveshaper::{ShaperParameters, ShaperPosition, ShaperSignal, Waveshaper},
 };
 
+/// Optional host routing. Native voices keep the recovered fixed graph by default.
+#[cfg(feature = "web-modular")]
+pub trait SignalProcessor: Send {
+    fn process(
+        &mut self,
+        sources: [Sample; 3],
+        parameters: VoiceParameters,
+        level: i16,
+        table: &WaveformTable,
+    ) -> Sample;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VoiceParameters {
     pub primary: PrimaryParameters,
@@ -86,6 +98,25 @@ impl Voice {
         comb: Option<&mut crate::comb::Comb>,
         inputs: VoiceFrameInputs,
     ) -> VoiceOutput {
+        self.next_sample_routed(
+            table,
+            p,
+            existing,
+            comb,
+            inputs,
+            #[cfg(feature = "web-modular")]
+            None,
+        )
+    }
+    pub fn next_sample_routed(
+        &mut self,
+        table: &WaveformTable,
+        p: VoiceParameters,
+        existing: StereoFrame,
+        comb: Option<&mut crate::comb::Comb>,
+        inputs: VoiceFrameInputs,
+        #[cfg(feature = "web-modular")] processor: Option<&mut dyn SignalProcessor>,
+    ) -> VoiceOutput {
         let primary = self.primary.next_with_modulator_and_bias(
             table,
             p.primary,
@@ -113,6 +144,23 @@ impl Voice {
         );
         self.previous_secondary = secondary;
         let noise = self.mixer_noise.next_word(inputs.excitation_bias);
+        #[cfg(feature = "web-modular")]
+        if let Some(processor) = processor {
+            let level = self.envelope.step(p.envelope_target, p.envelope_rate);
+            let amplified = processor.process(
+                [primary, secondary, Sample((noise as i32) << 16)],
+                p,
+                level,
+                table,
+            );
+            return VoiceOutput {
+                mixed: primary,
+                filtered: amplified,
+                level,
+                amplified,
+                stereo: pan::route(amplified, p.pan_position, existing),
+            };
+        }
         let mixed = if p
             .routing
             .is_some_and(|r| r.route == crate::filter_routing::FilterRouting::Individual)

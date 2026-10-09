@@ -1,7 +1,7 @@
 use radias_synth_infrastructure::prepared::PreparedVoice;
 use std::{fs, path::PathBuf};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let root = PathBuf::from(std::env::args().nth(1).unwrap_or(".".into()));
+    let root = PathBuf::from(std::env::args().nth(1).unwrap_or("..".into()));
     let output = root.join("assets/native-va");
     fs::create_dir_all(&output)?;
     for (label, name, extended) in [

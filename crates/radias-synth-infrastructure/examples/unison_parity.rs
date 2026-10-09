@@ -5,7 +5,7 @@ use radias_synth_domain::{
 };
 use std::{fs, path::PathBuf};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let root = PathBuf::from(std::env::args().nth(1).unwrap_or(".".into()));
+    let root = PathBuf::from(std::env::args().nth(1).unwrap_or("..".into()));
     let raw = fs::read(root.join("runs/native-clone/original-unison.bin"))?;
     if raw.len() != 32768 * 180 {
         return Err("Incomplete original Unison corpus".into());

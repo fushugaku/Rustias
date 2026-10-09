@@ -71,6 +71,7 @@ pub fn read_position(delay_q16: u32, write_cursor_bytes: u16, group_phase: u8) -
 pub const COMB_DELAY_SAMPLES: usize = 4096;
 
 /// Per-voice16-bit external delay line and the original four-sample staging.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CombDelay {
     pub samples: [i16; COMB_DELAY_SAMPLES],
     pub pending: [i16; 4],
@@ -114,6 +115,7 @@ impl CombDelay {
         }
     }
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Comb {
     pub feedback: CombFeedback,
     pub delay: CombDelay,

@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         thread,
         time::{Duration, Instant},
     };
-    let root = PathBuf::from(std::env::args().nth(1).unwrap_or(".".into()));
+    let root = PathBuf::from(std::env::args().nth(1).unwrap_or("..".into()));
     let raw = fs::read(root.join("runs/native-clone/native-voice-voice-inputs.bin"))?;
     let plan = PreparedVoice::from_reference_parameters(&raw)?;
     let source = fs::read(root.join("firmware/dsp-master-host-stream.bin"))?;

@@ -143,6 +143,41 @@ pub extern "C" fn rustias_midi(status: u32, first: u32, second: u32) {
         }
     });
 }
+
+/// Install one validated modular program; the staging buffer also accepts UTF-8 JSON.
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_circuit(timbre: u32, length: u32) -> u32 {
+    if timbre >= 4 || length as usize > PRESET_CAPACITY {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        let mut state = state.borrow_mut();
+        let Some(e) = state.as_mut() else {
+            return 0;
+        };
+        let Ok(circuit) = serde_json::from_slice::<radias_synth_infrastructure::circuit::Circuit>(
+            &e.preset[..length as usize],
+        ) else {
+            return 0;
+        };
+        let Ok(processor) = radias_synth_infrastructure::circuit::CircuitVoice::compile(
+            &circuit,
+            &e.synth,
+            &e.synth.settings[timbre as usize],
+        ) else {
+            return 0;
+        };
+        use radias_synth_application::VoiceCircuit;
+        e.sampler
+            .set_circuit(timbre as usize, processor.as_ref().map(|p| p.fresh()));
+        e.synth.engine.set_circuit(
+            timbre as usize,
+            processor.map(|p| Box::new(p) as Box<dyn VoiceCircuit>),
+        );
+        1
+    })
+}
+
 /// Shared input/output buffer for complete JSON programs. No external data is loaded.
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_preset_buffer() -> *mut u8 {

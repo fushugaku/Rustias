@@ -1,6 +1,9 @@
 //! Full dry native voice; one actor seed and original controls/input clocks.
 use radias_synth_application::VoiceRenderer;
 use radias_synth_application::noise::{NoiseTables, NoiseTarget};
+use radias_synth_application::synthesis_transport::{
+    DeliveredSynthesisParameter, ScalarParameter, SynthesisParameterTransport,
+};
 use radias_synth_domain::{
     Sample,
     controller_noise::{NoiseControl, formant_control1, noise_control1},
@@ -17,6 +20,7 @@ fn w(row: &[u8], n: usize) -> u32 {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let root = PathBuf::from(args.next().ok_or("Repository required")?);
+    let queued_controls = std::env::args().any(|arg| arg == "--queued-controls");
     let out = root.join("runs/native-clone");
     let image = fs::read(root.join("firmware/dsp-master-host-stream.bin"))?;
     let master = MasterTables::from_host_stream(&image)?;
@@ -44,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .as_u64()
             .ok_or("Original accepted boot input603 absent")? as i16,
     );
-    for name in args {
+    for name in args.filter(|arg| arg != "--queued-controls") {
         let raw = fs::read(out.join(format!("{name}-voice-va-inputs.bin")))?;
         let noise = fs::read(out.join(format!("{name}-noise-frame-inputs.bin")))?;
         let plan = PreparedVoice::from_reference_va_parameters(&raw)?;
@@ -62,6 +66,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             filter: Default::default(),
         };
         let mut renderer = VoiceRenderer::new(initial, plan.parameters);
+        let mut transport = SynthesisParameterTransport::default();
+        let mut sender_origin = 0u64;
+        let mut delivered_controls = 0usize;
         let mut native_controls = false;
         let commit_path = out.join(format!("{name}-noise-control-commits.jsonl"));
         let commits: Vec<serde_json::Value> = if commit_path.exists() {
@@ -197,10 +204,68 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if commit["expected_target"].as_u64() != Some(value as u64) {
                     return Err(format!("{name} native Noise target differs at frame{frame} address{address:x}: {value} vs {}",commit["expected_target"]).into());
                 }
-                renderer
-                    .noise_control_mut()
-                    .ok_or("Native Noise control missing")?
-                    .update(command);
+                if queued_controls {
+                    // Original audio delivery frames are declared inputs to
+                    // this controlled gate. Sender calls run to completion on
+                    // their own clock; independent whole-job timing is open.
+                    let long = match command {
+                        NoiseTarget::ExcitationGain(v) => {
+                            transport
+                                .noise_gain(sender_origin, 0, v)
+                                .map_err(|e| format!("Noise sender failed: {e:?}"))?;
+                            false
+                        }
+                        NoiseTarget::ExcitationBias(v) => {
+                            transport
+                                .noise_frequency(sender_origin, 0, v)
+                                .map_err(|e| format!("Noise sender failed: {e:?}"))?;
+                            false
+                        }
+                        NoiseTarget::FormantShape { .. } => {
+                            transport
+                                .noise_shape(sender_origin, 0, value)
+                                .map_err(|e| format!("Noise sender failed: {e:?}"))?;
+                            true
+                        }
+                    };
+                    let mut delivered = None;
+                    transport.advance_until(
+                        sender_origin + if long { 117 } else { 106 },
+                        |_, slot, event| {
+                            assert_eq!(slot, 0);
+                            let target = match event {
+                                DeliveredSynthesisParameter::Scalar(
+                                    ScalarParameter::NoiseGain,
+                                    v,
+                                ) => NoiseTarget::ExcitationGain(v),
+                                DeliveredSynthesisParameter::Scalar(
+                                    ScalarParameter::NoiseFrequency,
+                                    v,
+                                ) => NoiseTarget::ExcitationBias(v),
+                                DeliveredSynthesisParameter::NoiseShape {
+                                    input_gain,
+                                    feedback,
+                                } => NoiseTarget::FormantShape {
+                                    input_gain,
+                                    feedback,
+                                },
+                                _ => panic!("Unexpected Noise receiver publication"),
+                            };
+                            delivered = Some(target);
+                            renderer.set_noise_target(target, false);
+                            delivered_controls += 1;
+                        },
+                    );
+                    if delivered != Some(command) || transport.pending() != 0 {
+                        return Err("Queued Noise target changed across receiver delivery".into());
+                    }
+                    sender_origin += if long { 117 } else { 106 };
+                } else {
+                    renderer
+                        .noise_control_mut()
+                        .ok_or("Native Noise control missing")?
+                        .update(command);
+                }
                 let target_index = match address {
                     0x2006 => 0,
                     0x2008 => 1,
@@ -258,14 +323,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Sample(0),
             ]);
         }
-        wav::write_buses(
-            &out.join(format!("{name}-rust-native-noise-mix.wav")),
-            &frames,
-        )?;
+        let audio_suffix = if queued_controls {
+            "rust-queued-noise-mix"
+        } else {
+            "rust-native-noise-mix"
+        };
+        wav::write_buses(&out.join(format!("{name}-{audio_suffix}.wav")), &frames)?;
         let passed = errors == [0; 3];
-        let report = serde_json::json!({"passed":passed,"name":name,"frames":plan.reference_voice_frames,"errors":errors,"native_noise_formant_and_mixer_noise_used":true,"first_mixer_actor_state_used":false,"accepted_original_boot_input_words_used":true,"primary_secondary_phases_and_mixer_state_generated_from_boot_inputs":true,"other_initial_actor_states_used":true,"original_mixer_noise_values_replayed":false,"original_input_biases_and_other_compiled_controls_and_event_times_used":true,"recorded_audio_used_to_render":false,"native_noise_controller_compilation_used":native_controls,"noise_controls_taken_from_program":native_controls,"computed_controller_target_updates":controller_updates,"changed_controller_targets":changed_targets,"computed_pitch_updates":pitch_updates,"declared_dsp_pitch_code_inputs_used":native_controls,"moving_noise_controls_qualified":changed_targets>0,"native_controller_compilation_qualified":false,"complete_native_engine":false});
+        let report = serde_json::json!({"passed":passed,"name":name,"frames":plan.reference_voice_frames,"errors":errors,"native_noise_formant_and_mixer_noise_used":true,"first_mixer_actor_state_used":false,"accepted_original_boot_input_words_used":true,"primary_secondary_phases_and_mixer_state_generated_from_boot_inputs":true,"other_initial_actor_states_used":true,"original_mixer_noise_values_replayed":false,"original_input_biases_and_other_compiled_controls_and_event_times_used":true,"recorded_audio_used_to_render":false,"native_noise_controller_compilation_used":native_controls,"noise_controls_taken_from_program":native_controls,"computed_controller_target_updates":controller_updates,"changed_controller_targets":changed_targets,"computed_pitch_updates":pitch_updates,"declared_dsp_pitch_code_inputs_used":native_controls,"moving_noise_controls_qualified":changed_targets>0,"native_controller_compilation_qualified":false,"production_sender_and_memory_receiver_used":queued_controls,"delivered_native_control_packets":delivered_controls,"source_delivery_frames_and_sequential_sender_origins_are_declared_inputs":queued_controls,"independent_whole_controller_receiver_job_timing_qualified":false,"complete_native_engine":false});
+        let report_suffix = if queued_controls {
+            "noise-delivery-parity"
+        } else {
+            "noise-voice-parity"
+        };
         fs::write(
-            out.join(format!("{name}-noise-voice-parity.json")),
+            out.join(format!("{name}-{report_suffix}.json")),
             serde_json::to_vec_pretty(&report)?,
         )?;
         println!("{report}");

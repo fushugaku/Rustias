@@ -33,15 +33,23 @@ impl UnisonDetuneTable {
         if detune > 32767 {
             return None;
         }
+        Some(self.compile_signed(increment, detune as i16))
+    }
+
+    /// The receiver consumes a signed raw word, independently of the public
+    /// detune control's nonnegative range. Preserve ABS((word<<16)|1) before
+    /// extracting the center gain, including negative multiples of32.
+    pub fn compile_signed(&self, increment: PhaseIncrement, detune: i16) -> UnisonPitch {
         let positive = self.interpolate(i64::from(detune) << 11);
-        let negative = self.interpolate(high_product(detune as i16, 0x8290u16 as i16) >> 5);
+        let negative = self.interpolate(high_product(detune, 0x8290u16 as i16) >> 5);
         let positive = multiply_q15(increment.0 as i32, positive) << 2;
         let negative = multiply_q15(increment.0 as i32, negative) << 2;
-        let center_gain = 0x4000 + (detune >> 5);
-        let center = multiply_q15(increment.0 as i32, center_gain as i16) << 1;
+        let center_gain =
+            ((0x4000_0000_i64 + (((i64::from(detune) << 16) | 1).abs() >> 5)) >> 16) as i16;
+        let center = multiply_q15(increment.0 as i32, center_gain) << 1;
         // The saturated memory stores do not narrow the original accumulator
         // inputs to the following averages. Keep those guard bits until storing.
-        Some(UnisonPitch {
+        UnisonPitch {
             increments: [
                 increment,
                 PhaseIncrement(saturate(positive) as u32),
@@ -50,7 +58,7 @@ impl UnisonDetuneTable {
                 PhaseIncrement(saturate((negative + center) >> 1) as u32),
             ],
             averaging_center: PhaseIncrement(saturate(center) as u32),
-        })
+        }
     }
 }
 
@@ -72,10 +80,14 @@ pub fn unison_phases(control2_code: u16, triangle: bool) -> Option<[crate::Phase
     if control2_code > 32767 {
         return None;
     }
-    let product = high_product(control2_code as i16, 0x6666) as i32;
+    Some(unison_phases_signed(control2_code as i16, triangle))
+}
+
+/// Raw parameter packets carry a signed word. Keep the public control's range
+/// check separate from the firmware receiver's wrapping phase arithmetic.
+pub fn unison_phases_signed(control2_code: i16, triangle: bool) -> [crate::Phase; 5] {
+    let product = high_product(control2_code, 0x6666) as i32;
     let bias: u32 = if triangle { 0xc000_0000 } else { 0 };
-    Some(
-        [0, -product, (-product) >> 1, product, product >> 1]
-            .map(|offset| crate::Phase(bias.wrapping_add(offset as u32))),
-    )
+    [0, -product, (-product) >> 1, product, product >> 1]
+        .map(|offset| crate::Phase(bias.wrapping_add(offset as u32)))
 }

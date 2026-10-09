@@ -74,9 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             memory: tables.word(0x4027)? as i16,
         },
     )?;
-    let map = ControlMap::from_json(&fs::read(
-        root.join("assets/native-va/filter-controls.json"),
-    )?)?;
+    let map = ControlMap::from_system(&sys)?;
     let mix = tables.filter_mix()?;
     let mut raw = fs::read(out.join("drum-common-center.program.bin"))?;
     raw[64 + 0x10] = 0; // Source drum allocation bypasses the owning ordinary Mono mode.
@@ -145,6 +143,102 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cases.push(serde_json::json!({"note":note,"velocity":velocity,"held":held,"peak":status.output_peak,
             "actor_pitch_codes":player.actor_pitch_codes()}));
     }
+    // Every direct pad addresses its own body and releases its retained key.
+    // Two bodies deliberately share a MIDI trigger key in this fixture.
+    let mut pad_cases = Vec::new();
+    for instrument in 0..16u8 {
+        load(&raw, &kit)?;
+        player.drum_pad(instrument, 100)?;
+        thread::sleep(Duration::from_millis(90));
+        let status = player.status();
+        let pitch = u32::from(60 + instrument) * 256;
+        if status.held_voices != 1
+            || status.output_peak <= 0.0
+            || !player.actor_pitch_codes().contains(&pitch)
+        {
+            return Err(
+                format!("Direct pad{instrument} did not sound its independent body").into(),
+            );
+        }
+        player.drum_pad(instrument, 0)?;
+        thread::sleep(Duration::from_millis(90));
+        if player.status().held_voices != 0 {
+            return Err(format!("Direct pad{instrument} lost its note-off").into());
+        }
+        pad_cases.push(
+            serde_json::json!({"instrument":instrument,"held_on":1,"held_off":0,
+            "pitch_code":pitch,"peak":status.output_peak}),
+        );
+    }
+    // Direct pads address one body, even when two instruments share its key.
+    load(&raw, &kit)?;
+    player.drum_pad(8, 100)?;
+    thread::sleep(Duration::from_millis(90));
+    if player.status().held_voices != 1 {
+        return Err("Direct pad dispatched duplicate trigger keys".into());
+    }
+    player.drum_pad(8, 0)?;
+    thread::sleep(Duration::from_millis(90));
+    if player.status().held_voices != 0 {
+        return Err("Direct pad did not release retained key".into());
+    }
+    load(&raw, &kit)?;
+    player.drum_pad(0, 100)?;
+    player.drum_pad(2, 100)?;
+    thread::sleep(Duration::from_millis(100));
+    if player.status().held_voices != 2 {
+        return Err("Direct pads did not allocate independently".into());
+    }
+    let edit = |index: u8, body: &[u8; 104]| -> Result<(), Box<dyn std::error::Error>> {
+        let program = Program::from_bytes(&raw).unwrap();
+        let mut changed = radias_synth_domain::drum::DrumKit::from_bytes(&kit).unwrap();
+        changed.replace_instrument(index as usize, body).unwrap();
+        let compiled = radias_synth_infrastructure::stored_program::compile_drum_kit(
+            &program, changed, &map, &mix, base,
+        )?;
+        player.edit_drum_instrument(index, compiled.instruments[index as usize])?;
+        thread::sleep(Duration::from_millis(100));
+        Ok(())
+    };
+    let mut body0: [u8; 104] = kit[52..156].try_into().unwrap();
+    body0[0x2d] = 0;
+    edit(0, &body0)?;
+    if player.status().held_voices != 2 || player.status().output_peak <= 0.0 {
+        return Err("Instrument edit restarted voices or muted unrelated body".into());
+    }
+    let mut body2: [u8; 104] = kit[52 + 208..156 + 208].try_into().unwrap();
+    body2[0x2d] = 0;
+    edit(2, &body2)?;
+    if player.status().output_peak != 0.0 || player.status().held_voices != 2 {
+        return Err("Two body level edits did not mute held voices".into());
+    }
+    body0[0x2d] = 100;
+    body0[0x13] = 76;
+    body0[0x31] = 0;
+    edit(0, &body0)?;
+    if !player.actor_pitch_codes().contains(&(72 * 256))
+        || !player.actor_pitch_codes().contains(&(62 * 256))
+        || player.status().held_voices != 2
+        || player.status().output_peak <= 0.0
+    {
+        return Err("Selected body pitch/gain edit affected another instrument".into());
+    }
+    player.drum_pad(0, 0)?;
+    player.drum_pad(2, 0)?;
+    thread::sleep(Duration::from_millis(100));
+    if player.status().held_voices != 0 {
+        return Err("Body edit lost direct-pad release identity".into());
+    }
+    load(&raw, &kit)?;
+    player.drum_pad(0, 100)?;
+    input.midi(&[0x90, 37, 100])?;
+    thread::sleep(Duration::from_millis(100));
+    if player.status().held_voices != 2 {
+        return Err("Pad and external MIDI tags were incorrectly merged".into());
+    }
+    player.drum_pad(0, 0)?;
+    input.midi(&[0x90, 37, 0])?;
+    thread::sleep(Duration::from_millis(100));
     // Independent body pitch uses60+instrument transpose, not the trigger key.
     load(&raw, &kit)?;
     input.midi(&[0x90, 40, 100])?;
@@ -184,7 +278,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let passed = status.deadline_misses == 0 && status.audible_frames > 0;
     let report = serde_json::json!({"passed":passed,"device":status.device,"sample_rate":status.sample_rate,
         "deadline_misses":status.deadline_misses,"worst_callback_ms":status.worst_render_ns as f64/1e6,"audible_frames":status.audible_frames,
-        "cases":cases,"exclusive_choke_and_repeated_oldest_release_and_duplicate_key_qualified":true,
+        "cases":cases,"pad_cases":pad_cases,"all16_direct_pad_bodies_audible_and_released":true,
+        "direct_pad_retained_release_and_duplicate_key_isolation":true,"live_body_edits_preserve_held_voices_and_other_instruments":true,"pad_and_external_MIDI_tags_remain_distinct":true,"exclusive_choke_and_repeated_oldest_release_and_duplicate_key_qualified":true,
         "owning_Mono_mode_does_not_limit_drum_allocation":true,"instrument_pitch_and_trigger_transpose_separate":true,
         "unsupported_PCM_no_VA_substitution":true,"original_complete_audio_parity_qualified":false,"complete_native_engine":false});
     fs::write(

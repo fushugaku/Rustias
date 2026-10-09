@@ -73,11 +73,33 @@ impl ActiveVoice {
 }
 
 pub struct PolyphonicRenderer {
+    #[cfg(feature = "web-modular")]
+    circuits: [Option<alloc::boxed::Box<dyn crate::VoiceCircuit>>; 4],
     pub allocator: VoiceAllocator,
     voices: [Option<ActiveVoice>; VOICE_COUNT],
     physical_frames: [Option<radias_synth_domain::voice_frame::VoiceFrameState>; VOICE_COUNT],
     link: ProcessorLink,
     modulation_frame: u64,
+    controller_timer: Option<radias_synth_domain::controller_service::ControllerServiceTimer>,
+    controller_interrupts: u64,
+    controller_flags: [u8; VOICE_COUNT],
+    amplifier_rates: Option<radias_synth_domain::amplifier_delivery::AmplifierRateTable>,
+    amplifier_deliveries: [radias_synth_domain::amplifier_delivery::AmplifierDelivery; VOICE_COUNT],
+    amplifier_transport: crate::synthesis_transport::SynthesisParameterTransport,
+    amplifier_transport_failed: bool,
+    amplifier_fresh: [bool; VOICE_COUNT],
+    amplifier_soft_binding: [bool; VOICE_COUNT],
+    amplifier_targets: [Option<i16>; VOICE_COUNT],
+    amplifier_bound: [bool; VOICE_COUNT],
+    filter_delivery_targets: [Option<(i32, i32)>; VOICE_COUNT],
+    filter2_delivery_resonance: [Option<(i32, i16)>; VOICE_COUNT],
+    comb_feedback_delivery_targets: [Option<u32>; VOICE_COUNT],
+    controller_pitch_codes: [u16; VOICE_COUNT],
+    initial_controller_serviced: [bool; VOICE_COUNT],
+    secondary_sync_targets: [Option<bool>; VOICE_COUNT],
+    mixer_delivery_targets: [Option<[i16; 3]>; VOICE_COUNT],
+    pan_delivery_targets: [Option<i16>; VOICE_COUNT],
+    ratio_delivery_targets: [Option<i16>; VOICE_COUNT],
     pub modulation_random: u16,
     shared_lfo: [SharedTimbreLfo; TIMBRE_COUNT],
     effect_lfo_parameters: [[EffectLfoParameters; 2]; TIMBRE_COUNT],
@@ -134,8 +156,31 @@ impl Default for PolyphonicRenderer {
             allocator: VoiceAllocator::default(),
             voices: core::array::from_fn(|_| None),
             physical_frames: [None; VOICE_COUNT],
+            #[cfg(feature = "web-modular")]
+            circuits: core::array::from_fn(|_| None),
             link: ProcessorLink::default(),
             modulation_frame: 0,
+            controller_timer: None,
+            controller_interrupts: 0,
+            controller_flags: [0; VOICE_COUNT],
+            amplifier_rates: None,
+            amplifier_deliveries:
+                [radias_synth_domain::amplifier_delivery::AmplifierDelivery::default(); VOICE_COUNT],
+            amplifier_transport: Default::default(),
+            amplifier_transport_failed: false,
+            amplifier_fresh: [false; VOICE_COUNT],
+            amplifier_soft_binding: [false; VOICE_COUNT],
+            amplifier_targets: [None; VOICE_COUNT],
+            amplifier_bound: [true; VOICE_COUNT],
+            filter_delivery_targets: [None; VOICE_COUNT],
+            filter2_delivery_resonance: [None; VOICE_COUNT],
+            comb_feedback_delivery_targets: [None; VOICE_COUNT],
+            controller_pitch_codes: [0; VOICE_COUNT],
+            initial_controller_serviced: [false; VOICE_COUNT],
+            secondary_sync_targets: [None; VOICE_COUNT],
+            mixer_delivery_targets: [None; VOICE_COUNT],
+            pan_delivery_targets: [None; VOICE_COUNT],
+            ratio_delivery_targets: [None; VOICE_COUNT],
             modulation_random: 0xace1,
             shared_lfo: core::array::from_fn(|_| SharedTimbreLfo::default()),
             effect_lfo_parameters: [[Default::default(); 2]; TIMBRE_COUNT],
@@ -248,9 +293,11 @@ impl PolyphonicRenderer {
                         .modulation
                         .as_ref()
                         .map_or(0, |m| m.patches.targets.controls[10]);
-                    voice
-                        .renderer
-                        .set_pan_target(pan_tables.compile(composed.target()) as i16);
+                    if !self.amplifier_transport.pitch_enabled() {
+                        voice
+                            .renderer
+                            .set_pan_target(pan_tables.compile(composed.target()) as i16);
+                    }
                 }
             }
         }
@@ -307,6 +354,14 @@ impl PolyphonicRenderer {
                                 &mut self.modulation_random,
                             )
                             .map(|note| crate::note_pitch::VoiceNotePitch { note });
+                        if let Some(pitch) = self.note_pitches[slot] {
+                            if let Some(amp) = &mut voice.amplifier {
+                                amp.retarget(pitch.note.wrapped, voice.velocity);
+                            }
+                            if let Some(aux) = &mut voice.auxiliary {
+                                aux.retarget(pitch.note.wrapped, voice.velocity);
+                            }
+                        }
                     }
                     if let (Some(pitch), Some(modulation)) =
                         (self.note_pitches[slot], &mut voice.modulation)
@@ -320,21 +375,20 @@ impl PolyphonicRenderer {
                     }
                 }
             }
-            if before.envelope[1] != c.envelope[1]
+            if (before.envelope[1] != c.envelope[1]
                 || before.amplifier_level != c.amplifier_level
-                || before.amplifier_key_tracking != c.amplifier_key_tracking
+                || before.amplifier_key_tracking != c.amplifier_key_tracking)
+                && let Some(amp) = &mut voice.amplifier
             {
-                if let Some(amp) = &mut voice.amplifier {
-                    let current = amp.control();
-                    amp.edit_program(
-                        c.amplifier(
-                            current.source_gain,
-                            current.midi_volume,
-                            current.program_volume,
-                        ),
-                        tables,
-                    );
-                }
+                let current = amp.control();
+                amp.edit_program(
+                    c.amplifier(
+                        current.source_gain,
+                        current.midi_volume,
+                        current.program_volume,
+                    ),
+                    tables,
+                );
             }
             if let Some(auxiliary) = &mut voice.auxiliary {
                 if before.envelope[0] != c.envelope[0] || before.envelope[2] != c.envelope[2] {
@@ -342,9 +396,10 @@ impl PolyphonicRenderer {
                 }
                 auxiliary.filter = Some(graph.dynamic_filter);
             }
-            if before.cutoff[0] != c.cutoff[0]
+            if (before.cutoff[0] != c.cutoff[0]
                 || before.resonance[0] != c.resonance[0]
-                || before.filter_type != c.filter_type
+                || before.filter_type != c.filter_type)
+                && self.amplifier_rates.is_none()
             {
                 voice.renderer.set_filter(graph.filter);
             }
@@ -610,9 +665,11 @@ impl PolyphonicRenderer {
                     .modulation
                     .as_ref()
                     .map_or(0, |m| m.patches.targets.controls[10]);
-                actor
-                    .renderer
-                    .set_pan_target(tables.compile(pan.target()) as i16);
+                if !self.amplifier_transport.pitch_enabled() {
+                    actor
+                        .renderer
+                        .set_pan_target(tables.compile(pan.target()) as i16);
+                }
             }
         }
     }
@@ -740,6 +797,7 @@ impl PolyphonicRenderer {
             return;
         };
         voice.held = false;
+        self.controller_flags[slot] = 0x81;
         if let (Some(amplifier), Some(tables)) = (&mut voice.amplifier, tables) {
             amplifier.release(tables);
         } else {
@@ -1089,6 +1147,120 @@ impl PolyphonicRenderer {
             )
         });
     }
+    /// Production scheduling uses the original shared TMU0 cadence. The
+    /// legacy explicitly timed coefficient fixtures keep their own clock.
+    pub fn configure_controller_service(
+        &mut self,
+        timer: radias_synth_domain::controller_service::ControllerServiceTimer,
+    ) {
+        self.controller_timer = Some(timer);
+        self.controller_interrupts = 0;
+        for (slot, voice) in self.voices.iter().enumerate() {
+            self.controller_flags[slot] = if voice.is_some() { 0x80 } else { 0 };
+        }
+    }
+    pub fn configure_amplifier_delivery(
+        &mut self,
+        rates: radias_synth_domain::amplifier_delivery::AmplifierRateTable,
+    ) {
+        self.amplifier_rates = Some(rates);
+    }
+    pub fn amplifier_delivery_state(&self) -> (usize, bool) {
+        (
+            self.amplifier_transport.pending(),
+            self.amplifier_transport_failed,
+        )
+    }
+    fn deliver_amplifier(&mut self, clock: u64) {
+        let voices = &mut self.voices;
+        let bound = &mut self.amplifier_bound;
+        let soft_binding = &self.amplifier_soft_binding;
+        self.amplifier_transport
+            .advance_until(clock, |_, slot, packet| {
+                let Some(voice) = &mut voices[slot] else {
+                    return;
+                };
+                match packet {
+                    crate::synthesis_transport::DeliveredSynthesisParameter::ActorState{opcode,active}=>{
+                        // Full constructor composition is not enabled yet. Its
+                        // explicit activation/detach flag publication is kept
+                        // separate from ordinary AMP target delivery.
+                        if opcode==0 || opcode==38 {bound[slot]=active;}
+                    },
+                    crate::synthesis_transport::DeliveredSynthesisParameter::Amplifier(packet)=>match packet {
+                    radias_synth_domain::amplifier_delivery::AmplifierPacket::RateAndTarget {
+                        rate,
+                        target,
+                    } => {
+                        voice.renderer.set_envelope_rate(rate as i16);
+                        voice.renderer.set_envelope_target(target);
+                        bound[slot] = true;
+                    }
+                    radias_synth_domain::amplifier_delivery::AmplifierPacket::Target(target) => {
+                        voice.renderer.set_envelope_target(target)
+                    }
+                    },
+                    crate::synthesis_transport::DeliveredSynthesisParameter::Filter1(coefficients)=>{
+                        if voice.renderer.rendered_frames()==0 {voice.renderer.set_filter_immediate(coefficients);}
+                        else {voice.renderer.set_filter(coefficients);}
+                    }
+                    crate::synthesis_transport::DeliveredSynthesisParameter::Filter2(coefficients)=>{
+                        if !soft_binding[slot] && voice.renderer.rendered_frames()==0 {voice.renderer.set_filter2_immediate(coefficients);}
+                        else {voice.renderer.set_filter2_target(coefficients);}
+                    }
+                    crate::synthesis_transport::DeliveredSynthesisParameter::Pitch{primary,secondary,noise_pitch}=>{
+                        if let Some((code,increment,bandwidth))=primary {
+                            voice.renderer.set_primary_pitch_code(radias_synth_domain::pitch::PitchCode::new(code).expect("Native controller pitch range"));
+                            voice.renderer.set_pitch(increment,bandwidth);
+                            if let(Some(coefficient),Some(control))=(noise_pitch,voice.renderer.noise_control_mut()){control.receive_pitch(increment,coefficient);}
+                        }
+                        voice.renderer.set_secondary_coefficients(secondary);
+                    }
+                    crate::synthesis_transport::DeliveredSynthesisParameter::UnisonDetune(value)=>voice.renderer.set_primary_waveform_control(value),
+                    crate::synthesis_transport::DeliveredSynthesisParameter::SecondarySync(value)=>voice.renderer.set_secondary_sync(value),
+                    crate::synthesis_transport::DeliveredSynthesisParameter::NoiseShape{input_gain,feedback}=>voice.renderer.set_noise_target(
+                        crate::noise::NoiseTarget::FormantShape{input_gain,feedback},false),
+                    crate::synthesis_transport::DeliveredSynthesisParameter::PrimaryInitialization{parameters,..}=>voice.renderer.receive_primary_parameters(parameters),
+                    crate::synthesis_transport::DeliveredSynthesisParameter::Scalar(parameter,value)=>match parameter {
+                        crate::synthesis_transport::ScalarParameter::Mixer(band)=>voice.renderer.set_mixer_band(band,value),
+                        crate::synthesis_transport::ScalarParameter::PrimaryControl=>voice.renderer.set_primary_waveform_control(value),
+                        crate::synthesis_transport::ScalarParameter::PrimaryRatio=>voice.renderer.set_primary_ratio(value),
+                        crate::synthesis_transport::ScalarParameter::Pan=>voice.renderer.set_pan_target(value),
+                        crate::synthesis_transport::ScalarParameter::ShaperDepth=>voice.renderer.set_shaper_depth(value),
+                        crate::synthesis_transport::ScalarParameter::NoiseGain=>voice.renderer.set_noise_target(
+                            crate::noise::NoiseTarget::ExcitationGain(value),
+                            !soft_binding[slot] && voice.renderer.rendered_frames()==0),
+                        crate::synthesis_transport::ScalarParameter::NoiseFrequency=>voice.renderer.set_noise_target(
+                            crate::noise::NoiseTarget::ExcitationBias(value),
+                            !soft_binding[slot] && voice.renderer.rendered_frames()==0),
+                    },
+                }
+            });
+    }
+    pub fn configure_constructor_filter_mix(
+        &mut self,
+        table: radias_synth_domain::filter_control::FilterMixTable,
+    ) {
+        self.amplifier_transport
+            .configure_constructor_filter_mix(table);
+    }
+    pub fn configure_pitch_delivery(
+        &mut self,
+        rom: [radias_synth_domain::pitch_receiver::PitchReceiverRom; 2],
+        dispatch: radias_synth_domain::primary_pitch_dispatch::PrimaryPitchSendTable,
+    ) {
+        self.amplifier_transport
+            .configure_pitch_receivers(rom, dispatch);
+    }
+    pub fn controller_service_state(
+        &self,
+    ) -> Option<(
+        radias_synth_domain::controller_service::ControllerServiceTimer,
+        u64,
+    )> {
+        self.controller_timer
+            .map(|timer| (timer, self.controller_interrupts))
+    }
     pub fn physical_frame(
         &self,
         slot: usize,
@@ -1195,7 +1367,11 @@ impl PolyphonicRenderer {
             .filter(|v| v.timbre == timbre)
         {
             voice.secondary = Some(program);
+            let prior_sync = voice.renderer.secondary_sync();
             voice.renderer.select_secondary(program);
+            if self.amplifier_transport.pitch_enabled() {
+                voice.renderer.set_secondary_sync(prior_sync);
+            }
         }
     }
     pub fn configure_mixer(&mut self, scales: radias_synth_domain::controller_mixer::MixerScales) {
@@ -1376,6 +1552,7 @@ impl PolyphonicRenderer {
         self.initialize_single_group(assignment.slot as usize, voice.timbre);
         self.initialize_note_pitch(assignment.slot as usize, &mut voice, true);
         self.install_retaining(voice, assignment);
+        self.initialize_fresh_waveform_phase(assignment.slot as usize);
         Some(assignment)
     }
     /// Allocate first, then initialize from the selected physical controller
@@ -1423,7 +1600,7 @@ impl PolyphonicRenderer {
         );
         self.note_groups.assign(1 << assignment.slot, event);
         self.initialize_single_group(assignment.slot as usize, voice.timbre);
-        self.initialize_modulated_actor(voice, assignment, program, false);
+        self.initialize_modulated_actor(voice, assignment, program, false, true);
         self.bind_drum_group(assignment.slot as usize, exclusive_group);
         Some(assignment)
     }
@@ -1498,6 +1675,7 @@ impl PolyphonicRenderer {
                     },
                     program,
                     true,
+                    true,
                 );
             }
         }
@@ -1537,7 +1715,74 @@ impl PolyphonicRenderer {
                     slot: slot as u8,
                     displaced: 0,
                 };
-                self.initialize_modulated_actor(voice.fresh_note(), assignment, program, false);
+                // Held Mono Multi restarts controller EG/LFO state without
+                // the fresh DSP parameter-block reset(D534). Retain private
+                // Filter1 history and the DSP amplitude smoother for each actor.
+                let dsp_memory = self.voices[slot].as_ref().map(|v| {
+                    (
+                        v.renderer.voice.filter.state,
+                        v.renderer.voice.envelope,
+                        v.renderer.envelope_rate(),
+                        v.renderer.envelope_target(),
+                        v.renderer.current_filter(),
+                        v.renderer.current_pitch(),
+                        v.renderer.voice.secondary,
+                        v.renderer.pitch_state(),
+                        v.renderer.scalar_state(),
+                        v.renderer.filter2_state(),
+                        v.renderer.shaper_state(),
+                    )
+                });
+                let mut restarted = voice.fresh_note();
+                if self.amplifier_transport.pitch_enabled()
+                    && let Some(comb) = self.voices[slot]
+                        .as_mut()
+                        .and_then(|v| v.renderer.comb.take())
+                {
+                    // Held Mono does not reset external Comb RAM or DMA phase.
+                    restarted.renderer.comb = Some(comb);
+                }
+                self.initialize_modulated_actor(restarted, assignment, program, false, false);
+                if let (
+                    Some((
+                        filter,
+                        envelope,
+                        rate,
+                        target,
+                        coefficients,
+                        pitch,
+                        secondary,
+                        pitch_state,
+                        scalar_state,
+                        filter2_state,
+                        shaper_state,
+                    )),
+                    Some(current),
+                ) = (dsp_memory, &mut self.voices[slot])
+                {
+                    current.renderer.voice.filter.state = filter;
+                    current.renderer.voice.envelope = envelope;
+                    if self.amplifier_rates.is_some() {
+                        current.renderer.set_envelope_rate(rate);
+                        current.renderer.set_envelope_target(target);
+                        current.renderer.set_filter_immediate(coefficients);
+                        if self.amplifier_transport.pitch_enabled() {
+                            current.renderer.set_primary_pitch_code(
+                                radias_synth_domain::pitch::PitchCode::new(pitch.0).unwrap(),
+                            );
+                            current.renderer.set_pitch(pitch.1, pitch.2);
+                            current.renderer.voice.secondary = secondary;
+                            current.renderer.restore_pitch_state(pitch_state);
+                            current.renderer.restore_scalar_state(scalar_state);
+                            current.renderer.restore_filter2_state(filter2_state);
+                            current.renderer.restore_shaper_state(shaper_state);
+                        }
+                        // SYS01e1a8 keeps the parameter block running while
+                        // its final002978 soft binding packet is delivered.
+                        self.amplifier_bound[slot] = true;
+                        self.amplifier_targets[slot] = Some(target);
+                    }
+                }
             }
         }
         Some(VoiceAssignment {
@@ -1582,7 +1827,7 @@ impl PolyphonicRenderer {
             ((tag as u32) << 24) | voice.note as u32 | 128,
         );
         self.initialize_single_group(assignment.slot as usize, voice.timbre);
-        self.initialize_modulated_actor(voice, assignment, program, inherit);
+        self.initialize_modulated_actor(voice, assignment, program, inherit, true);
         Some(assignment)
     }
     fn initialize_modulated_actor(
@@ -1591,6 +1836,7 @@ impl PolyphonicRenderer {
         assignment: VoiceAssignment,
         program: ModulationProgram,
         inherit: bool,
+        fresh_parameter_block: bool,
     ) {
         self.initialize_group_offsets(assignment.slot as usize, voice.timbre);
         if self.voice_group_tables.is_some()
@@ -1634,7 +1880,19 @@ impl PolyphonicRenderer {
             &mut self.modulation_random,
         );
         self.initialize_note_pitch(assignment.slot as usize, &mut voice, inherit);
+        let parameter_state = (!fresh_parameter_block).then(|| {
+            self.amplifier_transport
+                .parameter_state(assignment.slot as usize)
+        });
         self.install_retaining(voice, assignment);
+        if let Some(state) = parameter_state {
+            self.amplifier_transport
+                .restore_parameters(assignment.slot as usize, state);
+        }
+        self.amplifier_soft_binding[assignment.slot as usize] = !fresh_parameter_block;
+        if fresh_parameter_block {
+            self.initialize_fresh_waveform_phase(assignment.slot as usize);
+        }
     }
     fn install_retaining(&mut self, mut voice: ActiveVoice, assignment: VoiceAssignment) {
         if let Some(mut state) = self.retained_state(assignment.slot as usize, voice.program) {
@@ -1647,6 +1905,42 @@ impl PolyphonicRenderer {
         self.install(assignment.slot as usize, assignment.displaced, voice);
     }
     pub fn install(&mut self, slot: usize, displaced: VoiceMask, mut voice: ActiveVoice) {
+        self.controller_flags[slot] = 0xc0;
+        self.initial_controller_serviced[slot] = false;
+        self.secondary_sync_targets[slot] = voice.secondary.map(|p| p.modulation().sync);
+        self.mixer_delivery_targets[slot] = None;
+        self.pan_delivery_targets[slot] = None;
+        self.ratio_delivery_targets[slot] = None;
+        self.amplifier_fresh[slot] = voice.amplifier.is_some();
+        self.filter_delivery_targets[slot] = None;
+        self.filter2_delivery_resonance[slot] = None;
+        self.comb_feedback_delivery_targets[slot] = None;
+        self.amplifier_transport.reset_filter(slot);
+        self.amplifier_transport.reset_filter2(slot);
+        self.controller_pitch_codes[slot] = voice.renderer.primary_pitch_code();
+        let offset = voice
+            .secondary
+            .zip(self.secondary_table.as_ref())
+            .map_or(0, |(secondary, table)| secondary.pitch.relative_code(table));
+        self.amplifier_transport.reset_pitch(
+            slot,
+            voice.renderer.primary_pitch_code(),
+            offset,
+            voice.secondary.is_some_and(|p| p.modulation().sync),
+            voice
+                .primary
+                .and_then(|p| p.waveform_control(0, [0; 2]))
+                .unwrap_or(0),
+        );
+        self.amplifier_soft_binding[slot] = false;
+        self.amplifier_targets[slot] = None;
+        self.amplifier_bound[slot] = self.amplifier_rates.is_none() || voice.amplifier.is_none();
+        if let Some(rates) = &self.amplifier_rates
+            && voice.amplifier.is_some()
+        {
+            voice.renderer.set_envelope_target(0);
+            voice.renderer.set_envelope_rate(rates.reset_rate as i16);
+        }
         self.drum_groups.groups[slot] = 0;
         if voice.uses_program_common
             && let Some(common) = self.program_common
@@ -1712,7 +2006,32 @@ impl PolyphonicRenderer {
                 }
             }
         }
+        #[cfg(feature = "web-modular")]
+        {
+            voice.renderer.circuit = self.circuits[voice.timbre as usize]
+                .as_ref()
+                .map(|p| p.fresh());
+        }
         self.voices[slot] = Some(voice);
+    }
+    #[cfg(feature = "web-modular")]
+    pub fn set_circuit(
+        &mut self,
+        timbre: usize,
+        prototype: Option<alloc::boxed::Box<dyn crate::VoiceCircuit>>,
+    ) {
+        for v in self
+            .voices
+            .iter_mut()
+            .flatten()
+            .filter(|v| v.timbre as usize == timbre)
+        {
+            match (&mut v.renderer.circuit, &prototype) {
+                (Some(current), Some(next)) => current.reconfigure(&**next),
+                (current, next) => *current = next.as_ref().map(|p| p.fresh()),
+            }
+        }
+        self.circuits[timbre] = prototype;
     }
     pub fn active_count(&self) -> usize {
         self.voices.iter().filter(|v| v.is_some()).count()
@@ -1741,6 +2060,19 @@ impl PolyphonicRenderer {
     }
     pub fn active_voice(&self, slot: usize) -> Option<&ActiveVoice> {
         self.voices[slot].as_ref()
+    }
+    /// Fresh parameter-block phases belong to the selected physical actor;
+    /// held Mono reuse retains its DSP phase memory.
+    fn initialize_fresh_waveform_phase(&mut self, slot: usize) {
+        if let Some(voice) = self.voices[slot].as_mut()
+            && let Some(primary) = voice.primary
+        {
+            voice
+                .renderer
+                .voice
+                .primary
+                .initialize_waveform_phase(primary.selection);
+        }
     }
     pub fn retained_state(
         &self,
@@ -1772,6 +2104,21 @@ impl PolyphonicRenderer {
             self.cache_retired_voice(slot);
         }
         self.voices = core::array::from_fn(|_| None);
+        self.controller_flags.fill(0);
+        self.initial_controller_serviced.fill(false);
+        self.secondary_sync_targets.fill(None);
+        self.mixer_delivery_targets.fill(None);
+        self.pan_delivery_targets.fill(None);
+        self.ratio_delivery_targets.fill(None);
+        self.amplifier_transport.clear_pending();
+        self.amplifier_transport_failed = false;
+        self.amplifier_fresh.fill(false);
+        self.filter_delivery_targets.fill(None);
+        self.filter2_delivery_resonance.fill(None);
+        self.comb_feedback_delivery_targets.fill(None);
+        self.amplifier_soft_binding.fill(false);
+        self.amplifier_targets.fill(None);
+        self.amplifier_bound.fill(true);
         self.note_pitches.fill(None);
         self.portamento_voices.fill(None);
         self.mono_notes.fill(Default::default());
@@ -1786,6 +2133,7 @@ impl PolyphonicRenderer {
     pub fn remove(&mut self, slot: usize) {
         self.cache_retired_voice(slot);
         self.voices[slot] = None;
+        self.controller_flags[slot] = 0;
         self.note_pitches[slot] = None;
         self.portamento_voices[slot] = None;
         self.allocator.finish(slot);
@@ -1890,13 +2238,16 @@ impl PolyphonicRenderer {
         }
     }
     pub fn edit_filter(&mut self, timbre: u8, filter: FilterCoefficients) {
+        let transported = self.amplifier_rates.is_some();
         for voice in self
             .voices
             .iter_mut()
             .flatten()
             .filter(|v| v.timbre == timbre)
         {
-            voice.renderer.set_filter(filter);
+            if !transported || voice.auxiliary.as_ref().is_none_or(|a| a.filter.is_none()) {
+                voice.renderer.set_filter(filter);
+            }
         }
     }
     pub fn edit_filter_routing(
@@ -1911,7 +2262,21 @@ impl PolyphonicRenderer {
             .flatten()
             .filter(|v| v.timbre == timbre)
         {
-            voice.renderer.set_filter_routing(routing, second);
+            let mut delivered = second;
+            if self.amplifier_transport.pitch_enabled()
+                && let Some(prior) = voice.renderer.filter2_target()
+            {
+                // Desktop sends descriptor and controller commands together.
+                // A numeric knob edit must wait for its original packets.
+                if prior.output == second.output && voice.renderer.filter_routing() == routing {
+                    continue;
+                }
+                delivered = radias_synth_domain::filter_routing::Filter2Coefficients {
+                    output: second.output,
+                    ..prior
+                };
+            }
+            voice.renderer.set_filter_routing(routing, delivered);
         }
     }
     pub fn edit_shaper(&mut self, timbre: u8, shaper: crate::shaper::ShaperProgram) {
@@ -1921,15 +2286,34 @@ impl PolyphonicRenderer {
             .flatten()
             .filter(|v| v.timbre == timbre)
         {
+            let descriptor_changed = voice
+                .shaper
+                .is_none_or(|old| old.mode != shaper.mode || old.position != shaper.position);
             voice.shaper = Some(shaper);
+            if self.amplifier_transport.pitch_enabled() && !descriptor_changed {
+                continue;
+            }
             let mut current = shaper;
             current.control.modulation = voice
                 .modulation
                 .as_ref()
                 .map_or(0, |m| m.patches.targets.controls[8]);
-            voice
-                .renderer
-                .set_shaper(current.parameters_with_pitch(voice.renderer.primary_pitch_code()));
+            let mut target = current.parameters_with_pitch(voice.renderer.primary_pitch_code());
+            if self.amplifier_transport.pitch_enabled()
+                && let Some(new) = &mut target
+            {
+                let depth = voice
+                    .renderer
+                    .shaper_target()
+                    .map_or(0, |s| s.coefficients.depth());
+                new.coefficients.set_depth(depth);
+                if let radias_synth_domain::waveshaper::ShaperCoefficients::SubOscillator(c) =
+                    &mut new.coefficients
+                {
+                    c.target_depth = depth;
+                }
+            }
+            voice.renderer.set_shaper(target);
         }
     }
     pub fn edit_adsr(&mut self, timbre: u8, values: [u8; 4], tables: &ControllerTables) {
@@ -2173,16 +2557,34 @@ impl PolyphonicRenderer {
         mut events: impl FnMut(usize) -> &'a [VoiceControlEvent],
     ) -> [[StereoFrame; 4]; 2] {
         let mut buses = [[StereoFrame::default(); 4]; 2];
+        let delivery_clock = self.modulation_frame * 3000;
+        self.deliver_amplifier(delivery_clock);
+        let mut amplifier_updates = [None; VOICE_COUNT];
+        let shared_controller = self.controller_timer.is_some();
+        let controller_tick = self
+            .controller_timer
+            .as_mut()
+            .is_some_and(|timer| timer.advance_cpu_clocks(3000) != 0);
+        if controller_tick {
+            self.controller_interrupts = self.controller_interrupts.wrapping_add(1);
+        }
         if let Some(clock) = &mut self.clock {
             clock.next_audio_frame();
         }
         // SH controller services traverse the 24 voice slots independently of
         // the later Slave/Master DSP accumulation order.
         if let Some(mod_tables) = modulation_tables
-            && self.modulation_frame != 0
-            && self.modulation_frame.is_multiple_of(48)
+            && (if shared_controller {
+                controller_tick && self.controller_interrupts.is_multiple_of(2)
+            } else {
+                self.modulation_frame != 0 && self.modulation_frame.is_multiple_of(48)
+            })
         {
-            let parity = ((self.modulation_frame / 48 - 1) & 1) as u8;
+            let parity = (if shared_controller {
+                self.controller_interrupts / 2 - 1
+            } else {
+                self.modulation_frame / 48 - 1
+            } & 1) as u8;
             if parity == 0
                 && let Some(clock) = &mut self.clock
             {
@@ -2193,8 +2595,23 @@ impl PolyphonicRenderer {
         for (slot, voice) in self.voices.iter_mut().enumerate() {
             let Some(active) = voice else { continue };
             let initial = active.renderer.rendered_frames() == 0;
-            let service = initial || self.modulation_frame.is_multiple_of(24);
+            let envelope_service = if shared_controller {
+                controller_tick
+                    && radias_synth_domain::controller_service::select_voice_service(
+                        &mut self.controller_flags[slot],
+                        0,
+                    ) == radias_synth_domain::controller_service::VoiceService::Envelopes
+            } else {
+                false
+            };
+            let service = (initial && !self.initial_controller_serviced[slot])
+                || if shared_controller {
+                    envelope_service
+                } else {
+                    self.modulation_frame.is_multiple_of(24)
+                };
             if service {
+                self.initial_controller_serviced[slot] = true;
                 if !initial
                     && let (Some(port), Some(tables)) =
                         (&mut self.portamento_voices[slot], &self.portamento_tables)
@@ -2218,10 +2635,45 @@ impl PolyphonicRenderer {
                     };
                     amp.relative_pitch(relative_pitch, tables);
                 }
-                active.renderer.set_envelope_target(amp.next_target(tables));
+                let target = if shared_controller {
+                    if envelope_service {
+                        amp.service(tables, true);
+                    }
+                    amp.held_target(tables)
+                } else {
+                    amp.next_target(tables)
+                };
+                if let Some(rates) = &self.amplifier_rates {
+                    if self.amplifier_fresh[slot] {
+                        amplifier_updates[slot] = Some(self.amplifier_deliveries[slot].binding(
+                            rates,
+                            amp.parameters.attack,
+                            0,
+                            target,
+                            self.amplifier_soft_binding[slot],
+                        ));
+                        self.amplifier_fresh[slot] = false;
+                    } else if envelope_service {
+                        if amp.envelope.stage
+                            == radias_synth_domain::amp_envelope::EnvelopeStage::ReleaseHold
+                        {
+                            self.amplifier_deliveries[slot].release_zero();
+                        }
+                        amplifier_updates[slot] =
+                            Some(self.amplifier_deliveries[slot].service(rates, target));
+                    }
+                } else {
+                    active.renderer.set_envelope_target(target);
+                }
             }
             if let (Some(auxiliary), Some(tables)) = (&mut active.auxiliary, tables) {
-                auxiliary.next(tables);
+                if shared_controller {
+                    if envelope_service {
+                        auxiliary.service(tables);
+                    }
+                } else {
+                    auxiliary.next(tables);
+                }
             }
             if let (Some(modulation), Some(mod_tables), Some(tables)) =
                 (&mut active.modulation, modulation_tables, tables)
@@ -2293,29 +2745,81 @@ impl PolyphonicRenderer {
                 )
                 .unwrap();
                 let increment = mod_tables.pitch.increment(code);
-                active.renderer.set_primary_pitch_code(code);
-                active
-                    .renderer
-                    .set_pitch(increment, mod_tables.bandwidth.coefficient(increment));
-                if let (Some(secondary), Some(table)) = (active.secondary, &self.secondary_table) {
-                    let code = secondary.code(code, table, targets.oscillator_pitch_q16[1]);
-                    active.renderer.set_secondary_pitch_mode(
-                        code,
-                        &mod_tables.pitch,
-                        &mod_tables.bandwidth,
-                        secondary.modulation().sync,
+                self.controller_pitch_codes[slot] = code.raw();
+                if self.amplifier_transport.pitch_enabled() {
+                    let selection = active.primary.map_or(0, |p| p.selection);
+                    let sync = active.secondary.is_some_and(|p| p.modulation().sync);
+                    if self.secondary_sync_targets[slot] != Some(sync) {
+                        if self
+                            .amplifier_transport
+                            .secondary_sync(delivery_clock, slot, sync)
+                            .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        } else {
+                            self.secondary_sync_targets[slot] = Some(sync);
+                        }
+                    }
+                    if let Some(primary) = active.primary.filter(|p| p.selection & 48 == 32) {
+                        let lfo = modulation.pair.values(&mod_tables.lfo)[0];
+                        let control = primary
+                            .waveform_control(lfo, [targets.controls[0], targets.controls[14]])
+                            .unwrap_or(0);
+                        if self
+                            .amplifier_transport
+                            .unison_detune(delivery_clock, slot, control)
+                            .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        }
+                    }
+                    let offset = active.secondary.zip(self.secondary_table.as_ref()).map_or(
+                        0,
+                        |(secondary, table)| {
+                            let mut pitch = secondary.pitch;
+                            pitch.virtual_patch_q16 = targets.oscillator_pitch_q16[1];
+                            pitch.relative_code(table)
+                        },
                     );
-                } else if active.mixer.is_some() {
-                    active.renderer.set_secondary_pitch(
-                        code,
-                        &mod_tables.pitch,
-                        &mod_tables.bandwidth,
-                    );
-                }
-                if let Some(amp) = &mut active.amplifier {
+                    if self
+                        .amplifier_transport
+                        .secondary_pitch(delivery_clock, slot, offset)
+                        .is_err()
+                        || self
+                            .amplifier_transport
+                            .primary_pitch(delivery_clock, slot, selection, code.raw())
+                            .is_err()
+                    {
+                        self.amplifier_transport_failed = true;
+                    }
+                } else {
+                    active.renderer.set_primary_pitch_code(code);
                     active
                         .renderer
-                        .set_envelope_target(amp.modulation(targets.controls[9], tables));
+                        .set_pitch(increment, mod_tables.bandwidth.coefficient(increment));
+                    if let (Some(secondary), Some(table)) =
+                        (active.secondary, &self.secondary_table)
+                    {
+                        let code = secondary.code(code, table, targets.oscillator_pitch_q16[1]);
+                        active.renderer.set_secondary_pitch_mode(
+                            code,
+                            &mod_tables.pitch,
+                            &mod_tables.bandwidth,
+                            secondary.modulation().sync,
+                        );
+                    } else if active.mixer.is_some() {
+                        active.renderer.set_secondary_pitch(
+                            code,
+                            &mod_tables.pitch,
+                            &mod_tables.bandwidth,
+                        );
+                    }
+                }
+                if let Some(amp) = &mut active.amplifier {
+                    let target = amp.modulation(targets.controls[9], tables);
+                    if self.amplifier_rates.is_none() {
+                        active.renderer.set_envelope_target(target);
+                    }
                 }
             }
             if service
@@ -2335,7 +2839,37 @@ impl PolyphonicRenderer {
                     (self.note_pitches[slot].map_or(active.note, |p| p.note.wrapped) as i16 - 60)
                         * 256
                 };
-                if let Some(target) = auxiliary.filter_target_with_pitch(
+                if self.amplifier_rates.is_some() {
+                    if let Some((frequency, filter)) = auxiliary.filter_inputs_with_pitch(
+                        filter_tables,
+                        tables,
+                        modulation,
+                        relative_pitch,
+                    ) {
+                        self.amplifier_transport.configure_filter(
+                            slot,
+                            filter.normalization,
+                            filter.base,
+                        );
+                        if self.filter_delivery_targets[slot]
+                            .is_none_or(|(_, resonance)| resonance != filter.resonance)
+                            && self
+                                .amplifier_transport
+                                .filter_resonance(delivery_clock, slot, filter.resonance)
+                                .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        }
+                        if self
+                            .amplifier_transport
+                            .filter_frequency(delivery_clock, slot, frequency)
+                            .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        }
+                        self.filter_delivery_targets[slot] = Some((frequency, filter.resonance));
+                    }
+                } else if let Some(target) = auxiliary.filter_target_with_pitch(
                     filter_tables,
                     tables,
                     modulation,
@@ -2356,9 +2890,22 @@ impl PolyphonicRenderer {
                     .modulation
                     .as_ref()
                     .map_or(0, |m| m.patches.targets.controls[10]);
-                active
-                    .renderer
-                    .set_pan_target(tables.compile(pan.target()) as i16);
+                let target = tables.compile(pan.target()) as i16;
+                if self.amplifier_transport.pitch_enabled() {
+                    if self.pan_delivery_targets[slot] != Some(target) {
+                        if self
+                            .amplifier_transport
+                            .pan(delivery_clock, slot, target)
+                            .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        } else {
+                            self.pan_delivery_targets[slot] = Some(target);
+                        }
+                    }
+                } else {
+                    active.renderer.set_pan_target(target);
+                }
             }
             if service
                 && let (Some(program), Some(comb_tables), Some(filter_tables), Some(tables)) = (
@@ -2395,7 +2942,32 @@ impl PolyphonicRenderer {
                 let coefficients = program
                     .for_voice(input, filter_tables)
                     .coefficients(comb_tables, &tables.amplifier);
-                if initial {
+                if self.amplifier_transport.pitch_enabled() {
+                    let mut base = active.renderer.current_filter2().unwrap_or(coefficients);
+                    base.output = radias_synth_domain::filter_routing::Filter2Output::Comb;
+                    self.amplifier_transport.configure_filter2(slot, 0, base);
+                    if self
+                        .amplifier_transport
+                        .comb_delay(delivery_clock, slot, coefficients.integrator_gain as u32)
+                        .is_err()
+                    {
+                        self.amplifier_transport_failed = true;
+                    }
+                    if self.comb_feedback_delivery_targets[slot]
+                        != Some(coefficients.feedback as u32)
+                    {
+                        if self
+                            .amplifier_transport
+                            .comb_feedback(delivery_clock, slot, coefficients.feedback as u32)
+                            .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        } else {
+                            self.comb_feedback_delivery_targets[slot] =
+                                Some(coefficients.feedback as u32);
+                        }
+                    }
+                } else if initial {
                     active.renderer.set_filter2_immediate(coefficients);
                 } else {
                     active.renderer.set_filter2_target(coefficients);
@@ -2437,7 +3009,51 @@ impl PolyphonicRenderer {
                     },
                     modulation,
                 };
-                if let Some(coefficients) =
+                if self.amplifier_transport.pitch_enabled() {
+                    if let Some(target) =
+                        program.targets(input, filter_tables, filter2_tables, &tables.amplifier)
+                    {
+                        let mut base = active.renderer.current_filter2().unwrap_or(
+                            radias_synth_domain::filter_routing::Filter2Coefficients {
+                                input_gain: 0,
+                                feedback: 0,
+                                integrator_gain: 0,
+                                output: target.output,
+                            },
+                        );
+                        base.output = target.output;
+                        self.amplifier_transport.configure_filter2(
+                            slot,
+                            program.normalization,
+                            base,
+                        );
+                        if self
+                            .amplifier_transport
+                            .filter2_frequency(delivery_clock, slot, target.frequency)
+                            .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        }
+                        if self.filter2_delivery_resonance[slot]
+                            != Some((target.resonance, target.input_gain))
+                        {
+                            if self
+                                .amplifier_transport
+                                .filter2_resonance(delivery_clock, slot, target.resonance)
+                                .is_err()
+                                || self
+                                    .amplifier_transport
+                                    .filter2_input_gain(delivery_clock, slot, target.input_gain)
+                                    .is_err()
+                            {
+                                self.amplifier_transport_failed = true;
+                            } else {
+                                self.filter2_delivery_resonance[slot] =
+                                    Some((target.resonance, target.input_gain));
+                            }
+                        }
+                    }
+                } else if let Some(coefficients) =
                     program.coefficients(input, filter_tables, filter2_tables, &tables.amplifier)
                 {
                     if initial {
@@ -2455,16 +3071,51 @@ impl PolyphonicRenderer {
                         m.patches.targets.controls[3],
                     ]
                 });
-                active.renderer.set_mixer(mixer.compile(scales, values));
+                let target = mixer.compile(scales, values);
+                if self.amplifier_transport.pitch_enabled() {
+                    let values = [
+                        target.primary_gain,
+                        target.secondary_gain,
+                        target.noise_gain,
+                    ];
+                    let mut prior = self.mixer_delivery_targets[slot];
+                    for (band, value) in values.into_iter().enumerate() {
+                        if prior.is_none_or(|p| p[band] != value) {
+                            if self
+                                .amplifier_transport
+                                .mixer_level(delivery_clock, slot, band as u8, value)
+                                .is_err()
+                            {
+                                self.amplifier_transport_failed = true;
+                            } else {
+                                let p = prior.get_or_insert([i16::MIN; 3]);
+                                p[band] = value;
+                            }
+                        }
+                    }
+                    self.mixer_delivery_targets[slot] = prior;
+                } else {
+                    active.renderer.set_mixer(target);
+                }
             }
             if service && let Some(mut shaper) = active.shaper {
                 shaper.control.modulation = active
                     .modulation
                     .as_ref()
                     .map_or(0, |m| m.patches.targets.controls[8]);
-                active
-                    .renderer
-                    .set_shaper(shaper.parameters_with_pitch(active.renderer.primary_pitch_code()));
+                let target = shaper.parameters_with_pitch(self.controller_pitch_codes[slot]);
+                if self.amplifier_transport.pitch_enabled() {
+                    if let Some(target) = target
+                        && self
+                            .amplifier_transport
+                            .shaper_depth(delivery_clock, slot, target.coefficients.depth())
+                            .is_err()
+                    {
+                        self.amplifier_transport_failed = true;
+                    }
+                } else {
+                    active.renderer.set_shaper(target);
+                }
             }
             if service && let Some(primary) = active.primary {
                 let (lfo1, modulation) = match (&active.modulation, modulation_tables) {
@@ -2479,26 +3130,130 @@ impl PolyphonicRenderer {
                 };
                 if let Some(tables) = &self.noise_tables
                     && let Some(code) = radias_synth_domain::pitch::PitchCode::new(
-                        active.renderer.primary_pitch_code(),
+                        self.controller_pitch_codes[slot],
                     )
                     && let Some(control) = active.renderer.noise_control_mut()
                 {
-                    tables.update(control, primary.control, code, lfo1, modulation);
-                    if initial {
-                        control.initialize_targets();
+                    if self.amplifier_transport.pitch_enabled() {
+                        let target = tables.control_targets(
+                            control,
+                            primary.control,
+                            code,
+                            lfo1,
+                            modulation,
+                        );
+                        if let Some(shape) = target.shape
+                            && self
+                                .amplifier_transport
+                                .noise_shape(delivery_clock, slot, shape)
+                                .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        }
+                        if self
+                            .amplifier_transport
+                            .noise_gain(delivery_clock, slot, target.excitation_gain)
+                            .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        }
+                        if self
+                            .amplifier_transport
+                            .noise_frequency(delivery_clock, slot, target.excitation_bias)
+                            .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        }
+                    } else {
+                        tables.update(control, primary.control, code, lfo1, modulation);
+                        if initial {
+                            control.initialize_targets();
+                        }
                     }
                 }
-                if let Some(control) = primary.waveform_control(lfo1, modulation) {
-                    active.renderer.set_primary_waveform_control(control);
+                if let Some(control) = primary.waveform_control(lfo1, modulation)
+                    && (!self.amplifier_transport.pitch_enabled() || primary.selection & 48 != 32)
+                {
+                    if self.amplifier_transport.pitch_enabled() {
+                        if self
+                            .amplifier_transport
+                            .primary_control(delivery_clock, slot, primary.selection, control)
+                            .is_err()
+                        {
+                            self.amplifier_transport_failed = true;
+                        }
+                    } else {
+                        active.renderer.set_primary_waveform_control(control);
+                    }
                 }
                 if primary.selection & 48 == 48 {
-                    active.renderer.set_primary_ratio(
-                        radias_synth_domain::controller_primary::PrimaryControl {
-                            control2_modulation: modulation[1],
-                            ..primary.control
+                    let ratio = radias_synth_domain::controller_primary::PrimaryControl {
+                        control2_modulation: modulation[1],
+                        ..primary.control
+                    }
+                    .vpm_ratio();
+                    if self.amplifier_transport.pitch_enabled() {
+                        if self.ratio_delivery_targets[slot] != Some(ratio) {
+                            if self
+                                .amplifier_transport
+                                .primary_ratio(delivery_clock, slot, ratio)
+                                .is_err()
+                            {
+                                self.amplifier_transport_failed = true;
+                            } else {
+                                self.ratio_delivery_targets[slot] = Some(ratio);
+                            }
                         }
-                        .vpm_ratio(),
-                    );
+                    } else {
+                        active.renderer.set_primary_ratio(ratio);
+                    }
+                }
+            }
+        }
+        for (slot, update) in amplifier_updates.iter().copied().enumerate() {
+            if self.amplifier_rates.is_none() {
+                break;
+            }
+            let Some(amp) = self.voices[slot]
+                .as_ref()
+                .and_then(|v| v.amplifier.as_ref())
+            else {
+                continue;
+            };
+            // The signed termination mode forces silence in SYS002a6c even
+            // if a still-running Virtual Patch compiles a nonzero AMP target.
+            let target = if (self.amplifier_deliveries[slot].mode as i8) < 0 {
+                0
+            } else {
+                amp.target()
+            };
+            let packet = match update {
+                Some(radias_synth_domain::amplifier_delivery::AmplifierPacket::RateAndTarget {
+                    rate,
+                    ..
+                }) => Some(
+                    radias_synth_domain::amplifier_delivery::AmplifierPacket::RateAndTarget {
+                        rate,
+                        target,
+                    },
+                ),
+                Some(radias_synth_domain::amplifier_delivery::AmplifierPacket::Target(_)) => {
+                    Some(radias_synth_domain::amplifier_delivery::AmplifierPacket::Target(target))
+                }
+                None if self.amplifier_targets[slot] != Some(target) => {
+                    Some(radias_synth_domain::amplifier_delivery::AmplifierPacket::Target(target))
+                }
+                _ => None,
+            };
+            if let Some(packet) = packet {
+                if self
+                    .amplifier_transport
+                    .enqueue(delivery_clock, slot, packet)
+                    .is_err()
+                {
+                    self.amplifier_transport_failed = true;
+                } else {
+                    self.amplifier_targets[slot] = Some(target);
                 }
             }
         }
@@ -2531,7 +3286,33 @@ impl PolyphonicRenderer {
                     }
                     continue;
                 };
+                if !self.amplifier_bound[slot] {
+                    if let Some(frame) = &mut self.physical_frames[slot] {
+                        let bus = &mut buses[slot / VOICES_PER_PROCESSOR][frame.stereo_bus.index()];
+                        *bus = frame.stereo_cache.advance(*bus);
+                    }
+                    continue;
+                }
                 let bus = &mut buses[slot / VOICES_PER_PROCESSOR][active.bus.index()];
+                #[cfg(feature = "web-modular")]
+                if let Some(circuit) = &mut active.renderer.circuit {
+                    let eg = active.auxiliary.as_ref().map_or([0; 2], |p| p.levels());
+                    let lfo = active
+                        .modulation
+                        .as_ref()
+                        .zip(modulation_tables)
+                        .map_or([0; 2], |(m, t)| m.pair.values(&t.lfo));
+                    circuit.controls([
+                        if active.held { 1.0 } else { 0.0 },
+                        active.velocity as f64 / 127.0,
+                        active.note as f64,
+                        eg[0] as f64 / 65535.0,
+                        eg[1] as f64 / 65535.0,
+                        lfo[0] as f64 / 32768.0,
+                        lfo[1] as f64 / 32768.0,
+                        0.0,
+                    ]);
+                }
                 self.drum_slots[slot] = active.drum_instrument.is_some();
                 if self.drum_slots[slot] && self.drum_gain != 1.0 {
                     let sample = active.renderer.next_on_bus(
@@ -2569,7 +3350,15 @@ impl PolyphonicRenderer {
                 let fallback_finished = active.amplifier.is_none()
                     && !active.held
                     && active.renderer.voice.envelope.0 == 0;
-                if finished || fallback_finished {
+                #[cfg(not(feature = "web-modular"))]
+                let tail_active = false;
+                #[cfg(feature = "web-modular")]
+                let tail_active = active
+                    .renderer
+                    .circuit
+                    .as_ref()
+                    .is_some_and(|p| p.tail_active());
+                if (finished || fallback_finished) && !tail_active {
                     if self.noise_tables.is_some()
                         && let Some(frame) = &mut self.physical_frames[slot]
                     {
@@ -2608,7 +3397,7 @@ impl PolyphonicRenderer {
     }
     pub fn reset_filter(&mut self, slot: usize) {
         if let Some(voice) = self.voices[slot].as_mut() {
-            voice.renderer.voice.filter.state = radias_synth_domain::filter::FilterState::default();
+            voice.renderer.reset_filter_memory();
         }
     }
 }

@@ -224,6 +224,8 @@ pub struct PrimaryUnisonCarrierParameters {
 impl PrimaryParameters {
     /// Original Noise/Formant initialization descriptors, SYS 0420e8/042120.
     /// Note pitch and controller targets are compiled separately.
+    /// Firmware display names are 4=Formant and 5=Noise. The historical enum
+    /// variants below have reversed names; keep the numeric algorithm mapping.
     pub fn noise_waveform(selection: u8, increment: PhaseIncrement) -> Option<Self> {
         Some(match selection {
             4 => Self::Noise(PrimaryNoiseParameters {
@@ -466,6 +468,22 @@ impl From<PrimaryRampOscillator> for PrimaryOscillator {
 }
 
 impl PrimaryOscillator {
+    /// Fresh ordinary Triangle/Sine parameter-block activation writes frame0;
+    /// Sine additionally writes frame2 to minus Q30 one before its first sample.
+    /// Ramp/Pulse keep the independently initialized physical phase bank.
+    pub fn initialize_waveform_phase(&mut self, selection: u8) -> bool {
+        match selection {
+            2 => {
+                self.phase = Phase(0);
+            }
+            3 => {
+                self.phase = Phase(0);
+                self.modulated_phase = Phase(0xc000_0000);
+            }
+            _ => return false,
+        }
+        true
+    }
     pub fn next_sample(&mut self, table: &WaveformTable, p: PrimaryParameters) -> Sample {
         self.next_with_modulator(table, p, Sample(0))
     }

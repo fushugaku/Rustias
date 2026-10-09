@@ -145,9 +145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?)?;
     }
     let controls = if auxiliary {
-        Some(ControlMap::from_json(&fs::read(
-            root.join("assets/native-va/filter-controls.json"),
-        )?)?)
+        Some(ControlMap::from_system(&sys)?)
     } else {
         None
     };

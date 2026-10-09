@@ -27,11 +27,13 @@ pub struct EnvelopeTiming {
 impl EnvelopeTimingTables {
     /// SH3 013eb4/0144e8/014980, including the two fixed-point truncations.
     pub fn increment(&self, timing: EnvelopeTiming) -> u32 {
+        // SYS0140e8/01412c use signed MOV.B for raw voice storage. Ordinary
+        // MIDI notes/velocities retain their0..127 interpretation.
         let velocity = (((timing.velocity_sensitivity & 127) as i32 - 64)
-            * (timing.velocity as i32 - 64))
+            * (i32::from(timing.velocity as i8) - 64))
             >> 6;
         let key = ((self.key_tracking[(timing.key_tracking & 127) as usize] as i32)
-            * (timing.note as i32 - 60))
+            * (i32::from(timing.note as i8) - 60))
             >> 14;
         let factor = ((self.scale[(velocity.clamp(-63, 63) + 64) as usize] as u32)
             * (self.scale[(key.clamp(-63, 63) + 64) as usize] as u32))

@@ -73,11 +73,11 @@ popup.addEventListener("keydown",event=>{
   else if(!searching&&event.key.length===1&&!event.metaKey&&!event.ctrlKey&&!event.altKey){event.preventDefault();clearTimeout(typedChoiceTimer);typedChoice+=event.key.toLowerCase();typedChoiceTimer=setTimeout(()=>{typedChoice="";},650);const match=items.find(item=>item.textContent.toLowerCase().startsWith(typedChoice)||item.textContent.toLowerCase().replace(/^(808 |\d{3} · )/,"").startsWith(typedChoice));match?.focus();}
 
 });
-export function makeDial({label,min,max,defaultValue,read,onChange,format=String,display=v=>v,native=v=>v,step=1,numberStep=1}){
+export function makeDial({label,min,max,defaultValue,read,onChange,format=String,display=v=>v,native=v=>v,step=1,numberStep=1,precision=0}){
   const button=document.createElement('button'),number=document.createElement('input');
   button.type='button';button.className='knob';button.setAttribute('role','slider');button.setAttribute('aria-label',`${label} dial`);button.setAttribute('aria-valuemin',min);button.setAttribute('aria-valuemax',max);button.innerHTML='<span class="knob-face"></span>';
   number.type='number';number.className='dial-value';number.min=display(min);number.max=display(max);number.step=numberStep;number.setAttribute('aria-label',label);
-  const set=value=>onChange(Math.max(min,Math.min(max,Math.round(value))));
+  const set=value=>onChange(Math.max(min,Math.min(max,Math.round(value*10**precision)/10**precision)));
   number.addEventListener('input',()=>{if(number.value!==''&&number.validity.valid)set(native(Number(number.value)));});
   for(const event of ['change','blur'])number.addEventListener(event,()=>{if(number.value!==''&&number.validity.valid)set(native(Number(number.value)));number.value=display(read());});
   let drag;button.addEventListener('pointerdown',event=>{if(event.button!==0)return;button.setPointerCapture(event.pointerId);drag={y:event.clientY,value:read()};event.preventDefault();});

@@ -9,6 +9,7 @@ use radias_synth_domain::{
     filter::FilterCoefficients,
     filter_control::FilterMixTable,
     filter_routing::{Filter2Coefficients, Filter2Output, FilterRouting},
+    parameter_template::{ParameterTemplate, ParameterTemplateTables, TemplateCompilationError},
     program::Program,
 };
 
@@ -46,6 +47,7 @@ pub enum ProgramCompilationError {
 }
 #[derive(Clone, Copy)]
 pub struct CompiledTimbre {
+    pub parameter_template: Option<ParameterTemplate>,
     pub filter: FilterCoefficients,
     pub dynamic_filter: DynamicFilter,
     pub filter_routing: Option<FilterRouting>,
@@ -59,6 +61,21 @@ pub struct CompiledProgram {
     pub timbres: [CompiledTimbre; 4],
 }
 impl CompiledProgram {
+    /// Compile cold static banks directly from the lossless stored inputs.
+    /// Deferred PCM/input generators keep their existing explicit availability.
+    pub fn with_parameter_templates(
+        mut self,
+        program: &Program,
+        tables: &ParameterTemplateTables,
+    ) -> Result<Self, TemplateCompilationError> {
+        for index in 0..4 {
+            let body = program.timbre(index).unwrap().synthesis()[..104]
+                .try_into()
+                .unwrap();
+            self.timbres[index].compile_parameter_template(index, body, tables)?;
+        }
+        Ok(self)
+    }
     pub fn compile(
         program: &Program,
         global_channel: u8,
@@ -98,6 +115,29 @@ impl CompiledProgram {
     }
 }
 impl CompiledTimbre {
+    pub fn compile_parameter_template(
+        &mut self,
+        index: usize,
+        body: &[u8; 104],
+        tables: &ParameterTemplateTables,
+    ) -> Result<(), TemplateCompilationError> {
+        let Some(mut template) = ParameterTemplate::boot(index, [0; 160]) else {
+            return Err(TemplateCompilationError::InvalidTemplateIndex);
+        };
+        match template.compile(body, tables) {
+            Err(TemplateCompilationError::PcmOrInputGenerator) => {
+                self.parameter_template = None;
+                Ok(())
+            }
+            Err(error) => Err(error),
+            Ok(()) => {
+                self.filter.mix = core::array::from_fn(|i| template.words[72 + 2 * i] as i16);
+                self.dynamic_filter.base.mix = self.filter.mix;
+                self.parameter_template = Some(template);
+                Ok(())
+            }
+        }
+    }
     pub fn compile(
         c: crate::program::TimbreControls,
         controls: &ProgramFilterTables<'_>,
@@ -146,6 +186,7 @@ impl CompiledTimbre {
         };
         let comb = (kind == 3).then_some(filter2_controls);
         CompiledTimbre {
+            parameter_template: None,
             filter,
             dynamic_filter: DynamicFilter {
                 input: ControllerFilter {

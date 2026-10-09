@@ -28,6 +28,19 @@ pub enum DrumCompilationError {
     },
 }
 impl CompiledDrumKit {
+    pub fn with_parameter_templates(
+        mut self,
+        tables: &radias_synth_domain::parameter_template::ParameterTemplateTables,
+    ) -> Result<Self, radias_synth_domain::parameter_template::TemplateCompilationError> {
+        for index in 0..16 {
+            self.instruments[index].graph.compile_parameter_template(
+                index + 4,
+                self.kit.instrument(index).unwrap(),
+                tables,
+            )?;
+        }
+        Ok(self)
+    }
     pub fn compile(
         program: &Program,
         kit: DrumKit,

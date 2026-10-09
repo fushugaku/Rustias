@@ -1,13 +1,13 @@
 //! Original 24-slot allocation priority, SH3 007aac/007b4c and 0075b4/007610.
 #[cfg(all(feature = "web-polyphony", target_arch = "wasm32"))]
-pub const VOICE_COUNT: usize = 48;
+pub const VOICE_COUNT: usize = 128;
 #[cfg(not(all(feature = "web-polyphony", target_arch = "wasm32")))]
 pub const VOICE_COUNT: usize = 24;
 #[cfg(all(feature = "web-polyphony", target_arch = "wasm32"))]
-pub type VoiceMask = u64;
+pub type VoiceMask = u128;
 #[cfg(not(all(feature = "web-polyphony", target_arch = "wasm32")))]
 pub type VoiceMask = u32;
-pub const VOICE_MASK: VoiceMask = (1 << VOICE_COUNT) - 1;
+pub const VOICE_MASK: VoiceMask = VoiceMask::MAX >> (VoiceMask::BITS as usize - VOICE_COUNT);
 pub const VOICES_PER_PROCESSOR: usize = VOICE_COUNT / 2;
 // Firmware instruction-cost budgets are not a browser CPU budget.
 const PROCESSOR_BUDGET: u32 = if VOICE_COUNT > 24 { 16_777_216 } else { 65_536 };

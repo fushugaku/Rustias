@@ -8,7 +8,7 @@ fn word(raw: &[u8], i: usize) -> u32 {
     u32::from_le_bytes(raw[i * 4..i * 4 + 4].try_into().unwrap())
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let root = PathBuf::from(std::env::args().nth(1).unwrap_or(".".into()));
+    let root = PathBuf::from(std::env::args().nth(1).unwrap_or("..".into()));
     let source = fs::read(root.join("firmware/dsp-master-host-stream.bin"))?;
     let table = MasterTables::from_host_stream(&source)?.bandwidth()?;
     let raw = fs::read(root.join("runs/native-clone/original-bandwidth.bin"))?;

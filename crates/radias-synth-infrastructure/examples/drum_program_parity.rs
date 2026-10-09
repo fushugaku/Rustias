@@ -41,8 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let master_image = fs::read(root.join("firmware/dsp-master-host-stream.bin"))?;
     let master =
         radias_synth_infrastructure::firmware::MasterTables::from_host_stream(&master_image)?;
-    let map = radias_synth_infrastructure::prepared::ControlMap::from_json(&fs::read(
-        root.join("assets/native-va/filter-controls.json"),
+    let map = radias_synth_infrastructure::prepared::ControlMap::from_system(&fs::read(
+        root.join("firmware/RADIAS_SYS_0200.bin"),
     )?)?;
     let mix = master.filter_mix()?;
     let base = radias_synth_infrastructure::prepared::PreparedVoice::from_program_json(&fs::read(

@@ -23,6 +23,12 @@ class RustiasProcessor extends AudioWorkletProcessor {
           if (!this.wasm.rustias_control(data.timbre, data.parameter, data.value)) this.snapshot();
           if(data.parameter===89)this.sequencer.setTempo(this.wasm.rustias_value(0,89)/10);
         }
+        else if(data.type==='circuit'){
+          const json=JSON.stringify(data.circuit),bytes=Uint8Array.from(json,c=>c.charCodeAt(0));
+          if(bytes.length>this.wasm.rustias_preset_capacity())throw new Error('Modular patch exceeds the engine buffer.');
+          new Uint8Array(this.wasm.memory.buffer,this.wasm.rustias_preset_buffer(),bytes.length).set(bytes);
+          if(!this.wasm.rustias_circuit(data.timbre,bytes.length))this.port.postMessage({type:'warning',message:'The engine rejected this modular patch.'});
+        }
         else if(data.type==='drum-gain')this.wasm.rustias_drum_gain(data.value);
         else if(data.type==='library-reset'){this.wasm.rustias_library_reset();this.libraryProfiles.clear();}
         else if(data.type==='library-sample'){

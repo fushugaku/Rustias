@@ -41,6 +41,7 @@ const SLEW: SlewWeights = SlewWeights {
 };
 
 struct SampleVoice {
+    circuit: Option<Box<dyn radias_synth_application::VoiceCircuit>>,
     instrument: usize,
     library: Option<u32>,
     timbre: u8,
@@ -79,6 +80,7 @@ struct LibrarySample {
 }
 
 pub struct Sampler {
+    circuits: [Option<Box<dyn radias_synth_application::VoiceCircuit>>; 4],
     samples: [Option<Rc<Vec<f32>>>; 16],
     modes: [u8; 16],
     pending: Vec<f32>,
@@ -103,6 +105,25 @@ pub struct Sampler {
     birth: u64,
 }
 impl Sampler {
+    pub fn set_circuit(
+        &mut self,
+        timbre: usize,
+        prototype: Option<Box<dyn radias_synth_application::VoiceCircuit>>,
+    ) {
+        for v in self
+            .voices
+            .iter_mut()
+            .flatten()
+            .filter(|v| v.timbre as usize == timbre)
+        {
+            match (&mut v.circuit, &prototype) {
+                (Some(current), Some(next)) => current.reconfigure(&**next),
+                (current, next) => *current = next.as_ref().map(|p| p.fresh()),
+            }
+        }
+        self.circuits[timbre] = prototype;
+    }
+
     fn amplifier_program(
         synth: &StandaloneSynth,
         owner: u8,
@@ -123,6 +144,7 @@ impl Sampler {
     }
     pub fn new(synth: &StandaloneSynth) -> Self {
         Self {
+            circuits: core::array::from_fn(|_| None),
             samples: Default::default(),
             modes: [0; 16],
             pending: Vec::new(),
@@ -583,6 +605,7 @@ impl Sampler {
         }
         self.birth = self.birth.wrapping_add(1);
         self.voices[slot] = Some(SampleVoice {
+            circuit: self.circuits[timbre as usize].as_ref().map(|p| p.fresh()),
             instrument,
             library,
             timbre,
@@ -793,7 +816,7 @@ impl Sampler {
             let Some(v) = &mut self.voices[slot] else {
                 continue;
             };
-            if v.amplitude.finished() || (v.mode != 2 && v.position >= v.data.len() as f64) {
+            if (v.amplitude.finished() && !v.circuit.as_ref().is_some_and(|p| p.tail_active())) || (v.mode != 2 && v.position >= v.data.len() as f64) {
                 self.voices[slot] = None;
                 continue;
             }
@@ -811,6 +834,65 @@ impl Sampler {
                 + (v.data[next] - v.data[index]) as f64 * (v.position - index as f64);
             v.position += v.step;
             let input = Sample((input * 2147483647.0) as i32);
+            v.envelopes.next(&self.controllers);
+            let target = ((v.amplitude.next_target(&self.controllers) as i32
+                * v.midi_volume_gain as i32)
+                >> 13)
+                .clamp(0, 32767) as i16;
+            let level = v.envelope.step(target, 0x1d4);
+            if let Some(circuit) = &mut v.circuit {
+                let eg = v.envelopes.levels();
+                let lfo = v.modulation.pair.values(&self.modulation_tables.lfo);
+                circuit.controls([
+                    if v.released { 0.0 } else { 1.0 },
+                    v.velocity as f64 / 127.0,
+                    60.0,
+                    eg[0] as f64 / 65535.0,
+                    eg[1] as f64 / 65535.0,
+                    lfo[0] as f64 / 32768.0,
+                    lfo[1] as f64 / 32768.0,
+                    0.0,
+                ]);
+                let parameters = radias_synth_domain::voice::VoiceParameters {
+                    primary: radias_synth_domain::primary_oscillator::PrimaryParameters::waveform(
+                        0,
+                        v.increment,
+                        0,
+                    )
+                    .unwrap(),
+                    primary_pitch_code: v.pitch,
+                    mix: OscillatorMix {
+                        primary_gain: 32767,
+                        secondary_gain: 0,
+                        noise_gain: 0,
+                    },
+                    filter: v.first,
+                    routing: v.program.graph.filter_routing.map(|route| {
+                        radias_synth_domain::filter_routing::DualFilterParameters {
+                            route,
+                            first: v.first,
+                            second: v.second,
+                        }
+                    }),
+                    shaper: v.shaper_parameters,
+                    envelope_target: target,
+                    envelope_rate: 0x1d4,
+                    pan_position: 0,
+                    secondary_modulation: Default::default(),
+                };
+                let output = circuit.process(
+                    [input, Sample(0), Sample(0)],
+                    parameters,
+                    level,
+                    synth.engine.waveform_table(),
+                );
+                bus = pan::route(
+                    Sample(saturate((output.0 as f64 * self.gain) as i64)),
+                    v.pan.next(SLEW),
+                    bus,
+                );
+                continue;
+            }
             let increment = v.increment;
             if let Some(shaper) = &mut v.shaper_parameters {
                 if let (Some(current), Some(target)) = (
@@ -871,12 +953,6 @@ impl Sampler {
             } else {
                 filtered
             };
-            v.envelopes.next(&self.controllers);
-            let target = ((v.amplitude.next_target(&self.controllers) as i32
-                * v.midi_volume_gain as i32)
-                >> 13)
-                .clamp(0, 32767) as i16;
-            let level = v.envelope.step(target, 0x1d4);
             bus = pan::route(
                 Sample(saturate(
                     (multiply_q15(filtered.0, level) as f64 * self.gain) as i64,

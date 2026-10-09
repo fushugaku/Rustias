@@ -19,7 +19,14 @@ pub fn compile(frequency: i32, resonance: i32, normalization: i32) -> FilterCont
     let high = (integrator_gain >> 16) as i16;
     let post_value = saturate((high_product(21845, high) as i32 as i64) << 2);
     let attenuation = ((1i64 << 30) - integrator_gain as i64).max(0);
-    let correction = high_product((attenuation >> 16) as i16, high) as i32;
+    // DF39/DE6f multiply memory's signed16 integrator high word by the
+    // accumulator's signed17 high operand. Negative frequencies can make the
+    // nonnegative attenuation exceed Q31; narrowing it to i16 wraps its guard
+    // bit and corrupts the post-feedback coefficient.
+    // This single memory/accumulator MPYM then narrows its product to signed32
+    // before the following accumulator addition; the four-part Q31 products
+    // above have a different wide-product boundary.
+    let correction = ((attenuation >> 16) * i64::from(high) * 2) as i32;
     let post_feedback =
         (saturate(normalization as i64 - post_value as i64 + correction as i64) >> 16) as i16;
     let left = (damped - (1i64 << 31)) as i32;

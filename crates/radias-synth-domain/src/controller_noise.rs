@@ -61,7 +61,10 @@ impl NoiseControl {
         let upper = ((u32::from(inverse) * 0x17ae) >> 16) + 0xf5;
         let inverse_pitch = (32767 - i32::from(pitch)) as u16;
         let square = (u32::from(inverse_pitch) * u32::from(inverse_pitch)) >> 15;
-        let input = ((u32::from(target.level as u16).wrapping_mul(square) >> 15) + 0xccc) as i32;
+        // The following SH mulu.w narrows the squared accumulator to its
+        // unsigned low word. Signed pitch shadows can make the square wider.
+        let input = ((u32::from(target.level as u16).wrapping_mul(u32::from(square as u16)) >> 15)
+            + 0xccc) as i32;
         FormantCompilerControl {
             shape: ((upper as u16 as u32) << 16) | u32::from(target.feedback as u16),
             input_gain: input.clamp(0, 32767) as i16,

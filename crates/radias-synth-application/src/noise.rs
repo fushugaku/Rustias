@@ -19,6 +19,15 @@ pub struct NoiseTables {
     pub counters: FormantCounterSeeds,
 }
 
+/// Controller packet values before ordered DSP delivery. Historical internal
+/// oscillator names are retained; numeric selections remain firmware inputs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NoiseControlTargets {
+    pub shape: Option<u32>,
+    pub excitation_gain: i16,
+    pub excitation_bias: i16,
+}
+
 impl NoiseTables {
     pub fn compile(
         &self,
@@ -37,11 +46,40 @@ impl NoiseTables {
     pub fn update(
         &self,
         voice: &mut NoiseVoiceControl,
-        mut primary: PrimaryControl,
+        primary: PrimaryControl,
         code: PitchCode,
         lfo1: i16,
         modulation: [i16; 2],
     ) {
+        self.update_controls(voice, primary, code, lfo1, modulation);
+        voice.pitch(code, &self.pitch, &self.noise);
+    }
+    pub fn update_controls(
+        &self,
+        voice: &mut NoiseVoiceControl,
+        primary: PrimaryControl,
+        code: PitchCode,
+        lfo1: i16,
+        modulation: [i16; 2],
+    ) {
+        let targets = self.control_targets(voice, primary, code, lfo1, modulation);
+        if let Some(shape) = targets.shape {
+            voice.update(NoiseTarget::FormantShape {
+                input_gain: (shape >> 16) as i16,
+                feedback: shape as i16,
+            });
+        }
+        voice.update(NoiseTarget::ExcitationGain(targets.excitation_gain));
+        voice.update(NoiseTarget::ExcitationBias(targets.excitation_bias));
+    }
+    pub fn control_targets(
+        &self,
+        voice: &NoiseVoiceControl,
+        mut primary: PrimaryControl,
+        code: PitchCode,
+        lfo1: i16,
+        modulation: [i16; 2],
+    ) -> NoiseControlTargets {
         primary.lfo1 = lfo1;
         primary.control1_modulation = modulation[0];
         primary.control2_modulation = modulation[1];
@@ -53,13 +91,22 @@ impl NoiseTables {
         let base = primary.compose().base;
         match voice {
             NoiseVoiceControl::Colored { .. } => {
-                voice.colored_target(control.colored(noise_control1(base)));
+                let target = control.colored(noise_control1(base));
+                NoiseControlTargets {
+                    shape: None,
+                    excitation_gain: target.color,
+                    excitation_bias: target.frequency,
+                }
             }
             NoiseVoiceControl::Formant { .. } => {
-                voice.formant_target(control.formant(formant_control1(base), code.raw() as i16));
+                let target = control.formant(formant_control1(base), code.raw() as i16);
+                NoiseControlTargets {
+                    shape: Some(target.shape),
+                    excitation_gain: target.input_gain,
+                    excitation_bias: target.frequency,
+                }
             }
         }
-        voice.pitch(code, &self.pitch, &self.noise);
     }
 }
 
@@ -161,6 +208,22 @@ impl NoiseVoiceControl {
             Self::Formant { parameters, .. } => {
                 parameters.increment = increment;
                 parameters.generator.frequency = formant_frequency(increment);
+            }
+        }
+    }
+    pub fn receive_pitch(
+        &mut self,
+        increment: radias_synth_domain::pitch::PhaseIncrement,
+        coefficient: i16,
+    ) {
+        match self {
+            Self::Colored { parameters, .. } => {
+                parameters.increment = increment;
+                parameters.generator.curve_scale = coefficient;
+            }
+            Self::Formant { parameters, .. } => {
+                parameters.increment = increment;
+                parameters.generator.frequency = coefficient;
             }
         }
     }

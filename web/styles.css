@@ -58,3 +58,43 @@
 @media(min-width:1400px){.sample-controls .lcd-choice,.sample-controls>button{height:32px;min-height:32px}.sample-gain label{font-size:8px}.sample-gain .knob{height:32px;min-height:32px}}
 
 .sample-mode{align-self:start}.sample-controls label{white-space:nowrap}
+
+/* A silver patch panel, using the same controls as the instrument rack. */
+.circuit{border-bottom:1px solid #a4adb5;min-width:0}
+.circuit-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;background:#b7bec5;border-bottom:1px solid #a4adb5}
+.circuit-toolbar h2{font-size:12px;letter-spacing:.06em;margin:0 8px 0 0;white-space:nowrap}
+.circuit-toolbar button{height:44px;min-width:44px;padding:0 12px;border:1px solid #a4adb5;border-radius:3px;background:#cbd0d5;color:#262b30;white-space:nowrap}
+.circuit-toolbar button[aria-pressed=true]{background:#c7dfeb;border-color:#3e6380;color:#334d61}
+#circuit-add{width:164px}#circuit-zoom{width:88px}#circuit-message{font:12px ui-monospace,monospace;color:#334d61;flex:1}
+.circuit-viewport{height:min(70vh,740px);min-height:360px;overflow:auto;overscroll-behavior:contain;background-color:#b7bec5;background-image:radial-gradient(#a4adb5 1px,transparent 1px);background-size:24px 24px;position:relative}
+#circuit-space{position:relative}#circuit-canvas{position:absolute;left:0;top:0;transform-origin:0 0;isolation:isolate}
+#circuit-wires{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:2}
+.cable{fill:none;stroke:#3e6380;stroke-width:4;pointer-events:stroke;cursor:pointer;stroke-linecap:round}
+.cable.cv{stroke:#b4464d}.cable.selected,.cable:focus{stroke-width:8;outline:none;filter:drop-shadow(0 0 2px #c7dfeb)}
+#circuit-canvas .circuit-node{position:absolute;width:320px;min-width:0;margin:0;padding:12px;border:1px solid #a4adb5;border-radius:3px;background:#cbd0d5;box-shadow:0 2px 4px #262b3020;z-index:3}
+#circuit-canvas .module-heading{min-height:32px;margin-bottom:12px;touch-action:none;cursor:grab;user-select:none}
+#circuit-canvas .module-heading:active{cursor:grabbing}#circuit-canvas .module-heading:focus-visible{outline:2px solid #3e6380;outline-offset:4px}
+#circuit-canvas .module-heading h2{font-size:13px;letter-spacing:.06em}#circuit-canvas .module-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 8px}
+#circuit-canvas .patch-body{display:flex;flex-direction:column}#circuit-canvas .patch-route{display:grid;grid-template-columns:1fr 1fr}
+#circuit-canvas .module-controls .parameter{min-width:0}#circuit-canvas .parameter label{height:28px;white-space:normal;line-height:14px;display:flex;justify-content:center;align-items:center;text-align:center}
+#circuit-canvas .knob{width:48px;height:48px}#circuit-canvas .dial-value{font-size:14px;height:28px;min-height:28px}#circuit-canvas .lcd-choice,#circuit-canvas .switch-control,#circuit-canvas .lcd-readout{min-height:48px;font-size:12px;min-width:0;width:100%}
+#circuit-canvas .module-voice .module-controls,#circuit-canvas .module-scale .module-controls{grid-template-columns:repeat(4,minmax(0,1fr))}
+#circuit-canvas .sample-controls{grid-template-columns:1fr 1fr}#circuit-canvas .sample-controls .sample-source{grid-column:1/-1}
+#circuit-canvas .circuit-ports{border-top:1px solid #a4adb5;margin-top:12px;padding-top:8px;display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.circuit-inputs{display:flex;flex-direction:column;gap:4px}.circuit-port{display:flex;align-items:center;gap:8px;min-height:44px;min-width:72px;padding:4px 8px;background:#b7bec5;border:1px solid #a4adb5;border-radius:3px;color:#334d61;font:12px ui-monospace,monospace;touch-action:manipulation}
+.port-dot{display:block;width:16px;height:16px;border-radius:50%;background:#46515b;border:3px solid #a4adb5;box-shadow:inset 0 1px 2px #262b30}
+.circuit-port.audio.connected .port-dot,.circuit-port.audio[aria-pressed=true] .port-dot{background:#c7dfeb;border-color:#3e6380}.circuit-port.cv.connected .port-dot,.circuit-port.cv[aria-pressed=true] .port-dot{background:#d66169;border-color:#b4464d}
+.circuit-port[aria-pressed=true]{outline:2px solid #3e6380}.circuit-port.cv{color:#b4464d}.circuit-remove{width:32px;height:32px;min-width:32px;flex:none;font-size:20px}.circuit-extra .module-heading{display:flex;justify-content:space-between;align-items:center}
+.circuit-toolbar button:hover,.circuit-port:hover{border-color:#46515b}.circuit-toolbar button:focus-visible,.circuit-port:focus-visible{outline:2px solid #3e6380;outline-offset:2px}.circuit-toolbar button:disabled{opacity:.45;cursor:default}
+@media(max-width:800px){.circuit-toolbar{padding:12px;gap:8px}.circuit-toolbar h2{width:100%;margin:0}.circuit-viewport{height:65vh}#circuit-canvas .circuit-remove{min-width:44px;min-height:44px}#circuit-message{min-height:16px;flex-basis:100%}}
+
+#circuit-canvas .module-controls .parameter{height:108px;gap:0}
+#circuit-canvas .parameter>label{flex:none;font-size:11px;height:28px;line-height:14px}
+#circuit-canvas .parameter>.dial-value{flex:none;line-height:28px}
+#circuit-canvas .module-drive .module-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+#circuit-canvas .module-controls .segment-parameter{height:auto}
+#circuit-canvas .patch-route .parameter{display:flex;height:80px;gap:4px}
+#circuit-canvas .patch-route .parameter>label{text-align:center;font-size:11px}
+#circuit-canvas .module-scale .parameter:nth-child(n+5){height:108px}
+#circuit-canvas .module-scale .parameter:nth-child(n+5) .knob{display:flex}
+#circuit-canvas .module-scale .parameter:nth-child(n+5) .dial-value{background:transparent;border:0;height:28px}

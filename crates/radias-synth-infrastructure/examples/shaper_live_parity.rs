@@ -1,4 +1,7 @@
 //! Render with native shaper target compilation and independently slewed current.
+use radias_synth_application::synthesis_transport::{
+    DeliveredSynthesisParameter, ScalarParameter, SynthesisParameterTransport,
+};
 use radias_synth_application::{
     VoiceRenderer,
     shaper::{ShaperMode, ShaperProgram},
@@ -12,15 +15,19 @@ use std::{fs, path::PathBuf};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let root = PathBuf::from(args.next().ok_or("Repository required")?);
+    let queued_controls = std::env::args().any(|arg| arg == "--queued-controls");
     let out = root.join("runs/native-clone");
     let table = MasterTables::from_host_stream(&fs::read(
         root.join("firmware/dsp-master-host-stream.bin"),
     )?)?
     .waveform()?;
-    for name in args {
+    for name in args.filter(|arg| arg != "--queued-controls") {
         let raw = fs::read(out.join(format!("{name}-voice-va-inputs.bin")))?;
-        let source_program =
-            fs::read(out.join(format!("{}.program.bin", name.trim_start_matches("live-"))))?;
+        let program_name = name.strip_suffix("-queue-reference").unwrap_or(&name);
+        let source_program = fs::read(out.join(format!(
+            "{}.program.bin",
+            program_name.trim_start_matches("live-")
+        )))?;
         let mode = ShaperMode::from_allocation(source_program[110] & 3, source_program[111] & 15)
             .ok_or("Unqualified shaper program")?;
         let mut program = ShaperProgram {
@@ -99,6 +106,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         renderer.control_slew(plan.control_slew, service_phase);
         renderer.set_shaper_immediate(Some(compiled));
+        let mut transport = SynthesisParameterTransport::default();
+        let mut sender_origin = 0u64;
+        let mut queued_packets = 0usize;
         let mut target_depth = compiled.coefficients.depth();
         let mut delivered = Vec::new();
         for event in &observations {
@@ -158,7 +168,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     target_changes += 1;
                 }
                 target_depth = next;
-                renderer.set_shaper(Some(target));
+                if queued_controls {
+                    transport
+                        .shaper_depth(sender_origin, 0, next)
+                        .map_err(|e| format!("Shaper sender failed: {e:?}"))?;
+                    let mut received = None;
+                    transport.advance_until(sender_origin + 106, |_, slot, event| {
+                        assert_eq!(slot, 0);
+                        if let DeliveredSynthesisParameter::Scalar(
+                            ScalarParameter::ShaperDepth,
+                            depth,
+                        ) = event
+                        {
+                            received = Some(depth);
+                            renderer.set_shaper_depth(depth);
+                            queued_packets += 1;
+                        } else {
+                            panic!("Unexpected shaper receiver publication");
+                        }
+                    });
+                    if received != Some(next) || transport.pending() != 0 {
+                        return Err("Shaper payload changed during delivery".into());
+                    }
+                    sender_origin += 106;
+                } else {
+                    renderer.set_shaper(Some(target));
+                }
                 delivered_index += 1;
             }
             let shaper = renderer
@@ -225,10 +260,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Sample(0),
             ]);
         }
-        wav::write_buses(
-            &out.join(format!("{name}-rust-live-shaper-mix.wav")),
-            &frames,
-        )?;
+        let audio_suffix = if queued_controls {
+            "rust-queued-shaper-mix"
+        } else {
+            "rust-live-shaper-mix"
+        };
+        wav::write_buses(&out.join(format!("{name}-{audio_suffix}.wav")), &frames)?;
         let passed = errors.iter().all(|&n| n == 0);
         let report = serde_json::json!({"passed":passed,"name":name,"frames":plan.reference_voice_frames,"errors":errors,
             "native_initial_coefficient_constructor_matches_original":true,"native_target_compiler_used":true,
@@ -238,9 +275,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "compiled_original_shaper_input_deliveries":delivered.len(),
             "original_pre_voice_controller_inputs_used_for_initial_constructor":pre_voice_inputs,
             "other_original_compiled_controls_and_event_timestamps_used":true,"initial_actor_states_used":true,
+            "production_sender_and_memory_receiver_used":queued_controls,"queued_packets":queued_packets,
+            "source_delivery_frames_and_sequential_sender_origins_declared":queued_controls,
             "independent_controller_hpi_audio_parity":false,"complete_native_engine":false});
+        let report_suffix = if queued_controls {
+            "shaper-delivery-parity"
+        } else {
+            "shaper-live-parity"
+        };
         fs::write(
-            out.join(format!("{name}-shaper-live-parity.json")),
+            out.join(format!("{name}-{report_suffix}.json")),
             serde_json::to_vec_pretty(&report)?,
         )?;
         println!("{report}");

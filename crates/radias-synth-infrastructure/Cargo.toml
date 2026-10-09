@@ -11,5 +11,6 @@ serde = { version = "=1.0.229", features = ["derive"] }
 cpal = { version = "=0.18.2", optional = true }
 
 [features]
+web-modular = ["radias-synth-application/web-modular", "radias-synth-domain/web-modular"]
 default = []
 desktop-io = ["dep:cpal"]

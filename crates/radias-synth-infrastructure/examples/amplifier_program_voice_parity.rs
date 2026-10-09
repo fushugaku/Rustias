@@ -26,8 +26,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let master_image = fs::read(root.join("firmware/dsp-master-host-stream.bin"))?;
     let waveform = MasterTables::from_host_stream(&master_image)?.waveform()?;
-    for label in args {
-        let name = if label.starts_with("envelope-curve-") {
+    let labels = args.collect::<Vec<_>>();
+    let native_rates = labels.iter().any(|s| s == "--native-rates");
+    let rate_tables = firmware::amplifier_rate_table(&system)?;
+    for label in labels.into_iter().filter(|s| s != "--native-rates") {
+        let (source_name, label) = label
+            .split_once(':')
+            .map_or((None, label.as_str()), |(name, label)| (Some(name), label));
+        let name = if let Some(name) = source_name {
+            name.to_owned()
+        } else if label.starts_with("envelope-curve-") {
             format!("live-{label}")
         } else {
             format!("live-{label}-reference")
@@ -46,6 +54,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .lines()
                 .map(serde_json::from_str)
                 .collect::<Result<_, _>>()?;
+        if native_rates {
+            events.extend(
+                fs::read_to_string(out.join(format!("{name}-amplifier-packet-events.jsonl")))?
+                    .lines()
+                    .map(serde_json::from_str::<Value>)
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+            events.sort_by_key(|e| (e["frame"].as_u64().unwrap(), e["order"].as_u64().unwrap()));
+        }
         let key_path = out.join(format!("{name}-native-amplifier-key-events.jsonl"));
         let native_key = label.starts_with("amp-key-");
         let native_expression = label.starts_with("amp-expression-");
@@ -108,6 +125,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut output = vec![[Sample(0); 8]; (original.len() - 44) / 32];
         let mut renderer = VoiceRenderer::new(plan.initial, plan.parameters);
+        let mut amplifier_delivery =
+            radias_synth_domain::amplifier_delivery::AmplifierDelivery::default();
+        let mut pending_rate = 0u16;
+        let mut rate_requests = 0;
+        let mut rate_commits = 0;
+        if native_rates {
+            renderer.set_envelope_rate(0);
+        }
         if native_common {
             let raw_word = |i: usize| u32::from_le_bytes(raw[4 * i..4 * i + 4].try_into().unwrap());
             renderer.initialize_pan(
@@ -193,6 +218,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 match kind {
+                    "packet_request" => {
+                        let action = event["action"]
+                            .as_u64()
+                            .ok_or("Original AMP action absent")?;
+                        let update = match action {
+                            0 | 1 => amplifier_delivery.binding(
+                                &rate_tables,
+                                event["attack"].as_u64().unwrap() as u8,
+                                event["attack_modulation"].as_u64().unwrap() as i16,
+                                target,
+                                action == 1,
+                            ),
+                            2 => {
+                                if event["expected_mode_before"].as_u64()
+                                    != Some(u64::from(amplifier_delivery.mode))
+                                {
+                                    errors += 1;
+                                }
+                                amplifier_delivery.service(&rate_tables, target)
+                            }
+                            3 => radias_synth_domain::amplifier_delivery::AmplifierDelivery::reset(
+                                &rate_tables,
+                            ),
+                            _ => return Err("Unknown original AMP packet action".into()),
+                        };
+                        if let radias_synth_domain::amplifier_delivery::AmplifierPacket::RateAndTarget {rate,..}=update {pending_rate=rate;}
+                        rate_requests += 1;
+                    }
+                    "rate_commit" => {
+                        let rate = if event["pc"].as_u64() == Some(0xd534) {
+                            0
+                        } else {
+                            pending_rate
+                        };
+                        if event["expected_rate"].as_u64() != Some(u64::from(rate)) {
+                            errors += 1;
+                        }
+                        renderer.set_envelope_rate(rate as i16);
+                        rate_commits += 1;
+                    }
                     "program_binding" => {
                         common_application = u8::from(
                             event["alternate"]
@@ -285,6 +350,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .as_bool()
                                 .ok_or("Source acknowledgement missing")?,
                         );
+                        if controller.as_ref().unwrap().envelope.stage
+                            == radias_synth_domain::amp_envelope::EnvelopeStage::ReleaseHold
+                        {
+                            amplifier_delivery.release_zero();
+                        }
                         services += 1;
                     }
                     "release" => controller.as_mut().unwrap().release(&tables),
@@ -383,7 +453,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         wav::write_buses(
-            &out.join(format!("{name}-rust-amplifier-program.wav")),
+            &out.join(format!(
+                "{name}-rust-amplifier-{}.wav",
+                if native_rates { "delivery" } else { "program" }
+            )),
             &output,
         )?;
         let passed = errors == 0 && services > 10 && commits > 10 && event_index == events.len();
@@ -392,6 +465,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let passed = passed
             && (!native_common
                 || (binding_events == 1 && pan_compilations == 1 && pan_commits == 2));
+        let passed = passed && (!native_rates || rate_requests > 10 && rate_commits > 1);
         let report = serde_json::json!({"name":name,"passed":passed,"errors":errors,"services":services,
             "processed_events":event_index,"source_events":events.len(),
             "commits":commits,"compiled_controls":compiled_controls,"frames":output.len(),
@@ -400,6 +474,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "native_Expression_cache_events":expression_cache_events,
             "native_program_common_binding":native_common,"native_binding_events":binding_events,
             "native_common_pan_compilations":pan_compilations,"native_common_pan_commits":pan_commits,
+            "native_AMP_rate_packets":native_rates,"rate_requests":rate_requests,"rate_commits":rate_commits,"original_AMP_smoothing_rates_replayed":!native_rates,
             "stored_EG2_eight_fields_and_amp_level_used":true,"native_AmplifierProgram_controller_used":true,
             "velocity_time_sensitivity":program.envelope.velocity_time_sensitivity,
             "velocity_level_sensitivity":program.envelope.velocity_level_sensitivity,
@@ -409,7 +484,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "original_amplifier_targets_or_envelope_levels_replayed_to_render":false,
             "independent_controller_hpi_timing_qualified":false,"complete_native_engine":false});
         fs::write(
-            out.join(format!("{name}-amplifier-program-parity.json")),
+            out.join(format!(
+                "{name}-amplifier-{}-parity.json",
+                if native_rates {
+                    "delivery-voice"
+                } else {
+                    "program"
+                }
+            )),
             serde_json::to_vec_pretty(&report)?,
         )?;
         println!("{report}");

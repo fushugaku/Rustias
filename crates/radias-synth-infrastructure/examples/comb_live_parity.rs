@@ -1,5 +1,8 @@
 //! Complete native oscillator/filter/Comb/amplifier/pan pipeline; original initial states and other controls.
 use radias_synth_application::VoiceRenderer;
+use radias_synth_application::synthesis_transport::{
+    DeliveredSynthesisParameter, SynthesisParameterTransport,
+};
 use radias_synth_domain::{
     Sample,
     comb::{Comb, CombDelay, CombFeedback, CombFeedbackState},
@@ -14,6 +17,7 @@ fn w(row: &[u8], n: usize) -> u32 {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let root = PathBuf::from(args.next().ok_or("Repository required")?);
+    let queued_controls = std::env::args().any(|arg| arg == "--queued-controls");
     let out = root.join("runs/native-clone");
     let table = MasterTables::from_host_stream(&fs::read(
         root.join("firmware/dsp-master-host-stream.bin"),
@@ -22,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let system = fs::read(root.join("firmware/RADIAS_SYS_0200.bin"))?;
     let comb_tables = radias_synth_infrastructure::firmware::comb_control_tables(&system)?;
     let amplifier = radias_synth_infrastructure::firmware::amplifier_tables(&system)?;
-    for name in args {
+    for name in args.filter(|arg| arg != "--queued-controls") {
         let raw = fs::read(out.join(format!("{name}-voice-va-inputs.bin")))?;
         let exchange = fs::read(out.join(format!("{name}-comb-samples.bin")))?;
         if raw.len() / 704 != exchange.len() / 48 {
@@ -50,6 +54,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         renderer.set_filter2_immediate(initial);
         let mut target = initial;
         let mut deliveries = Vec::new();
+        let mut transport = SynthesisParameterTransport::default();
+        let mut bank = [0u16; 160];
+        bank[94] = initial.input_gain as u16;
+        bank[96] = (initial.feedback >> 16) as u16;
+        bank[97] = initial.feedback as u16;
+        bank[104] = (initial.integrator_gain >> 16) as u16;
+        bank[105] = initial.integrator_gain as u16;
+        transport.restore_parameters(0, bank);
+        transport.configure_filter2(0, 0, initial);
+        let mut sender_origin = 0u64;
+        let mut queued_packets = 0usize;
+        let mut cutoff_shadow = None;
         for event in &observations {
             // D534 slot-template reset is initial actor preparation, not a
             // delivered controller packet. E39A is the original long store.
@@ -88,21 +104,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 manual_offset: v(18)? as i8,
             };
             let delay = event["kind"].as_str() == Some("delay");
-            let value = if delay {
-                comb_tables.delay(cutoff.code(&amplifier))
+            let cutoff_code = if delay {
+                let code = cutoff.code(&amplifier);
+                cutoff_shadow = Some(code);
+                code
             } else {
-                comb_tables.compile_feedback(
-                    event["cutoff_code"]
-                        .as_u64()
-                        .ok_or("Comb feedback code absent")? as i32,
-                    resonance,
-                )
+                cutoff_shadow.ok_or("Comb feedback arrived before declared cutoff composition")?
+            };
+            let value = if delay {
+                comb_tables.delay(cutoff_code)
+            } else {
+                if event["cutoff_code"].as_u64() != Some(cutoff_code as u32 as u64) {
+                    return Err(format!(
+                        "Native Comb cutoff shadow differs:{name}: {event}; computed{cutoff_code}"
+                    )
+                    .into());
+                }
+                comb_tables.compile_feedback(cutoff_code, resonance)
             };
             if event["expected_target"].as_u64() != Some(value as u64) {
                 return Err(
                     format!("Native Comb target differs:{name}: {event}; computed{value}").into(),
                 );
             }
+            let value = if queued_controls {
+                let sent = if delay {
+                    transport.comb_delay(sender_origin, 0, value)
+                } else {
+                    transport.comb_feedback(sender_origin, 0, value)
+                };
+                sent.map_err(|e| format!("Comb sender failed: {e:?}"))?;
+                let mut received = None;
+                transport.advance_until(sender_origin + 117, |_, slot, event| {
+                    assert_eq!(slot, 0);
+                    if let DeliveredSynthesisParameter::Filter2(c) = event {
+                        assert_eq!(
+                            c.output,
+                            radias_synth_domain::filter_routing::Filter2Output::Comb
+                        );
+                        received = Some(if delay {
+                            c.integrator_gain as u32
+                        } else {
+                            c.feedback as u32
+                        });
+                        queued_packets += 1;
+                    } else {
+                        panic!("Unexpected Comb receiver publication");
+                    }
+                });
+                sender_origin += 117;
+                if received != Some(value) || transport.pending() != 0 {
+                    return Err("Comb payload changed during delivery".into());
+                }
+                received.unwrap()
+            } else {
+                value
+            };
             deliveries.push((
                 event["frame"]
                     .as_u64()
@@ -245,11 +302,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Sample(0),
             ]);
         }
-        wav::write_buses(&out.join(format!("{name}-rust-live-comb-mix.wav")), &frames)?;
+        let audio_suffix = if queued_controls {
+            "rust-queued-comb-mix"
+        } else {
+            "rust-live-comb-mix"
+        };
+        wav::write_buses(&out.join(format!("{name}-{audio_suffix}.wav")), &frames)?;
         let passed = errors.iter().all(|&n| n == 0) && coefficient_errors == [0; 2];
-        let report = serde_json::json!({"passed":passed,"name":name,"frames":plan.reference_voice_frames,"errors":errors,"coefficient_errors":coefficient_errors,"native_comb_target_changes":target_changes,"original_four_sample_service_phase_used":true,"original_modulation_envelope_and_key_inputs_used":true,"native_comb_arithmetic_and_memory_used":true,"native_comb_controller_compilation_used":true,"original_comb_controller_coefficients_used_to_render":false,"initial_actor_memory_and_clock_used":true,"other_original_compiled_controls_and_event_times_used":true,"original_comb_incoming_samples_replayed":false,"original_prepared_comb_output_samples_replayed":false,"recorded_audio_used_to_render":false,"complete_native_engine":false});
+        let report = serde_json::json!({"passed":passed,"name":name,"frames":plan.reference_voice_frames,"errors":errors,"coefficient_errors":coefficient_errors,"native_comb_target_changes":target_changes,"original_four_sample_service_phase_used":true,"original_modulation_envelope_and_key_inputs_used":true,"native_comb_arithmetic_and_memory_used":true,"native_comb_controller_compilation_used":true,"original_comb_controller_coefficients_used_to_render":false,"initial_actor_memory_and_clock_used":true,"other_original_compiled_controls_and_event_times_used":true,"original_comb_incoming_samples_replayed":false,"original_prepared_comb_output_samples_replayed":false,"recorded_audio_used_to_render":false,"production_sender_and_memory_receiver_used":queued_controls,"queued_packets":queued_packets,"cutoff_shadow_computed_from_original_inputs":true,"earlier_cutoff_shadow_retained_for_feedback":true,"source_delivery_frames_and_sequential_sender_origins_declared":queued_controls,"complete_native_engine":false});
+        let report_suffix = if queued_controls {
+            "comb-delivery-parity"
+        } else {
+            "comb-live-parity"
+        };
         fs::write(
-            out.join(format!("{name}-comb-live-parity.json")),
+            out.join(format!("{name}-{report_suffix}.json")),
             serde_json::to_vec_pretty(&report)?,
         )?;
         println!("{report}");

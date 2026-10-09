@@ -7,7 +7,7 @@ use radias_synth_infrastructure::firmware::MasterTables;
 use std::{fs, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let root = PathBuf::from(std::env::args().nth(1).unwrap_or(".".into()));
+    let root = PathBuf::from(std::env::args().nth(1).unwrap_or("..".into()));
     let source = fs::read(root.join("firmware/dsp-master-host-stream.bin"))?;
     let table = MasterTables::from_host_stream(&source)?.waveform()?;
     let raw = fs::read(root.join("runs/native-clone/original-primary-ramp.bin"))?;

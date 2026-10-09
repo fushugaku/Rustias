@@ -9,7 +9,7 @@ use std::{fs, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    let root = PathBuf::from(args.first().map(String::as_str).unwrap_or("."));
+    let root = PathBuf::from(args.first().map(String::as_str).unwrap_or(".."));
     let source = fs::read(root.join("firmware/dsp-master-host-stream.bin"))?;
     let table = MasterTables::from_host_stream(&source)?.waveform()?;
     for name in args.iter().skip(1) {

@@ -184,6 +184,17 @@ impl AmplifierController {
         self.sample_phase += 1;
         self.target
     }
+    /// Read/compile the held target without servicing the envelope. The shared
+    /// TMU0 scheduler calls `service` explicitly for the whole physical bank.
+    pub fn held_target(&mut self, tables: &ControllerTables) -> i16 {
+        if self.pending_compile {
+            self.compile(tables);
+        }
+        self.target
+    }
+    pub fn target(&self) -> i16 {
+        self.target
+    }
     pub fn finished(&self) -> bool {
         self.envelope.stage == EnvelopeStage::Finished
     }

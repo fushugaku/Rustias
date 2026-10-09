@@ -90,16 +90,19 @@ impl VoiceEnvelopes {
     pub fn next(&mut self, tables: &ControllerTables) {
         if self.sample_phase == 24 {
             self.sample_phase = 0;
-            for i in 0..2 {
-                self.envelopes[i].publish();
-                self.envelopes[i].tick(
-                    self.programs[i].parameters(self.note, self.velocity),
-                    &tables.curves,
-                    &tables.timing,
-                );
-            }
+            self.service(tables);
         }
         self.sample_phase += 1;
+    }
+    pub fn service(&mut self, tables: &ControllerTables) {
+        for i in 0..2 {
+            self.envelopes[i].publish();
+            self.envelopes[i].tick(
+                self.programs[i].parameters(self.note, self.velocity),
+                &tables.curves,
+                &tables.timing,
+            );
+        }
     }
     pub fn release(&mut self, tables: &ControllerTables) {
         for i in 0..2 {
@@ -137,6 +140,24 @@ impl VoiceEnvelopes {
         modulation: [i16; 3],
         relative_pitch: i16,
     ) -> Option<FilterCoefficients> {
+        let (frequency, f) =
+            self.filter_inputs_with_pitch(table, tables, modulation, relative_pitch)?;
+        let c =
+            radias_synth_domain::filter_control::compile(frequency, f.resonance, f.normalization);
+        let mut base = f.base;
+        base.feedback = c.feedback;
+        base.integrator_gain = c.integrator_gain;
+        base.post_gain = c.post_gain;
+        base.post_feedback = c.post_feedback;
+        Some(base)
+    }
+    pub fn filter_inputs_with_pitch(
+        &self,
+        table: &ControllerFilterTables,
+        tables: &ControllerTables,
+        modulation: [i16; 3],
+        relative_pitch: i16,
+    ) -> Option<(i32, DynamicFilter)> {
         let mut f = self.filter?;
         f.input.eg1_level = self.envelopes[0].envelope.segment.level;
         f.input.eg1_velocity_sensitivity = self.programs[0].velocity_level_sensitivity;
@@ -148,15 +169,6 @@ impl VoiceEnvelopes {
             f.input.key_modulation,
         ] = modulation;
         let frequency = f.input.frequency(table, &tables.amplifier);
-        let c = radias_synth_domain::filter_control::compile(
-            frequency as i32,
-            f.resonance,
-            f.normalization,
-        );
-        f.base.feedback = c.feedback;
-        f.base.integrator_gain = c.integrator_gain;
-        f.base.post_gain = c.post_gain;
-        f.base.post_feedback = c.post_feedback;
-        Some(f.base)
+        Some((frequency as i32, f))
     }
 }

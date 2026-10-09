@@ -39,6 +39,13 @@ pub enum Command {
     Wheel(u8, u8),
     Expression(u8, u8),
     Performance(radias_synth_domain::performance::GlobalPerformance),
+    ControllerService(radias_synth_domain::controller_service::ControllerServiceTimer),
+    AmplifierDelivery(radias_synth_domain::amplifier_delivery::AmplifierRateTable),
+    ConstructorFilterMix(Box<radias_synth_domain::filter_control::FilterMixTable>),
+    PitchDelivery(
+        Box<[radias_synth_domain::pitch_receiver::PitchReceiverRom; 2]>,
+        radias_synth_domain::primary_pitch_dispatch::PrimaryPitchSendTable,
+    ),
     PortamentoSwitch(u8, bool),
     Sustain(u8, u8),
     SustainProgram(u8, radias_synth_domain::sustain::SustainProgram),
@@ -99,7 +106,9 @@ pub struct Synthesizer {
     voice_costs: Option<VoiceCostTables>,
     table: WaveformTable,
     pub(crate) pool: Box<PolyphonicRenderer>,
+    #[cfg(target_arch = "wasm32")]
     buffer: [StereoFrame; 128],
+    #[cfg(target_arch = "wasm32")]
     position: usize,
     tuning: Option<(PitchTable, BandwidthTable)>,
     controller_tables: Option<ControllerTables>,
@@ -116,6 +125,10 @@ pub struct Synthesizer {
 
 #[derive(Clone, Copy)]
 pub(crate) struct Timbre {
+    parameter_template: Option<(
+        u8,
+        radias_synth_domain::parameter_template::ParameterTemplate,
+    )>,
     receive_flags: u8,
     key_window: [u8; 2],
     pitch: radias_synth_domain::note_pitch::PitchProgram,
@@ -172,6 +185,7 @@ impl Synthesizer {
         Ok(Self {
             plans: plans.into_boxed_slice(),
             timbres: core::array::from_fn(|i| Timbre {
+                parameter_template: None,
                 receive_flags: 255,
                 key_window: [0, 127],
                 pitch: Default::default(),
@@ -195,7 +209,9 @@ impl Synthesizer {
             voice_costs,
             table,
             pool,
+            #[cfg(target_arch = "wasm32")]
             buffer: [StereoFrame::default(); 128],
+            #[cfg(target_arch = "wasm32")]
             position: 128,
             tuning,
             controller_tables,
@@ -209,6 +225,17 @@ impl Synthesizer {
             unsupported_drum_notes: 0,
             drum_pads: Default::default(),
         })
+    }
+    #[cfg(feature = "web-modular")]
+    pub fn set_circuit(
+        &mut self,
+        timbre: usize,
+        prototype: Option<Box<dyn radias_synth_application::VoiceCircuit>>,
+    ) {
+        self.pool.set_circuit(timbre, prototype);
+    }
+    pub fn waveform_table(&self) -> &WaveformTable {
+        &self.table
     }
     pub fn active_count(&self) -> usize {
         self.pool.active_count()
@@ -230,10 +257,13 @@ impl Synthesizer {
     }
     pub fn drum_kit(&mut self, kit: Box<radias_synth_application::drum_program::CompiledDrumKit>) {
         self.pool.stop();
-        self.buffer.fill(StereoFrame::default());
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.buffer.fill(StereoFrame::default());
+            self.position = 128;
+        }
         self.drum_pads = Default::default();
         self.drums = Some(kit);
-        self.position = 128;
         if let (Some(kit), Some(tables)) = (&self.drums, &self.controller_tables) {
             self.pool.edit_program_common(
                 radias_synth_domain::program_binding::ProgramCommon {
@@ -267,10 +297,13 @@ impl Synthesizer {
     }
     pub fn clear_drums(&mut self) {
         self.pool.stop();
-        self.buffer.fill(StereoFrame::default());
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.buffer.fill(StereoFrame::default());
+            self.position = 128;
+        }
         self.drum_pads = Default::default();
         self.drums = None;
-        self.position = 128;
     }
 
     pub fn set_performance_enabled(&mut self, enabled: bool) {
@@ -320,6 +353,16 @@ impl Synthesizer {
         );
         let pitch_code = synthesis_note as u16 * 256;
         let mut renderer = VoiceRenderer::new(plan.initial, plan.parameters);
+        let template_primary = settings
+            .parameter_template
+            .filter(|(selection, _)| *selection == settings.primary.selection)
+            .and_then(|(_, template)| {
+                radias_synth_domain::primary_parameters::decode(&template.words)
+            });
+        if let Some(primary) = template_primary {
+            renderer.select_primary(primary);
+        }
+        renderer.reset_filter_memory();
         renderer.control_slew(plan.control_slew, (plan.reference_start_frame & 3) as u8);
         // D534 starts the ordinary waveform modulation current at zero. The
         // desktop template's observed sustained current is not a new-note state.
@@ -330,9 +373,10 @@ impl Synthesizer {
             let increment = pitch.increment(code);
             renderer.set_pitch(increment, bandwidth.coefficient(increment));
             renderer.set_primary_pitch_code(code);
-            if let Some(primary) = settings
-                .primary
-                .compile_waveform(increment, bandwidth.coefficient(increment))
+            if template_primary.is_none()
+                && let Some(primary) = settings
+                    .primary
+                    .compile_waveform(increment, bandwidth.coefficient(increment))
             {
                 renderer.select_primary(primary);
             }
@@ -441,8 +485,7 @@ impl Synthesizer {
             }
         } else {
             self.pool.trigger(voice, cost);
-        }
-        self.position = 128;
+        };
     }
     pub fn apply(&mut self, command: Command) {
         match command {
@@ -454,8 +497,6 @@ impl Synthesizer {
                 self.drums = drums;
                 self.performance_enabled = true;
                 self.pool.stop();
-                self.buffer.fill(StereoFrame::default());
-                self.position = 128;
                 self.pool.set_tempo(program.stored.tempo_tenths);
                 if let Some(tables) = &self.controller_tables {
                     self.pool.edit_program_common(
@@ -471,6 +512,9 @@ impl Synthesizer {
                     let c = source.controls;
                     let compiled = program.timbres[timbre];
                     self.timbres[timbre] = Timbre {
+                        parameter_template: compiled
+                            .parameter_template
+                            .map(|template| (c.oscillator_selection, template)),
                         receive_flags: source.receive_flags,
                         key_window: source.key_window,
                         pitch: c.pitch,
@@ -559,6 +603,24 @@ impl Synthesizer {
                         tables,
                         modulation,
                     );
+                    if let Some(costs) = &self.voice_costs
+                        && let Some(cost) = costs.cost(VoiceCostParameters {
+                            primary: next.controls.oscillator_selection,
+                            secondary: next.controls.secondary.selection,
+                            filter_route: next.controls.filter_route,
+                            drive_mode: next.controls.shaper.allocation_mode(),
+                            shaper_type: next.controls.shaper.allocation_type(),
+                        })
+                    {
+                        for slot in 0..24 {
+                            if self.pool.active_voice(slot).is_some_and(|v| {
+                                v.timbre == drums.program.timbre.unwrap()
+                                    && v.drum_instrument == Some(index)
+                            }) {
+                                self.pool.allocator.budget.costs[slot] = cost as u16;
+                            }
+                        }
+                    }
                     drums.instruments[index as usize] = *next;
                 }
             }
@@ -582,8 +644,6 @@ impl Synthesizer {
             }
             Command::Stop => {
                 self.pool.stop();
-                self.buffer.fill(StereoFrame::default());
-                self.position = 128;
             }
             Command::Note(timbre, note, velocity) => self.note(timbre, note, velocity),
             Command::Midi(channel, note, velocity) => {
@@ -628,6 +688,14 @@ impl Synthesizer {
                 self.performance = global;
                 self.performance_enabled = true;
                 self.update_expression_gains();
+            }
+            Command::ControllerService(timer) => self.pool.configure_controller_service(timer),
+            Command::AmplifierDelivery(rates) => self.pool.configure_amplifier_delivery(rates),
+            Command::ConstructorFilterMix(table) => {
+                self.pool.configure_constructor_filter_mix(*table)
+            }
+            Command::PitchDelivery(rom, dispatch) => {
+                self.pool.configure_pitch_delivery(*rom, dispatch)
             }
             Command::Pitch(timbre, program) => {
                 self.timbres[timbre as usize].pitch = program;
@@ -916,6 +984,9 @@ impl Synthesizer {
             }
             let owner = self.timbres[timbre as usize];
             let settings = Timbre {
+                parameter_template: graph
+                    .parameter_template
+                    .map(|template| (c.oscillator_selection, template)),
                 pitch: c.pitch,
                 waveform: if selection & 15 < 4 {
                     (selection & 3) as usize
@@ -957,19 +1028,31 @@ impl Synthesizer {
         self.pool.finish_note_event();
     }
     pub fn sample(&mut self) -> StereoFrame {
-        if self.position == 128 {
-            for sample in &mut self.buffer {
-                *sample = self.pool.next_sample_with_modulation(
-                    &self.table,
-                    self.controller_tables.as_ref(),
-                    self.modulation_tables.as_ref(),
-                    |program| &self.plans[program].events,
-                );
-            }
-            self.position = 0;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.pool.next_sample_with_modulation(
+                &self.table,
+                self.controller_tables.as_ref(),
+                self.modulation_tables.as_ref(),
+                |program| &self.plans[program].events,
+            )
         }
-        let sample = self.buffer[self.position];
-        self.position += 1;
-        sample
+        #[cfg(target_arch = "wasm32")]
+        {
+            if self.position == 128 {
+                for sample in &mut self.buffer {
+                    *sample = self.pool.next_sample_with_modulation(
+                        &self.table,
+                        self.controller_tables.as_ref(),
+                        self.modulation_tables.as_ref(),
+                        |program| &self.plans[program].events,
+                    );
+                }
+                self.position = 0;
+            }
+            let sample = self.buffer[self.position];
+            self.position += 1;
+            sample
+        }
     }
 }

@@ -17,15 +17,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let master = fs::read(root.join("firmware/dsp-master-host-stream.bin"))?;
     let tables = MasterTables::from_host_stream(&master)?;
     let mix = tables.filter_mix()?;
-    let map = ControlMap::from_json(&fs::read(
-        root.join("assets/native-va/filter-controls.json"),
-    )?)?;
+    let templates = firmware::parameter_template_tables(&sys, tables.filter_mix()?)?;
+    let mut static_templates = 0;
+    let map = ControlMap::from_system(&sys)?;
     let template =
         PreparedVoice::from_program_json(&fs::read(root.join("assets/native-va/saw.json"))?)?;
     let mut compiled = Vec::new();
     let mut generator_available = 0;
     for p in &bank {
-        let c = compile_program(p, 0, &map, &mix, template.parameters.filter)?;
+        let c = compile_program(p, 0, &map, &mix, template.parameters.filter)?
+            .with_parameter_templates(p, &templates)
+            .map_err(|e| format!("{e:?}"))?;
+        static_templates += c
+            .timbres
+            .iter()
+            .filter(|t| t.parameter_template.is_some())
+            .count();
         generator_available += usize::from(c.validate_native_generators().is_ok());
         compiled.push(c);
     }
@@ -89,7 +96,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         routed += count;
     }
-    let report = serde_json::json!({"passed":true,"lossless_RDL_programs":256,"compiled_stored_timbres":1024,
+    let mut drum_templates = 0;
+    let kits = rdl::drum_kits(&fs::read(root.join("firmware/Radias-backup.rdl"))?)?;
+    for (index, kit) in kits.into_iter().enumerate() {
+        let mut raw = *bank[0].bytes();
+        raw[24] = 32 | index as u8;
+        let program = radias_synth_domain::program::Program::from_bytes(&raw).unwrap();
+        let compiled = radias_synth_infrastructure::stored_program::compile_drum_kit(
+            &program,
+            kit,
+            &map,
+            &mix,
+            template.parameters.filter,
+        )?
+        .with_parameter_templates(&templates)
+        .map_err(|e| format!("{e:?}"))?;
+        drum_templates += compiled
+            .instruments
+            .iter()
+            .filter(|i| i.graph.parameter_template.is_some())
+            .count();
+    }
+    let report = serde_json::json!({"passed":true,"lossless_RDL_programs":256,"compiled_stored_timbres":1024,"non_PCM_static_templates":static_templates,"non_PCM_drum_static_templates":drum_templates,"static_templates_from_raw_inputs_and_firmware_tables":true,
         "original_voice_cost_cases":1024,"original_ordinary_MIDI_routing_cases":16384,"routed_timbre_events":routed,
         "source_dispatch_order_and_per_routed_timbre_age_increment_match":true,"programs_with_current_native_oscillator_selections":generator_available,
         "PCM_input_drum_sequence_vocoder_effects_completion_qualified":false,"joint_full_bank_audio_qualified":false,

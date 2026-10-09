@@ -5,3 +5,4 @@ edition.workspace = true
 
 [features]
 web-polyphony = []
+web-modular = []

@@ -1,15 +1,52 @@
 //! Synthesis use cases. The domain owns arithmetic; adapters own external data.
 #![no_std]
+extern crate alloc;
+#[cfg(feature = "web-modular")]
+use alloc::boxed::Box;
+#[cfg(feature = "web-modular")]
+pub trait VoiceCircuit: radias_synth_domain::voice::SignalProcessor {
+    fn fresh(&self) -> Box<dyn VoiceCircuit>;
+    fn as_any(&self) -> &dyn core::any::Any;
+    fn reconfigure(&mut self, prototype: &dyn VoiceCircuit);
+    fn controls(&mut self, values: [f64; 8]);
+    fn tail_active(&self) -> bool;
+}
+pub mod actor_construction;
+pub mod actor_copy;
+pub mod actor_lifecycle;
+pub mod actor_note_initialization;
+pub mod actor_note_preparation;
+pub mod actor_preparation;
+pub mod actor_startup;
 pub mod amplifier;
+pub mod amplifier_transport;
 pub mod clock;
 pub mod comb;
+pub mod comb_pointer_publication;
+pub mod complete_actor_startup;
+pub mod construction_first_pass;
 pub mod drum_program;
+pub mod dsp_buffers;
+pub mod dsp_dispatch;
+pub mod dsp_receiver;
+pub mod dsp_transport;
+pub mod effects;
+pub mod decimator_effect;
+pub mod filter1_initial_publication;
 pub mod filter2;
+pub mod inactive_frame;
 pub mod lfo;
+pub mod live_modulation;
+pub mod manual_parameters;
 pub mod mixer;
 pub mod modulation;
+pub mod motion_initialization;
 pub mod noise;
+pub mod note_modulators;
 pub mod note_pitch;
+pub mod note_refresh;
+pub mod parameter_transport;
+pub mod pitch_delivery;
 pub mod polyphony;
 pub mod portamento;
 pub mod primary;
@@ -18,6 +55,7 @@ pub mod secondary;
 pub mod shaper;
 pub mod shared_lfo;
 pub mod stored_program;
+pub mod synthesis_transport;
 pub mod voice_envelopes;
 pub mod voice_groups;
 
@@ -94,7 +132,46 @@ pub struct VoiceControlEvent {
 }
 
 /// Sample clock and event scheduling belong to the application, not the device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VoicePitchState {
+    primary: radias_synth_domain::primary_oscillator::PrimaryParameters,
+    code: u16,
+    pitch_override: Option<(PhaseIncrement, i16)>,
+    code_override: Option<u16>,
+    primary_override: Option<radias_synth_domain::primary_oscillator::PrimaryParameters>,
+    control: Option<i16>,
+    current: Option<i16>,
+    ratio: Option<i16>,
+    noise: Option<noise::NoiseVoiceControl>,
+    secondary: Oscillator,
+    secondary_modulation: Option<radias_synth_domain::secondary_control::SecondaryModulation>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VoiceScalarState {
+    mix: radias_synth_domain::mixer::OscillatorMix,
+    pan_position: i32,
+    mixer_override: Option<radias_synth_domain::mixer::OscillatorMix>,
+    mixer_target: Option<radias_synth_domain::mixer::OscillatorMix>,
+    pan_override: Option<(radias_synth_domain::pan::PanSmoother, SlewWeights)>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VoiceFilter2State {
+    state: radias_synth_domain::filter_routing::Filter2State,
+    parameters: Option<radias_synth_domain::filter_routing::DualFilterParameters>,
+    current: Option<radias_synth_domain::filter_routing::Filter2Coefficients>,
+    target: Option<radias_synth_domain::filter_routing::Filter2Coefficients>,
+    routing: Option<Option<radias_synth_domain::filter_routing::FilterRouting>>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VoiceShaperState {
+    state: radias_synth_domain::waveshaper::ShaperState,
+    parameters: Option<radias_synth_domain::waveshaper::ShaperParameters>,
+    current: Option<Option<radias_synth_domain::waveshaper::ShaperParameters>>,
+    target: Option<radias_synth_domain::waveshaper::ShaperParameters>,
+}
 pub struct VoiceRenderer {
+    #[cfg(feature = "web-modular")]
+    pub circuit: Option<Box<dyn VoiceCircuit>>,
     pub voice: Voice,
     pub comb: Option<radias_synth_domain::comb::Comb>,
     parameters: VoiceParameters,
@@ -123,6 +200,7 @@ pub struct VoiceRenderer {
     mixer_slew_phase: Option<u8>,
     control_slew: Option<(SlewWeights, u8)>,
     envelope_override: Option<i16>,
+    envelope_rate_override: Option<i16>,
     pan_override: Option<(radias_synth_domain::pan::PanSmoother, SlewWeights)>,
     gate: bool,
     last_amplified: Sample,
@@ -130,6 +208,80 @@ pub struct VoiceRenderer {
 }
 
 impl VoiceRenderer {
+    pub fn shaper_state(&self) -> VoiceShaperState {
+        VoiceShaperState {
+            state: self.voice.waveshaper.state,
+            parameters: self.parameters.shaper,
+            current: self.shaper_override,
+            target: self.shaper_target,
+        }
+    }
+    pub fn restore_shaper_state(&mut self, state: VoiceShaperState) {
+        self.voice.waveshaper.state = state.state;
+        self.parameters.shaper = state.parameters;
+        self.shaper_override = state.current;
+        self.shaper_target = state.target;
+    }
+    pub fn filter2_state(&self) -> VoiceFilter2State {
+        VoiceFilter2State {
+            state: self.voice.second_filter.state,
+            parameters: self.parameters.routing,
+            current: self.filter2_override,
+            target: self.filter2_target,
+            routing: self.routing_override,
+        }
+    }
+    pub fn restore_filter2_state(&mut self, state: VoiceFilter2State) {
+        self.voice.second_filter.state = state.state;
+        self.parameters.routing = state.parameters;
+        self.filter2_override = state.current;
+        self.filter2_target = state.target;
+        self.routing_override = state.routing;
+    }
+    pub fn scalar_state(&self) -> VoiceScalarState {
+        VoiceScalarState {
+            mix: self.parameters.mix,
+            pan_position: self.parameters.pan_position,
+            mixer_override: self.mixer_override,
+            mixer_target: self.mixer_target,
+            pan_override: self.pan_override,
+        }
+    }
+    pub fn restore_scalar_state(&mut self, state: VoiceScalarState) {
+        self.parameters.mix = state.mix;
+        self.parameters.pan_position = state.pan_position;
+        self.mixer_override = state.mixer_override;
+        self.mixer_target = state.mixer_target;
+        self.pan_override = state.pan_override;
+    }
+    pub fn pitch_state(&self) -> VoicePitchState {
+        VoicePitchState {
+            primary: self.parameters.primary,
+            code: self.parameters.primary_pitch_code,
+            pitch_override: self.pitch_override,
+            code_override: self.pitch_code_override,
+            primary_override: self.primary_override,
+            control: self.primary_control_override,
+            current: self.primary_control_current,
+            ratio: self.primary_ratio_override,
+            noise: self.noise_control,
+            secondary: self.voice.secondary,
+            secondary_modulation: self.secondary_modulation_override,
+        }
+    }
+    pub fn restore_pitch_state(&mut self, state: VoicePitchState) {
+        self.parameters.primary = state.primary;
+        self.parameters.primary_pitch_code = state.code;
+        self.pitch_override = state.pitch_override;
+        self.pitch_code_override = state.code_override;
+        self.primary_override = state.primary_override;
+        self.primary_control_override = state.control;
+        self.primary_control_current = state.current;
+        self.primary_ratio_override = state.ratio;
+        self.noise_control = state.noise;
+        self.voice.secondary = state.secondary;
+        self.secondary_modulation_override = state.secondary_modulation;
+    }
     /// Construct a new note from a prepared template without copying an
     /// active Comb delay or retaining another actor's private controls.
     pub fn fresh_note(&self) -> Self {
@@ -141,6 +293,10 @@ impl VoiceRenderer {
         note.primary_control_current = self.primary_control_current;
         note.primary_ratio_override = self.primary_ratio_override;
         note.primary_control_slew_phase = self.primary_control_slew_phase;
+        #[cfg(feature = "web-modular")]
+        {
+            note.circuit = self.circuit.as_ref().map(|p| p.fresh());
+        }
         note.noise_control = self.noise_control;
         note.unison_phase_key = self.unison_phase_key;
         note.secondary_modulation_override = self.secondary_modulation_override;
@@ -156,6 +312,7 @@ impl VoiceRenderer {
         note.mixer_slew_phase = self.mixer_slew_phase;
         note.control_slew = self.control_slew;
         note.envelope_override = self.envelope_override;
+        note.envelope_rate_override = self.envelope_rate_override;
         note.pan_override = self.pan_override;
         if self.comb.is_some() && note.comb.is_none() {
             note.comb = Some(radias_synth_domain::comb::Comb {
@@ -171,6 +328,8 @@ impl VoiceRenderer {
     pub fn new(voice: Voice, parameters: VoiceParameters) -> Self {
         Self {
             voice,
+            #[cfg(feature = "web-modular")]
+            circuit: None,
             comb: parameters
                 .routing
                 .filter(|r| {
@@ -205,6 +364,7 @@ impl VoiceRenderer {
             mixer_slew_phase: None,
             control_slew: None,
             envelope_override: None,
+            envelope_rate_override: None,
             pan_override: None,
             gate: true,
             last_amplified: Sample(0),
@@ -214,6 +374,21 @@ impl VoiceRenderer {
 
     pub fn set_pitch(&mut self, increment: PhaseIncrement, bandwidth: i16) {
         self.pitch_override = Some((increment, bandwidth));
+    }
+    pub fn current_pitch(&self) -> (u16, PhaseIncrement, i16) {
+        let primary = self.primary_override.unwrap_or(self.parameters.primary);
+        let (increment, bandwidth) = self.pitch_override.unwrap_or((primary.base_increment(), 0));
+        (self.primary_pitch_code(), increment, bandwidth)
+    }
+    pub fn set_secondary_coefficients(
+        &mut self,
+        coefficients: radias_synth_domain::pitch_receiver::SecondaryPitchCoefficients,
+    ) {
+        self.voice.secondary.retune(
+            coefficients.increment,
+            coefficients.edge,
+            coefficients.bandwidth,
+        );
     }
     pub fn last_amplified(&self) -> Sample {
         self.last_amplified
@@ -229,7 +404,18 @@ impl VoiceRenderer {
             .unwrap_or(self.parameters.primary_pitch_code)
     }
     pub fn envelope_rate(&self) -> i16 {
-        self.parameters.envelope_rate
+        self.envelope_rate_override
+            .unwrap_or(self.parameters.envelope_rate)
+    }
+    pub fn set_envelope_rate(&mut self, rate: i16) {
+        self.envelope_rate_override = Some(rate);
+    }
+    /// Current DSP coefficients for read-only conformance diagnostics.
+    pub fn current_filter(&self) -> FilterCoefficients {
+        self.filter_override.unwrap_or(self.parameters.filter)
+    }
+    pub fn current_mixer(&self) -> radias_synth_domain::mixer::OscillatorMix {
+        self.mixer_override.unwrap_or(self.parameters.mix)
     }
     pub fn set_primary_waveform_control(&mut self, control: i16) {
         self.primary_control_override = Some(control);
@@ -246,6 +432,14 @@ impl VoiceRenderer {
     }
     pub fn noise_control_mut(&mut self) -> Option<&mut noise::NoiseVoiceControl> {
         self.noise_control.as_mut()
+    }
+    pub fn set_noise_target(&mut self, target: noise::NoiseTarget, initialize: bool) {
+        if let Some(control) = &mut self.noise_control {
+            control.update(target);
+            if initialize {
+                control.initialize_targets();
+            }
+        }
     }
     pub fn initialize_unison_phases(&mut self, control2_code: u16, triangle: bool) {
         if let Some(phases) =
@@ -284,6 +478,15 @@ impl VoiceRenderer {
         self.unison_phase_key = None;
         self.noise_control = None;
     }
+    /// A descriptor construction word updates coefficients while preserving
+    /// oscillator phases. Its controller and physical-state commands are
+    /// separate publications owned by the caller.
+    pub fn receive_primary_parameters(
+        &mut self,
+        parameters: radias_synth_domain::primary_oscillator::PrimaryParameters,
+    ) {
+        self.primary_override = Some(parameters);
+    }
     pub fn set_secondary_pitch(
         &mut self,
         code: PitchCode,
@@ -298,6 +501,18 @@ impl VoiceRenderer {
     }
     pub fn clear_secondary_tuning(&mut self) {
         self.voice.secondary.retune(PhaseIncrement(0), 0, 0);
+    }
+    pub fn secondary_sync(&self) -> bool {
+        self.secondary_modulation_override
+            .unwrap_or(self.parameters.secondary_modulation)
+            .sync
+    }
+    pub fn set_secondary_sync(&mut self, sync: bool) {
+        let mut modulation = self
+            .secondary_modulation_override
+            .unwrap_or(self.parameters.secondary_modulation);
+        modulation.sync = sync;
+        self.secondary_modulation_override = Some(modulation);
     }
     pub fn set_secondary_pitch_mode(
         &mut self,
@@ -320,6 +535,11 @@ impl VoiceRenderer {
         } else {
             self.set_filter_immediate(coefficients);
         }
+    }
+    /// Original fresh-note DSP reset clears private Filter1 history. Physical
+    /// oscillator phases and the separately owned Filter2/Comb state are untouched.
+    pub fn reset_filter_memory(&mut self) {
+        self.voice.filter.state = radias_synth_domain::filter::FilterState::default();
     }
     pub fn set_filter_immediate(&mut self, coefficients: FilterCoefficients) {
         self.filter_override = Some(coefficients);
@@ -364,11 +584,34 @@ impl VoiceRenderer {
             self.set_filter2_immediate(second);
         }
     }
+    pub fn filter2_target(
+        &self,
+    ) -> Option<radias_synth_domain::filter_routing::Filter2Coefficients> {
+        self.filter2_target.or_else(|| self.current_filter2())
+    }
+    pub fn filter_routing(&self) -> Option<radias_synth_domain::filter_routing::FilterRouting> {
+        self.routing_override
+            .unwrap_or(self.parameters.routing.map(|r| r.route))
+    }
     pub fn current_filter2(
         &self,
     ) -> Option<radias_synth_domain::filter_routing::Filter2Coefficients> {
         self.filter2_override
             .or(self.parameters.routing.map(|routing| routing.second))
+    }
+    pub fn shaper_target(&self) -> Option<radias_synth_domain::waveshaper::ShaperParameters> {
+        self.shaper_target.or_else(|| self.current_shaper())
+    }
+    pub fn set_shaper_depth(&mut self, value: i16) {
+        if let Some(mut target) = self.shaper_target() {
+            target.coefficients.set_depth(value);
+            if let radias_synth_domain::waveshaper::ShaperCoefficients::SubOscillator(c) =
+                &mut target.coefficients
+            {
+                c.target_depth = value;
+            }
+            self.set_shaper(Some(target));
+        }
     }
     pub fn current_shaper(&self) -> Option<radias_synth_domain::waveshaper::ShaperParameters> {
         self.shaper_override.unwrap_or(self.parameters.shaper)
@@ -413,6 +656,16 @@ impl VoiceRenderer {
             self.initialize_mixer(target);
         }
     }
+    pub fn set_mixer_band(&mut self, band: u8, value: i16) {
+        let mut target = self.mixer_target.unwrap_or(self.current_mixer());
+        match band {
+            0 => target.primary_gain = value,
+            1 => target.secondary_gain = value,
+            2 => target.noise_gain = value,
+            _ => return,
+        }
+        self.set_mixer(target);
+    }
     pub fn mixer_slew_phase(&mut self, phase: u8) {
         self.mixer_slew_phase = Some(phase & 3);
     }
@@ -424,6 +677,10 @@ impl VoiceRenderer {
     }
     pub fn set_envelope_target(&mut self, target: i16) {
         self.envelope_override = Some(target);
+    }
+    pub fn envelope_target(&self) -> i16 {
+        self.envelope_override
+            .unwrap_or(self.parameters.envelope_target)
     }
     pub fn initialize_pan(
         &mut self,
@@ -477,6 +734,9 @@ impl VoiceRenderer {
             self.next_event += 1;
         }
         let mut parameters = self.parameters;
+        if let Some(rate) = self.envelope_rate_override {
+            parameters.envelope_rate = rate;
+        }
         if let Some(primary) = self.primary_override {
             parameters.primary = primary;
         }
@@ -602,12 +862,16 @@ impl VoiceRenderer {
         if !self.gate {
             parameters.envelope_target = 0;
         }
-        let output = self.voice.next_sample_on_bus_with_inputs(
+        let output = self.voice.next_sample_routed(
             table,
             parameters,
             existing,
             self.comb.as_mut(),
             inputs,
+            #[cfg(feature = "web-modular")]
+            self.circuit
+                .as_mut()
+                .map(|p| &mut **p as &mut dyn radias_synth_domain::voice::SignalProcessor),
         );
         self.last_amplified = output.amplified;
         self.last_pan_current = (parameters.pan_position >> 16) as i16;

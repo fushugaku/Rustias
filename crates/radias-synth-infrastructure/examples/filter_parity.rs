@@ -4,7 +4,7 @@ use std::{fs, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    let root = PathBuf::from(args.first().map(String::as_str).unwrap_or("."));
+    let root = PathBuf::from(args.first().map(String::as_str).unwrap_or(".."));
     let output = root.join("runs/native-clone");
     let mut sets = vec![(
         "isolated".to_owned(),

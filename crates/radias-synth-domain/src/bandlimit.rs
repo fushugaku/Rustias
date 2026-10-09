@@ -8,15 +8,21 @@ pub struct BandwidthTable {
     pub gains: [i16; 129],
 }
 
+/// Interpolate the original two signed ROM gain words. The scalar MAC narrows
+/// its product before the accumulator addition, including the17-bit delta.
+pub fn interpolate_words(left: i16, right: i16, fraction: u16) -> i16 {
+    let left = i64::from(left) << 16;
+    let delta = (i64::from(right) << 16) - left;
+    let product = ((delta >> 16) * i64::from(fraction & 32767) * 2) as i32;
+    ((left + i64::from(product)) >> 16) as i16
+}
+
 impl BandwidthTable {
     pub fn coefficient(&self, increment: PhaseIncrement) -> i16 {
         let phase = increment.0.min(i32::MAX as u32);
         let index = (phase >> 24) as usize;
         let fraction = (phase >> 9) & 32767;
-        let left = (self.gains[index] as i64) << 16;
-        let delta = ((self.gains[index + 1] as i64) << 16) - left;
-        let product = ((delta >> 16) * fraction as i64 * 2) as i32;
-        ((left + product as i64) >> 16) as i16
+        interpolate_words(self.gains[index], self.gains[index + 1], fraction as u16)
     }
 }
 
