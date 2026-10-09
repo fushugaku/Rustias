@@ -1,5 +1,6 @@
 import {createDrumSamples} from "./samples.js";
 import {createSequencer} from "./sequencer-ui.js";
+import {drumSequenceKit} from "./sequence-labels.js";
 import {emptySequence,validateSequence} from "./sequence.js";
 import {PatchStore} from "./patches.js";
 import {MAX_RDL_BYTES,readRdl,rdlPatches,validateRdlSource,rdlMasks} from './rdl.js';
@@ -98,6 +99,7 @@ function updateControls() {
   const missing=unavailableSource();
   const pcm=isDrum()&&sampleUI?.assigned(global(142)),sourceLabel=pcm?'Sample':missing?`${missing.label} ×`:null;
   panel?.render(v,sourceLabel?{0:sourceLabel}:{}); sampleUI?.render();syncRdlMasks();
+  sequenceUI?.setDrumKit(drumSequenceKit(timbres[0].values,drums,sampleUI?.instrumentNames()));
   $('#rdl-details').hidden=!rdlSource;$('#wave-display').toggleAttribute('hidden',!!missing||pcm);
   document.querySelector('.module-filter1 h2').textContent=v[9]===127?'FILTER 1 · THRU':'FILTER 1';
   $("#wave-display").setAttribute("aria-label", `${names[v[0]]} waveform`);
@@ -350,6 +352,7 @@ sampleUI=createDrumSamples({getInstrument:()=>global(142),isDrum,ensureAudio:sta
   enableDrumKit();for(let i=0;i<16;i++){prepareSampleInstrument(i);for(const [parameter,value] of [[146,60+i],[147,[3,4].includes(i)?1:0]]){drums[i][parameter]=value;send({type:"drum-control",instrument:i,parameter,value});}}
   setControl(142,0);
 }});
+sampleUI.ready.then(updateControls,()=>{});
 refreshLibrary();
 try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(session.snapshot);activeSavedPatch=session.activeSavedPatch??null;if(Number.isInteger(session.selected)&&session.selected>=0&&session.selected<4)$(`[data-timbre="${session.selected}"]`).click();if(Number.isFinite(session.volume))$("#volume").value=session.volume;}}catch(error){showError(new Error(`Could not restore the saved session: ${error.message}`));}
 updateControls(); updateKeys(); document.body.dataset.parameterCount = parameters.length;

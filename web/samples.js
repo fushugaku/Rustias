@@ -107,6 +107,7 @@ export function createDrumSamples({getInstrument,isDrum,onAssign,onKit,onChange,
   });
   render();
   return {ready,render,validateConfig:validateSamples,getConfig:()=>structuredClone(config),assigned:i=>config.slots[i].source!=="synth",
+    instrumentNames:()=>config.slots.map((slot,i)=>slot.source==='synth'?`Drum ${String(i+1).padStart(2,'0')}`:picker.options.find(option=>option.value===slot.source)?.label??slot.name??'Missing local sample'),
     async setConfig(value){config=validateSamples(value);for(let i=0;i<16;i++)versions[i]++;pruneDecoded();rebuildOptions();render();if(connection)await Promise.all(config.slots.map((_,i)=>loadSlot(i)));},
     async attach(node,context){connection={node,context};loaded.clear();await ready;await Promise.all(config.slots.map((_,i)=>loadSlot(i)));},
     async waitReady(){await ready;if(connection)await Promise.all(config.slots.map((_,i)=>loadSlot(i)));},

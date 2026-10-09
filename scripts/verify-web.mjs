@@ -3,6 +3,7 @@ import vm from "node:vm";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {SequenceClock,StepAudition,emptySequence,validateSequence,RESOLUTIONS,stepFrames} from "../web/sequence.js";
+import {drumSequenceKit,sequenceLabels} from "../web/sequence-labels.js";
 import {PatchStore} from "../web/patches.js";
 import {verifyRdl} from './verify-rdl.mjs';
 
@@ -131,6 +132,20 @@ assert.equal(manifest.samples.length,64);assert.equal(manifest.license,"CC0-1.0"
 for(const sample of manifest.samples){const data=fs.readFileSync(new URL(`../web/samples/${sample.file}`,import.meta.url));assert.equal(data.toString("ascii",0,4),"RIFF");assert.equal(data.toString("ascii",8,12),"WAVE");assert.ok(sample.duration>0);assert.equal(createHash("sha256").update(data).digest("hex"),sample.sha256);hashes.add(sample.sha256);}
 assert.equal(hashes.size,64,"Bundled recordings must be distinct");
 features.push("64 distinct CC0 WAVs with source revision, license and verified checksums");
+
+// Labels must describe the instruments that the native MIDI path triggers,
+// rather than assuming the kit occupies C4 through D#5.
+api.rustias_init();control(140,1);control(141,2);control(145,76);
+assert.equal(api.rustias_drum_control(0,146,36),1);assert.equal(api.rustias_drum_control(1,146,36),1);
+const drumProgram=save(),drumNames=['808 Kick 07','my snare.wav'];
+let drumKit=drumSequenceKit(drumProgram.timbres[0],drumProgram.drums,drumNames);
+assert.equal(drumKit.timbre,2);assert.equal(drumKit.instruments[0].note,48);
+const drumNotes=[48,49];assert.deepEqual(sequenceLabels(drumNotes,drumKit),['808 Kick 07','my snare.wav','Unassigned 49']);assert.deepEqual(drumNotes,[48,49],"Changing labels must preserve stored MIDI notes");
+api.rustias_note(2,48,100);assert.equal(api.rustias_voices(),2,"Both labelled drums sound at their shared transposed trigger");api.rustias_stop();
+drumNames[1]='new sample.wav';drumKit=drumSequenceKit(drumProgram.timbres[0],drumProgram.drums,drumNames);assert.deepEqual(sequenceLabels([48],drumKit),['808 Kick 07','new sample.wav'],"Assignments refresh sample names");
+drumProgram.drums[0][146]=127;drumKit=drumSequenceKit(drumProgram.timbres[0],drumProgram.drums,drumNames);assert.equal(drumKit.instruments[0].note,139);assert.deepEqual(sequenceLabels([127],drumKit),['Unassigned 127'],"Unreachable triggers must not clamp to another MIDI note");
+drumProgram.timbres[0][140]=0;assert.equal(drumSequenceKit(drumProgram.timbres[0],drumProgram.drums,drumNames),null);assert.deepEqual(sequenceLabels([60,64],null),['C4','E4'],"Other timbres and Drum mode off retain pitch labels");
+features.push("sequencer drum sample names follow native trigger/transpose, shared triggers, custom assignments and Drum mode");
 
 const sequence=emptySequence();sequence.tracks.forEach((track,t)=>{track.length=t+1;track.steps[0]={notes:[60+t,64+t,67+t],velocity:90+t,gate:75};});
 let time=0;const events=[];const clock=new SequenceClock((t,n,v)=>events.push({time,t,n,v}));clock.setConfig(sequence);clock.play();clock.beforeRender(128);time+=128;
