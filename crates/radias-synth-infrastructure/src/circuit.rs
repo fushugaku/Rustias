@@ -317,7 +317,7 @@ impl CircuitVoice {
         if !circuit.enabled {
             return Ok(None);
         }
-        let has_amp = order.iter().any(|i| nodes[*i].kind == Kind::Amp);
+        let has_amp = order.iter().any(|i| matches!(nodes[*i].kind, Kind::Amp | Kind::Eg2));
         Ok(Some(Self::new(Arc::new(Plan {
             nodes,
             order,
