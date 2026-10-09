@@ -17,7 +17,7 @@ export function verifyPrograms(parameters,module){
     samples.library.push({timbre:t,source:`808:kick-0${t+1}`,mode:2,name:`Sound ${t}`,values:sampleValues(engine.timbres[t])});
     circuits.tracks[t].nodes[0].x+=t*100;circuits.tracks[t].enabled=t===2;
   }
-  circuits.tracks[2].nodes.push({id:16,kind:'oscillator',x:3000,y:300,params:{wave:2,semitone:12,level:97}});
+  circuits.tracks[2].nodes.push({id:16,kind:'oscillator1',x:3000,y:300,params:{wave:2,mode:3,ctrl1:90,ctrl2:72,semitone:12,fine:17,level:97}});
   circuits.tracks[2].wires=circuits.tracks[2].wires.filter(w=>w.to!==15);
   circuits.tracks[2].wires.push({from:16,to:15,port:'in'});
   const names=['Pad','Bass','Lead','Percussion'];

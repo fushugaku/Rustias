@@ -7,7 +7,7 @@ import {drumSequenceKit,sequenceLabels} from "../web/sequence-labels.js";
 import {emptySamples,validateSamples,migrateSampleAmplifiers,sampleValues,validSampleSource} from '../web/sample-state.js';
 import {copySteps,pasteSteps} from '../web/sequence-edit.js';
 import {PatchStore} from "../web/patches.js";
-import {defaultCircuit,validateCircuits,connect,audioCircuit} from "../web/circuit.js";
+import {defaultCircuit,validateCircuits,connect,audioCircuit,removeModule,availableModules,MODULES} from "../web/circuit.js";
 import {verifyRdl} from './verify-rdl.mjs';
 import {verifyPrograms} from './verify-programs.mjs';
 
@@ -303,6 +303,46 @@ api.rustias_init();libraryUpload(99,sine);libraryProfile(321,99,2);let sampleCir
 const graphStore=new PatchStore(fakeStorage);const modularSnapshot={version:2,engine:program,sequencer:emptySequence(),samples:emptySamples(),circuits:{version:1,tracks:[circuit,defaultCircuit(),defaultCircuit(),defaultCircuit()]}};
 const modularSaved=graphStore.save('Modular QA',modularSnapshot);assert.deepEqual(validateCircuits(graphStore.list().find(p=>p.id===modularSaved.id).snapshot.circuits),modularSnapshot.circuits,'Module positions, parameters and cables round-trip through patch storage');
 features.push('Browser-only per-voice modular audio/CV routing: native modules, additional oscillators/filters/Drive/VCA/mixers/LFO/ADSR, 128 independent states, live PCM wiring, cycle/type validation and patch persistence');
+
+// Full independent OSC1 modules call the same native generators/controllers.
+const primaryGraph=defaultCircuit();primaryGraph.enabled=true;
+const primaryParams=Object.fromEntries(Object.entries(MODULES.oscillator1.controls).map(([key,c])=>[key,c[3]]));
+primaryGraph.nodes.push({id:16,kind:'oscillator1',x:24,y:2400,params:primaryParams});
+primaryGraph.wires=[{from:16,to:7,port:'in'},{from:7,to:15,port:'in'}];
+for(let mode=0;mode<4;mode++)for(let wave=0;wave<(mode===0?6:4);wave++){
+  Object.assign(primaryParams,{wave,mode,ctrl1:90,ctrl2:72});
+  const output=graphNote(primaryGraph,.5);assert.ok(rms(output)>.00001,`Independent OSC1 waveform ${wave}, mode ${mode} produces native audio`);
+}
+Object.assign(primaryParams,{wave:3,mode:0,ctrl1:0,ctrl2:0});
+assert.ok(Math.abs(frequency(graphNote(primaryGraph,.6))-440)<4,'Independent OSC1 follows note pitch');
+primaryParams.semitone=12;assert.ok(Math.abs(frequency(graphNote(primaryGraph,.6))-880)<5,'Independent OSC1 has its own transpose');primaryParams.semitone=0;
+primaryParams.fine=100;assert.ok(Math.abs(frequency(graphNote(primaryGraph,1))-440*2**(1/12))<3,'Independent OSC1 has cents tuning');primaryParams.fine=0;
+Object.assign(primaryParams,{wave:0,mode:0,ctrl1:0});const plainPrimary=graphNote(primaryGraph,.5);primaryParams.ctrl1=110;
+assert.ok(rms(graphNote(primaryGraph,.5).map((v,i)=>v-plainPrimary[i]))>.001,'Full OSC1 CTRL1 changes the waveform');
+Object.assign(primaryParams,{wave:3,mode:3,ctrl1:110,ctrl2:10});const ratioLow=graphNote(primaryGraph,.5);primaryParams.ctrl2=100;
+assert.ok(rms(graphNote(primaryGraph,.5).map((v,i)=>v-ratioLow[i]))>.001,'VPM CTRL2 independently controls the native modulator ratio');
+Object.assign(primaryParams,{wave:0,mode:1,ctrl1:100,ctrl2:0});const noCross=graphNote(primaryGraph,.5);
+const crossGraph=connect(primaryGraph,1,16,'mod');assert.ok(rms(graphNote(crossGraph,.5).map((v,i)=>v-noCross[i]))>.001,'Cross accepts a real audio modulation cable');
+Object.assign(primaryParams,{wave:3,mode:0,ctrl1:0,ctrl2:0});
+const pitchGraph=connect(primaryGraph,14,16,'pitch');const shifted=frequency(graphNote(pitchGraph,.6));assert.ok(Math.abs(shifted-440*2**(24*100/127/12))<8,'OSC1 pitch CV uses per-voice velocity');
+const dualPrimary=structuredClone(primaryGraph);dualPrimary.nodes.push({id:17,kind:'oscillator1',x:374,y:2400,params:{...primaryParams,semitone:12}});
+const lowPrimary=graphNote(dualPrimary,.6);dualPrimary.nodes.find(n=>n.id===17).params.wave=5;assert.deepEqual(graphNote(dualPrimary,.6),lowPrimary,'A second disconnected OSC1 cannot alter the first oscillator state');
+dualPrimary.wires=[{from:17,to:7,port:'in'},{from:7,to:15,port:'in'}];Object.assign(dualPrimary.nodes.find(n=>n.id===17).params,{wave:3,mode:0});assert.ok(Math.abs(frequency(graphNote(dualPrimary,.6))-880)<5,'Second OSC1 uses its own parameters');
+dualPrimary.nodes.push({id:18,kind:'sum',x:724,y:2400,params:{a:64,b:64,c:0}});dualPrimary.wires=[{from:16,to:18,port:'a'},{from:17,to:18,port:'b'},{from:18,to:7,port:'in'},{from:7,to:15,port:'in'}];
+const twoOscillators=graphNote(dualPrimary,.5),soloA=structuredClone(dualPrimary),soloB=structuredClone(dualPrimary);soloA.wires=soloA.wires.filter(w=>w.to!==18||w.port!=='b');soloB.wires=soloB.wires.filter(w=>w.to!==18||w.port!=='a');
+const aSound=graphNote(soloA,.5),bSound=graphNote(soloB,.5);assert.ok(rms(twoOscillators.map((v,i)=>v-aSound[i]-bSound[i]))<.0000001,'Two connected OSC1 modules retain independent states and sum the same sound as their individual outputs');
+api.rustias_init();setCircuit(dualPrimary);for(let note=0;note<128;note++)api.rustias_note(0,note,100);assert.equal(api.rustias_voices(),128);render(256);api.rustias_stop();
+Object.assign(primaryParams,{wave:0,mode:0,ctrl1:0,ctrl2:0});const withoutControlCv=graphNote(primaryGraph,.5),withControlCv=connect(primaryGraph,14,16,'ctrl1');assert.ok(rms(graphNote(withControlCv,.5).map((v,i)=>v-withoutControlCv[i]))>.001,'OSC1 accepts native CTRL1 CV modulation');
+Object.assign(primaryParams,{wave:1,mode:0,ctrl1:64,ctrl2:127});const unmodulatedPulse=graphNote(primaryGraph,.5),withPrimaryLfo=connect(primaryGraph,11,16,'lfo');assert.ok(rms(graphNote(withPrimaryLfo,.5).map((v,i)=>v-unmodulatedPulse[i]))>.001,'OSC1 Waveform CTRL2 applies the connected LFO through native controller words');
+const invalidPrimary=structuredClone(primaryGraph);invalidPrimary.nodes.find(n=>n.id===16).params={...primaryParams,wave:4,mode:3};setCircuit(invalidPrimary,0,0);assert.throws(()=>validateCircuits({version:1,tracks:[invalidPrimary,defaultCircuit(),defaultCircuit(),defaultCircuit()]}));
+const noiseGraph=defaultCircuit();noiseGraph.enabled=true;noiseGraph.wires=[{from:2,to:7,port:'in'},{from:7,to:15,port:'in'}];assert.ok(rms(graphNote(noiseGraph))>.001,'Existing Noise is audible when routed');
+const removedNoise=removeModule(noiseGraph,2);assert.equal(removedNoise.nodes.some(n=>n.kind==='noise'),false);assert.ok(removedNoise.wires.every(w=>w.from!==2&&w.to!==2));assert.ok(rms(graphNote(removedNoise))<.000001,'Removing native Noise also removes its audible route');
+assert.ok(availableModules(removedNoise).includes('noise'),'A removed builtin can be added again');assert.ok(!availableModules(defaultCircuit()).includes('noise'),'Existing native modules are not duplicated');
+assert.throws(()=>removeModule(noiseGraph,15),/Output/,'The required Output stays protected');
+const minimalGraph=defaultCircuit();for(const n of [...minimalGraph.nodes])if(n.kind!=='output')Object.assign(minimalGraph,removeModule(minimalGraph,n.id));assert.equal(minimalGraph.nodes.length,1);assert.ok(rms(graphNote(minimalGraph))<.000001,'An empty graph is valid and silent');
+const primarySnapshot={...modularSnapshot,circuits:{version:1,tracks:[primaryGraph,removedNoise,defaultCircuit(),defaultCircuit()]}};
+const primarySaved=graphStore.save('Independent OSC1 and removed Noise',primarySnapshot);assert.deepEqual(validateCircuits(graphStore.list().find(p=>p.id===primarySaved.id).snapshot.circuits),primarySnapshot.circuits,'Independent OSC1 settings and removed builtins survive program storage');
+features.push('Full independent OSC1 modules: all 18 waveform/mode combinations, CTRL1/2, VPM ratio, pitch/cents, audio Cross and CV wiring, isolated states; builtin removal/re-addition and patch persistence');
 
 const reports = [];
 for (const sampleRate of [48000, 44100]) {

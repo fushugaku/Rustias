@@ -18,6 +18,7 @@ use radias_synth_domain::{
 };
 use serde::Deserialize;
 use std::{collections::BTreeMap, sync::Arc};
+mod primary;
 const LIMIT: usize = 64;
 #[derive(Clone, Deserialize)]
 pub struct Circuit {
@@ -58,6 +59,7 @@ enum Kind {
     Velocity,
     Output,
     Osc,
+    Primary,
     Filter,
     Shaper,
     Gain,
@@ -84,6 +86,7 @@ fn kind(name: &str) -> Option<Kind> {
         "velocity" => Kind::Velocity,
         "output" => Kind::Output,
         "oscillator" => Kind::Osc,
+        "oscillator1" => Kind::Primary,
         "filter" => Kind::Filter,
         "shaper" => Kind::Shaper,
         "vca" => Kind::Gain,
@@ -125,7 +128,11 @@ fn port(k: Kind, name: &str) -> Option<(usize, bool)> {
         ) => Some((0, false)),
         (Kind::Filter1 | Kind::Filter2 | Kind::Filter, "cutoff") => Some((3, true)),
         (Kind::Amp | Kind::Gain, "gain") => Some((3, true)),
-        (Kind::Osc, "pitch") => Some((3, true)),
+        (Kind::Osc | Kind::Primary, "pitch") => Some((3, true)),
+        (Kind::Primary, "mod") => Some((0, false)),
+        (Kind::Primary, "ctrl1") => Some((1, true)),
+        (Kind::Primary, "ctrl2") => Some((2, true)),
+        (Kind::Primary, "lfo") => Some((4, true)),
         (Kind::Lfo, "rate") => Some((3, true)),
         (Kind::Envelope, "gate") => Some((3, true)),
         _ => None,
@@ -134,7 +141,7 @@ fn port(k: Kind, name: &str) -> Option<(usize, bool)> {
 struct Node {
     id: usize,
     kind: Kind,
-    inputs: [Option<usize>; 4],
+    inputs: [Option<usize>; 5],
     values: Values,
     numbers: [f64; 6],
     filters: Vec<radias_synth_domain::filter::FilterCoefficients>,
@@ -146,6 +153,7 @@ struct Plan {
     output: usize,
     controllers: Box<ControllerTables>,
     has_amp: bool,
+    primary_tables: Option<Box<primary::Tables>>,
 }
 pub struct CircuitVoice {
     plan: Arc<Plan>,
@@ -156,6 +164,7 @@ pub struct CircuitVoice {
 }
 struct State {
     osc: PrimaryOscillator,
+    primary: Option<Box<primary::Controller>>,
     filter: ResonantFilter,
     second: Filter2,
     shaper: Waveshaper,
@@ -170,6 +179,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             osc: Default::default(),
+            primary: None,
             filter: Default::default(),
             second: Default::default(),
             shaper: Default::default(),
@@ -214,6 +224,26 @@ impl CircuitVoice {
                     numbers[0] = get("semitone", 0.0, -48.0, 48.0)?;
                     numbers[1] = get("level", 64.0, 0.0, 127.0)? / 127.0;
                 }
+                Kind::Primary => {
+                    for (id, key, default, max) in [
+                        (0, "wave", 0.0, 5.0),
+                        (10, "mode", 0.0, 3.0),
+                        (11, "ctrl1", 0.0, 127.0),
+                        (12, "ctrl2", 0.0, 127.0),
+                    ] {
+                        let v = get(key, default, 0.0, max)?;
+                        if v.fract() != 0.0 {
+                            return Err(format!("Invalid {key}."));
+                        }
+                        values[id] = v as i32;
+                    }
+                    if values[0] >= 4 && values[10] != 0 {
+                        return Err("Noise/Formant use Waveform mode.".into());
+                    }
+                    numbers[0] = get("semitone", 0.0, -48.0, 48.0)?;
+                    numbers[1] = get("level", 64.0, 0.0, 127.0)? / 127.0;
+                    numbers[2] = get("fine", 0.0, -100.0, 100.0)?;
+                }
                 Kind::Filter => {
                     values[1] = get("cutoff", 96.0, 0.0, 127.0)? as i32;
                     values[2] = get("resonance", 0.0, 0.0, 127.0)? as i32;
@@ -252,7 +282,7 @@ impl CircuitVoice {
             nodes.push(Node {
                 id: module.id,
                 kind: k,
-                inputs: [None; 4],
+                inputs: [None; 5],
                 program: synth.compile_drum_values(&values),
                 values,
                 numbers,
@@ -322,17 +352,25 @@ impl CircuitVoice {
         let has_amp = order
             .iter()
             .any(|i| matches!(nodes[*i].kind, Kind::Amp | Kind::Eg2));
+        let primary_tables = nodes
+            .iter()
+            .any(|n| n.kind == Kind::Primary)
+            .then(|| Box::new(primary::Tables::new()));
         Ok(Some(Self::new(Arc::new(Plan {
             nodes,
             order,
             output,
             controllers: Box::new(crate::standalone_tables::controllers()),
             has_amp,
+            primary_tables,
         }))))
     }
     fn new(plan: Arc<Plan>) -> Self {
         let mut states: Vec<State> = (0..LIMIT).map(|_| State::default()).collect();
         for n in &plan.nodes {
+            if n.kind == Kind::Primary {
+                states[n.id].primary = Some(Box::default());
+            }
             if n.kind == Kind::Filter2 {
                 states[n.id].comb = Some(Box::new(radias_synth_domain::comb::Comb {
                     feedback: Default::default(),
@@ -366,6 +404,9 @@ impl VoiceCircuit for CircuitVoice {
                     .any(|old| old.id == n.id && old.kind == n.kind)
                 {
                     self.states[n.id] = State::default();
+                    if n.kind == Kind::Primary {
+                        self.states[n.id].primary = Some(Box::default());
+                    }
                 }
             }
             self.plan = next.plan.clone();
@@ -526,6 +567,42 @@ impl SignalProcessor for CircuitVoice {
                     state
                         .osc
                         .next_with_modulator_and_bias(table, primary, Sample(0), 0)
+                        .0 as f64
+                        / 2147483647.0
+                        * n.numbers[1]
+                }
+                Kind::Primary => {
+                    let semitones = n.numbers[0] + n.numbers[2] / 100.0 + input[3] * 24.0;
+                    let increment = PhaseIncrement(
+                        (p.primary.base_increment().0 as f64 * 2.0_f64.powf(semitones / 12.0))
+                            .clamp(0.0, i32::MAX as f64) as u32,
+                    );
+                    let code = radias_synth_domain::pitch::PitchCode::new(
+                        (p.primary_pitch_code as f64 + semitones * 256.0)
+                            .round()
+                            .clamp(0.0, 32767.0) as u16,
+                    )
+                    .unwrap();
+                    state
+                        .primary
+                        .as_mut()
+                        .unwrap()
+                        .next(
+                            &mut state.osc,
+                            n.program.controls.primary(),
+                            increment,
+                            code,
+                            ((input[4] * 32768.0).round().clamp(-32768.0, 32767.0) as i16) >> 8,
+                            [
+                                (input[1] * 127.0).round().clamp(-127.0, 127.0) as i16,
+                                (input[2] * 127.0).round().clamp(-127.0, 127.0) as i16,
+                            ],
+                            audio,
+                            self.plan.primary_tables.as_ref().unwrap(),
+                            table,
+                            self.frames,
+                            n.id,
+                        )
                         .0 as f64
                         / 2147483647.0
                         * n.numbers[1]

@@ -81,6 +81,10 @@ Run `node scripts/verify-web.mjs` to check the compiled module and AudioWorklet 
 
 Click an output port and then a matching input to connect it. Blue cables carry audio; red cables carry CV. An input accepts one cable; a new connection replaces its previous cable. Click a connected input or a cable, then **Disconnect** (or Delete) to remove it. **Add module…** adds an independent oscillator, filter, Drive/WS, VCA, mixer, LFO or envelope, up to 64 modules per timbre. New modules have their own controls. CV inputs cover oscillator pitch, filter cutoff, VCA gain, LFO rate and envelope gate.
 
+**Add module → OSC 1** adds a complete independent primary oscillator: six waveforms, Waveform/Cross/Unison/VPM modes, CTRL 1/2, semitone/cents tuning and level. It uses the shared native Rust generators and controllers, with separate state for each module and voice. Its ports accept audio **mod** for Cross, CV **ctrl1/ctrl2**, **pitch** (±24 semitones at ±1) and **lfo** for Waveform CTRL2 depth. Noise/Formant use Waveform mode. The existing **OSCILLATOR** remains the simpler four-waveform module.
+
+Every synthesis module except the required Output has an **×** button, including the original Noise, OSC 1, filters and envelopes. Removal deletes its attached cables and activates the resulting routing. Undo restores the module and cables; removed original modules also become available in Add module. Removed modules and independent OSC 1 settings persist in program/timbre saves and JSON.
+
 **Routing On** evaluates the cables for every voice, including PCM samples. Changing a cable enables routing; moving a module does not change sound. **Routing Off** uses the original fixed DSP path while retaining the custom patch. **Reset modules** restores the initial layout and disables routing. Undo/Redo cover module edits. Feedback loops are rejected. Layout, module parameters and cables are included in Save, Save copy, session restore and JSON export.
 
 ### One engine source
