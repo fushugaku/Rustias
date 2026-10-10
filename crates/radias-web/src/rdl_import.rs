@@ -354,7 +354,7 @@ fn values(
         v[extra + 2] = i32::from(e.velocity_time_sensitivity);
         v[extra + 3] = i32::from(e.key_tracking);
     }
-    for (i, lfo) in c.modulation.lfo.iter().enumerate() {
+    for (i, lfo) in c.modulation.lfo.iter().take(2).enumerate() {
         let b = 73 + i * 8;
         v[b] = i32::from(lfo.waveform & 3);
         v[b + 1] = i32::from(lfo.shape & 127);

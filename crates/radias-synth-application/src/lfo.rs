@@ -2,6 +2,16 @@
 //! supplied by the instrument; this use case has no audio/device dependencies.
 use radias_synth_domain::lfo::{LfoState, LfoTables, LfoWave};
 
+pub const LFO_COUNT: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+    3
+} else {
+    2
+};
+/// Keep the original effect clock slots 2/3 stable; LFO 3 uses slot 4.
+pub const fn synthesis_clock_slot(index: usize) -> usize {
+    if index < 2 { index } else { index + 2 }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LfoParameters {
     pub waveform: u8,
@@ -24,8 +34,8 @@ impl Default for LfoParameters {
     }
 }
 pub struct LfoPairController {
-    pub states: [LfoState; 2],
-    pub parameters: [LfoParameters; 2],
+    pub states: [LfoState; LFO_COUNT],
+    pub parameters: [LfoParameters; LFO_COUNT],
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TempoSynchronizationPending;
@@ -36,10 +46,10 @@ impl LfoPairController {
         &mut self,
         tables: &LfoTables,
         tempo_tables: &radias_synth_domain::lfo_tempo::LfoTempoTables,
-        divisions: [u8; 2],
-        tempo: &mut [radias_synth_domain::lfo_tempo::LfoTempoState; 2],
+        divisions: [u8; LFO_COUNT],
+        tempo: &mut [radias_synth_domain::lfo_tempo::LfoTempoState; LFO_COUNT],
         seed: &mut u16,
-    ) -> [i16; 2] {
+    ) -> [i16; LFO_COUNT] {
         for (i, (state, p)) in self.states.iter_mut().zip(self.parameters).enumerate() {
             let increment = if p.phase_sync & 128 != 0 {
                 tempo[i].phase = state.phase;
@@ -61,7 +71,7 @@ impl LfoPairController {
         &mut self,
         tables: &LfoTables,
         seed: &mut u16,
-    ) -> Result<[i16; 2], TempoSynchronizationPending> {
+    ) -> Result<[i16; LFO_COUNT], TempoSynchronizationPending> {
         if self.parameters.iter().any(|p| p.phase_sync & 128 != 0) {
             return Err(TempoSynchronizationPending);
         }
@@ -74,10 +84,10 @@ impl LfoPairController {
         }
         Ok(self.values(tables))
     }
-    pub fn values(&self, tables: &LfoTables) -> [i16; 2] {
+    pub fn values(&self, tables: &LfoTables) -> [i16; LFO_COUNT] {
         core::array::from_fn(|i| {
             let p = self.parameters[i];
-            let waveform = if i == 0 {
+            let waveform = if i != 1 {
                 [
                     LfoWave::Saw,
                     LfoWave::BipolarPulse,
@@ -100,7 +110,7 @@ impl LfoPairController {
             )
         })
     }
-    pub fn retrigger(&mut self, shared: [LfoState; 2], seed: &mut u16) {
+    pub fn retrigger(&mut self, shared: [LfoState; LFO_COUNT], seed: &mut u16) {
         for ((state, p), shared) in self.states.iter_mut().zip(self.parameters).zip(shared) {
             state.initialize_note(p.phase_sync, shared, seed);
         }

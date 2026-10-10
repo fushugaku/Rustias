@@ -12,7 +12,7 @@ The project is under development. Individual algorithms and recorded scenarios a
 
 The browser instrument runs **without firmware**. The shared Rust generator in `radias-synth-infrastructure::synthesizer` produces audio inside a Web Audio `AudioWorklet`. JavaScript forwards controls and plays the generated samples. The web build does not use the SH3/C55 interpreter or SYS images and does not bundle RDL banks or factory PCM ROM. Users can import their own RDL programs. Browser drum samples are separate local files or the bundled drum libraries.
 
-All 155 implemented native parameters are arranged on one silver instrument panel, with a full-screen button and a compact desktop layout. The browser adds Patch 7/8, for 163 parameters in total. Definitions extend the same [schema](crates/radias-synth-infrastructure/src/parameters.json) that Rust uses to validate controls.
+All 155 implemented native parameters are arranged on one silver instrument panel, with a full-screen button and a compact desktop layout. The browser adds Patch 7/8 and LFO 3, for 171 parameters in total. Definitions extend the same [schema](crates/radias-synth-infrastructure/src/parameters.json) that Rust uses to validate controls.
 
 | Section | Available controls |
 | --- | --- |
@@ -22,13 +22,15 @@ All 155 implemented native parameters are arranged on one silver instrument pane
 | Drive / Waveshaper | Independent Off / Drive / WavShape modes; all eleven WS types (Decimator, Hard Clip, OctSaw, MultiTri, MultiSin, four SubOSC waves, Pickup, Level Boost); Depth 0–127 and PreFilt1 / PreAmp position. Switching modes retains the WS type and depth. |
 | EG1 / EG2 / EG3 | Independent ADSR, eight curves, velocity level/time sensitivity and key tracking |
 | Amplifier | Level, stereo pan, key tracking, level offset, source gain/Expression routing and optional MIDI volume; automatic Unison gain bank |
-| LFO1 / LFO2 | Waveform, shape, frequency, phase, Free/Timbre/Voice sync, tempo sync, division and rate offset |
+| LFO1 / LFO2 / LFO3 | Waveform, shape, frequency, phase, Free/Timbre/Voice sync, tempo sync, division and rate offset |
 | Virtual patches | Eight source/destination/intensity routes, manual offsets and feedback destinations for all eight patches |
 | Voice / Pitch | Up to eight timbres, 128 shared web voice slots, Mono/Poly, retrigger/priority, instrument Unison with 2–8 members, detune/spread, portamento curve/time/CC65, transpose, fine tune, bend and vibrato |
 | Tuning / MIDI | Eleven scales, root, master tune and custom cents; per-timbre or Global MIDI channel, key windows, receive flags; note on/off, bend, wheel, CC11 Expression, CC64 sustain, CC65 and all notes/sound off |
 | Drum Kit | Sixteen independently editable synth or sample instruments, owning timbre, kit level/pan/transpose, common −24…+24 dB Gain, trigger notes and exclusive groups; 224 bundled recordings and local upload |
 | Web sequencer | One polyphonic track per timbre, up to eight, each 1–128 steps; one Play starts every track together. Per-step chords and arbitrary samples, range Copy/Paste, velocity and gate; independent track enable/length/resolution and eight blocks of sixteen steps |
 | Macros | Eight program knobs, each with up to twelve targets; independent −100…+100% influence, editable names and assignments |
+
+LFO 3 is a browser extension built from the shared Rust LFO controller. It has the LFO 1 waveform set (Saw, Square, Triangle, S&H), independent shape/rate/phase, key sync and tempo divisions. Select **LFO 3** as a Virtual Patch source, or **LFO 3 Rate** as a destination. Its CV output is available in Build; its controls support macros and modulation sequencers. Programs, timbre sounds and sample profiles retain all eight settings. Older 155/163-parameter files gain defaults; RDL imports retain the original two LFOs. Native desktop builds keep their two LFOs and existing parameter IDs.
 
 Click **Start audio** to enable playback. All synthesis sections stay on the same page; choose a timbre at the top to edit it. When **Drum mode** is enabled, select its owning timbre and an instrument: the controls edit that instrument and the keyboard becomes sixteen drum pads. Playing a pad also selects its instrument for editing, marked by a blue border. Synth controls affect that instrument; Kit level/pan affect the whole kit. Selecting another instrument keeps sounding voices. Monitor volume is separate from timbre level.
 
@@ -42,7 +44,7 @@ Dials support vertical drag, Shift for fine adjustment, wheel, arrow/Page/Home/E
 
 The header keeps Program, Timbre sound, Save, BPM, Play and Record available. **Files** contains Import, Export and the RDL report; **Controls** contains audio/MIDI and performance controls. Eight macros sit below the header with target summaries and their assignment pencils. **Macros** and **Keyboard** fold these areas; macro visibility is remembered separately for desktop and phone.
 
-The synthesis rack follows signal order, with OSC / Filters / Mod / Patch / Voice / Drums shortcuts. The effects column keeps unused slots compact and offers independent parameter folding; Master is separated from the four timbre stages. **Build** adds Fit, a clickable minimap, readable port labels and highlights the selected module's cables.
+The synthesis rack follows signal order, with OSC / Filters / Mod / Patch / Voice / Drums shortcuts. Thin rules separate EG1–3 and LFO1–3. Virtual Patch uses four modules per row on wide screens, two on medium screens and one on phones, with full-width Source/Destination fields. The effects column keeps unused slots compact and offers independent parameter folding; Master is separated from the four timbre stages. **Build** adds Fit, a clickable minimap, readable port labels and highlights the selected module's cables.
 
 Drag the separator above the sequencer to resize it, or focus it and use Up/Down/Home/End. The overview shows all 128 stored steps in eight blocks. **Steps** shows every timbre; **Piano roll** and **Samples** show the selected track. Click a grid cell to toggle an event and audition the resulting chord. The row picker searches the full sample library. Step properties open alongside the grid, allowing sound edits during sequencing; on a phone they appear below it. **Select**, endpoint taps or Shift-click select a range for Copy/Paste, including across timbres. Note divisions produce a musical bar/beat ruler. Opening a Mod Sequence gives its controls the editor area until closed.
 

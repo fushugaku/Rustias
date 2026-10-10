@@ -1,7 +1,7 @@
 //! Six Virtual Patch routes: original SH3 022300 and 022390..022610.
 pub const MODULATION_DESTINATIONS: usize =
     if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
-        42
+        43
     } else {
         40
     };
@@ -160,11 +160,11 @@ impl ModulationTables {
                 (((depth as i32 * depth.abs() as i32) as i64 * source.value as i64) >> 12) as i32,
                 0,
             ),
-            13 | 14 if key => (
+            13 | 14 | 42 if key => (
                 ((self.key_lfo_rate_depth[index] as i64 * source.value as i64) >> 15) as i32,
                 0,
             ),
-            13 | 14 => (
+            13 | 14 | 42 => (
                 ((self.lfo_rate_depth[index] as i64 * source.value as i64) >> 15) as i32,
                 0,
             ),

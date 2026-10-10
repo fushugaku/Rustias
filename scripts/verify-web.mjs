@@ -22,6 +22,7 @@ import {ModulationAutomation} from '../web/modulation.js';
 import {ModulationHost} from '../web/modulation-host.js';
 import {verifyModulation} from './verify-modulation.mjs';
 import {verifySequenceView} from './verify-sequence-view.mjs';
+import {verifyLfo3} from './verify-lfo3.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
@@ -360,6 +361,7 @@ const primarySnapshot={...modularSnapshot,circuits:{version:1,tracks:[primaryGra
 const primarySaved=graphStore.save('Independent OSC1 and removed Noise',primarySnapshot);assert.deepEqual(validateCircuits(graphStore.list().find(p=>p.id===primarySaved.id).snapshot.circuits),primarySnapshot.circuits,'Independent OSC1 settings and removed builtins survive program storage');
 features.push('Full independent OSC1 modules: all 18 waveform/mode combinations, CTRL1/2, VPM ratio, pitch/cents, audio Cross and CV wiring, isolated states; builtin removal/re-addition and patch persistence');
 features.push(verifyCircuitSwitch({api,setCircuit,graphNote,render,rms,control}));
+features.push(verifyLfo3({api,parameters:schema,control,render,rms,save,load,setCircuit}));
 features.push(verifyEffects({api,catalog:effectCatalog,render,rms,control,save,load,parameters:schema,module}));
 
 const reports = [];

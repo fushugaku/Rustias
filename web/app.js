@@ -1,4 +1,4 @@
-import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray,effectUsesMaster,effectTimbre,effectRole,timbreEffectSlots} from './limits.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray,effectUsesMaster,effectTimbre,effectRole,timbreEffectSlots,LFO3_BASE} from './limits.js';
 import {webParameters} from './parameters.js';
 import {createMacrosPanel} from './macros-ui.js';
 import {createModulationEditor} from './modulation-ui.js';
@@ -81,7 +81,7 @@ function format(id, value) {
   if ([72, 148, 141, 142].includes(id)) return String(value + 1);
   if (id === 89) return `${(value / 10).toFixed(1)} BPM`;
   if (id === 146 || [119, 120].includes(id)) return noteLabel(value);
-  if ([75, 83].includes(id)) return `${(0.02 * 1500 ** (value / 127)).toFixed(2)} Hz`;
+  if ([75, 83, LFO3_BASE+2].includes(id)) return `${(0.02 * 1500 ** (value / 127)).toFixed(2)} Hz`;
   if (p.center !== undefined) return `${value - p.center > 0 ? "+" : ""}${value - p.center}`;
   return String(value);
 }
@@ -100,9 +100,9 @@ function disabled(id, v) {
   if (id === 118 && isDrum()) return true;
   if (id === 117) return v[116] === 0;
   if (id >= 125 && id <= 136) return v[122] !== 9;
-  if ([75, 83].includes(id)) return v[id + 3] !== 0;
-  if ([79, 87].includes(id)) return v[id - 1] === 0;
-  if ([77, 85].includes(id)) return v[id - 1] === 0;
+  if ([75, 83, LFO3_BASE+2].includes(id)) return v[id + 3] !== 0;
+  if ([79, 87, LFO3_BASE+6].includes(id)) return v[id - 1] === 0;
+  if ([77, 85, LFO3_BASE+4].includes(id)) return v[id - 1] === 0;
   if ([143, 144, 145].includes(id)) return v[140] === 0;
   if(id===146&&editingSample)return true;
   if ([146, 147].includes(id)) return !isDrum()&&!editingSample;

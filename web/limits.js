@@ -2,6 +2,8 @@
 export const MAX_TIMBRES=8;
 export const INITIAL_TIMBRES=4;
 export const PATCH_ROUTES=8;
+export const LFO3_BASE=163;
+export const PARAMETER_COUNT=LFO3_BASE+8;
 export const MASTER_EFFECT_SLOT=2*MAX_TIMBRES;
 export const TIMBRE_EFFECTS=4;
 export const EXTRA_EFFECT_START=MASTER_EFFECT_SLOT+1;

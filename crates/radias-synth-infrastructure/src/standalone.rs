@@ -42,7 +42,7 @@ use radias_synth_domain::{
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const NATIVE_PARAMETER_COUNT: usize = 155;
 pub const PARAMETER_COUNT: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
-    163
+    171
 } else {
     NATIVE_PARAMETER_COUNT
 };
@@ -65,12 +65,23 @@ pub fn parameters() -> Vec<Parameter> {
     if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
         spec[141].max = (TIMBRE_COUNT - 1) as i32;
         for i in 0..6 {
-            spec[91 + i * 4].max = 41;
-            spec[91 + i * 4].values.as_mut().unwrap().extend([40, 41]);
+            spec[90 + i * 4].max = 16;
+            spec[90 + i * 4].values = Some((0..=8).chain(core::iter::once(16)).collect());
+            spec[91 + i * 4].max = 42;
+            spec[91 + i * 4]
+                .values
+                .as_mut()
+                .unwrap()
+                .extend([40, 41, 42]);
         }
-        for id in NATIVE_PARAMETER_COUNT..PARAMETER_COUNT {
+        for id in NATIVE_PARAMETER_COUNT..163 {
             let mut p = spec[90 + (id - NATIVE_PARAMETER_COUNT) % 4].clone();
             p.id = id;
+            spec.push(p);
+        }
+        for i in 0..8 {
+            let mut p = spec[73 + i].clone();
+            p.id = 163 + i;
             spec.push(p);
         }
     }
@@ -103,7 +114,7 @@ fn envelope(v: &Values, index: usize) -> ModEnvelopeProgram {
 fn modulation(v: &Values) -> ModulationProgram {
     ModulationProgram {
         lfo: core::array::from_fn(|i| {
-            let b = 73 + i * 8;
+            let b = if i < 2 { 73 + i * 8 } else { 163 };
             radias_synth_application::lfo::LfoParameters {
                 waveform: v[b] as u8,
                 shape: v[b + 1] as u8,
@@ -115,7 +126,7 @@ fn modulation(v: &Values) -> ModulationProgram {
                 frequency_modulation: 0,
             }
         }),
-        tempo_divisions: [v[79] as u8, v[87] as u8],
+        tempo_divisions: core::array::from_fn(|i| v[if i < 2 { 79 + i * 8 } else { 169 }] as u8),
         routes: core::array::from_fn(|i| {
             let b = if i < 6 { 90 + i * 4 } else { 155 + (i - 6) * 4 };
             PatchRoute {
@@ -491,7 +502,7 @@ impl StandaloneSynth {
         if is(&[65]) {
             self.engine.apply(Command::SustainProgram(t, c.sustain));
         }
-        if changed.is_none_or(|id| matches!(id,73..=88|90..=113|155..=162)) {
+        if changed.is_none_or(|id| matches!(id,73..=88|90..=113|155..=170)) {
             self.engine.apply(Command::Modulation(t, c.modulation));
         }
     }
@@ -768,8 +779,8 @@ impl StandaloneSynth {
         if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
             let defaults = default_values();
             for v in p.timbres.iter_mut().chain(&mut p.drums) {
-                if v.len() == NATIVE_PARAMETER_COUNT {
-                    v.extend_from_slice(&defaults[NATIVE_PARAMETER_COUNT..]);
+                if v.len() == NATIVE_PARAMETER_COUNT || v.len() == 163 {
+                    v.extend_from_slice(&defaults[v.len()..]);
                 }
             }
             if (4..=TIMBRE_COUNT).contains(&p.timbres.len()) {
@@ -873,6 +884,9 @@ mod tests {
         assert_eq!(TIMBRE_COUNT, 4);
         assert_eq!(PARAMETER_COUNT, 155);
         assert_eq!(radias_synth_application::modulation::PATCH_ROUTES, 6);
+        assert_eq!(radias_synth_application::lfo::LFO_COUNT, 2);
+        assert_eq!(radias_synth_application::modulation::SOURCE_COUNT, 16);
+        assert_eq!(radias_synth_domain::modulation::MODULATION_DESTINATIONS, 40);
         assert_eq!(radias_synth_domain::voice_allocation::VOICE_COUNT, 24);
         assert_eq!(radias_synth_application::effect_audio::EFFECT_SLOTS, 9);
         assert_eq!(parameters()[141].max, 3);

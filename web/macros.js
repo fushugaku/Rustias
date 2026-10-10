@@ -1,11 +1,11 @@
-import {MAX_TIMBRES,EFFECT_SLOTS} from './limits.js';
+import {MAX_TIMBRES,EFFECT_SLOTS,PARAMETER_COUNT} from './limits.js';
 import {validSampleSource} from './sample-state.js';
 export const MACRO_COUNT=8,MACRO_BINDINGS=12;
 export const emptyMacros=()=>({version:1,knobs:Array.from({length:MACRO_COUNT},(_,i)=>({name:`Macro ${i+1}`,value:0,bindings:[]})),bases:[]});
 const integer=(n,min,max)=>Number.isInteger(n)&&n>=min&&n<=max;
 export function macroTarget(raw){
   const t=raw?.timbre,p=raw?.parameter;
-  const timbre=()=>integer(t,0,MAX_TIMBRES-1),parameter=()=>integer(p,0,162);
+  const timbre=()=>integer(t,0,MAX_TIMBRES-1),parameter=()=>integer(p,0,PARAMETER_COUNT-1);
   switch(raw?.kind){
     case 'synth':if(timbre()&&parameter())return {kind:raw.kind,timbre:t,parameter:p};break;
     case 'global':if(parameter())return {kind:raw.kind,parameter:p};break;

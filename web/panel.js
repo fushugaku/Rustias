@@ -1,4 +1,4 @@
-import {PATCH_ROUTES} from './limits.js';
+import {PATCH_ROUTES,LFO3_BASE} from './limits.js';
 import {bindMacroTarget} from './macro-gesture.js';
 import {targetKey} from './macros.js';
 // Shared hardware controls for the complete firmware-free instrument.
@@ -6,6 +6,7 @@ const shortLabels = {
   9:"Morph",10:"Mode",11:"CTRL 1",12:"CTRL 2",15:"Semi",16:"Fine",17:"OSC 1",18:"OSC 2",19:"Noise",7:"Amp level",8:"Amp pan",
   24:"Link",25:"EG1 int",26:"Key track",27:"EG1 int",28:"Key track",31:"Depth",40:"Curve",41:"Vel level",42:"Vel time",43:"Key track",44:"Curve",45:"Vel level",46:"Vel time",47:"Key track",48:"Curve",49:"Vel level",50:"Vel time",51:"Key track",
   52:"Key track",53:"Transpose",54:"Fine",55:"Vibrato",56:"Bend range",57:"Bend RX",58:"Wheel RX",59:"Port time",60:"Port curve",61:"CC65 mode",62:"Voice mode",63:"Retrigger",64:"Priority",65:"Damper",66:"CC64",67:"Unison",68:"Voices",69:"Detune",70:"Spread",71:"Enabled",72:"Channel",
+  170:"Rate offset",
   76:"Key sync",77:"Phase",78:"Tempo sync",79:"Division",80:"Rate offset",84:"Key sync",85:"Phase",86:"Tempo sync",87:"Division",88:"Rate offset",89:"BPM",114:"Level offset",115:"Source gain",116:"MIDI vol RX",117:"MIDI vol",118:"Gain bank",119:"Key low",120:"Key high",121:"Tune ¢",122:"Scale",123:"Root",124:"Scale shift",137:"Bend",138:"Wheel",139:"CC65",140:"Drum mode",141:"Timbre",142:"Instrument",143:"Kit level",144:"Kit pan",145:"Transpose",146:"Trigger",147:"Excl group",148:"Global ch",149:"Amp RX",150:"Expression",151:"Expr RX 0",152:"Gain source",153:"Expr RX 1",154:"WS Type",
 };
 const rows = [
@@ -23,6 +24,7 @@ const rows = [
     {key:"eg3",name:"EG 3",ids:[36,37,38,39,48,49,50,51]},
     {key:"lfo1",name:"LFO 1",ids:[73,74,75,76,77,78,79,80]},
     {key:"lfo2",name:"LFO 2",ids:[81,82,83,84,85,86,87,88]},
+    {key:"lfo3",name:"LFO 3",ids:Array.from({length:8},(_,i)=>LFO3_BASE+i)},
   ].map(p=>({...p,columns:4})),
   Array.from({length:PATCH_ROUTES},(_,i)=>({key:`patch${i+1}`,name:`PATCH ${i+1}`,ids:Array.from({length:4},(_,n)=>(i<6?90+i*4:155+(i-6)*4)+n),patch:true})),
   [

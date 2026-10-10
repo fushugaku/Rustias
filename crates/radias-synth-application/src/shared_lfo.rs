@@ -1,5 +1,5 @@
 //! Original shared synthesis/effect LFO phase service, SYS 016fa4/017160.
-use crate::lfo::{LfoPairController, LfoParameters};
+use crate::lfo::{LFO_COUNT, LfoPairController, LfoParameters};
 use radias_synth_domain::{
     lfo::{LfoState, LfoTables},
     lfo_tempo::{LfoTempoState, LfoTempoTables},
@@ -81,17 +81,17 @@ impl EffectLfoController {
 
 pub struct SharedTimbreLfo {
     pub synthesis: LfoPairController,
-    pub tempo: [LfoTempoState; 2],
+    pub tempo: [LfoTempoState; LFO_COUNT],
     pub effects: [EffectLfoController; 2],
 }
 impl Default for SharedTimbreLfo {
     fn default() -> Self {
         Self {
             synthesis: LfoPairController {
-                states: [Default::default(); 2],
-                parameters: [LfoParameters::default(); 2],
+                states: [Default::default(); LFO_COUNT],
+                parameters: [LfoParameters::default(); LFO_COUNT],
             },
-            tempo: [Default::default(); 2],
+            tempo: [Default::default(); LFO_COUNT],
             effects: [Default::default(); 2],
         }
     }
@@ -121,7 +121,7 @@ impl SharedTimbreLfo {
     pub fn tick(
         &mut self,
         enabled: bool,
-        divisions: [u8; 2],
+        divisions: [u8; LFO_COUNT],
         effects: [EffectLfoParameters; 2],
         lfo: &LfoTables,
         tables: &LfoTempoTables,
@@ -145,14 +145,19 @@ impl SharedTimbreLfo {
         }
     }
     pub fn pulse(&mut self, four: bool) {
-        for i in 0..2 {
+        for i in 0..LFO_COUNT {
             self.tempo[i].phase = self.synthesis.states[i].phase;
-            self.effects[i].tempo.phase = self.effects[i].state.phase;
-            for state in [&mut self.tempo[i], &mut self.effects[i].tempo] {
+            if four {
+                self.tempo[i].clock_pulse_four();
+            } else {
+                self.tempo[i].clock_pulse_one();
+            }
+            if let Some(effect) = self.effects.get_mut(i) {
+                effect.tempo.phase = effect.state.phase;
                 if four {
-                    state.clock_pulse_four();
+                    effect.tempo.clock_pulse_four();
                 } else {
-                    state.clock_pulse_one();
+                    effect.tempo.clock_pulse_one();
                 }
             }
         }

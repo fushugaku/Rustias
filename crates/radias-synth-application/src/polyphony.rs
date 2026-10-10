@@ -2,7 +2,8 @@
 use crate::{
     VoiceControlEvent, VoiceRenderer,
     amplifier::{AmplifierController, ControllerTables},
-    modulation::{ModulationProgram, VoiceModulation, VoiceModulationTables},
+    lfo::{LFO_COUNT, synthesis_clock_slot},
+    modulation::{ModulationProgram, SOURCE_COUNT, VoiceModulation, VoiceModulationTables},
     scale_bus,
     shared_lfo::{EffectLfoController, EffectLfoParameters, SharedTimbreLfo},
 };
@@ -105,7 +106,7 @@ pub struct PolyphonicRenderer {
     effect_lfo_parameters: [[EffectLfoParameters; 2]; TIMBRE_COUNT],
     global_lfo: EffectLfoController,
     global_lfo_parameters: EffectLfoParameters,
-    controller_slots: [[radias_synth_domain::lfo::LfoState; 2]; VOICE_COUNT],
+    controller_slots: [[radias_synth_domain::lfo::LfoState; LFO_COUNT]; VOICE_COUNT],
     controller_slot_valid: [bool; VOICE_COUNT],
     timbre_modulation_active: [bool; TIMBRE_COUNT],
     clock: Option<crate::clock::InstrumentClock>,
@@ -186,7 +187,7 @@ impl Default for PolyphonicRenderer {
             effect_lfo_parameters: [[Default::default(); 2]; TIMBRE_COUNT],
             global_lfo: Default::default(),
             global_lfo_parameters: Default::default(),
-            controller_slots: [[Default::default(); 2]; VOICE_COUNT],
+            controller_slots: [[Default::default(); LFO_COUNT]; VOICE_COUNT],
             controller_slot_valid: [false; VOICE_COUNT],
             timbre_modulation_active: core::array::from_fn(|i| i == 0),
             clock: None,
@@ -445,7 +446,7 @@ impl PolyphonicRenderer {
                 modulation.tempo_divisions = c.modulation.tempo_divisions;
                 if let Some(clock) = &mut self.clock {
                     clock.divisions.voices[slot] = c.modulation.tempo_divisions;
-                    for i in 0..2 {
+                    for i in 0..LFO_COUNT {
                         clock.bank.voices[slot][i].previous_increment = clock
                             .tables
                             .compile_increment(
@@ -1503,8 +1504,11 @@ impl PolyphonicRenderer {
             }
         }
         for (timbre, pair) in self.shared_lfo.iter().enumerate() {
+            for i in 0..LFO_COUNT {
+                clock.bank.timbres[timbre][synthesis_clock_slot(i)].phase =
+                    pair.synthesis.states[i].phase;
+            }
             for i in 0..2 {
-                clock.bank.timbres[timbre][i].phase = pair.synthesis.states[i].phase;
                 clock.bank.timbres[timbre][i + 2].phase = pair.effects[i].state.phase;
                 clock.divisions.timbres[timbre][i + 2] =
                     self.effect_lfo_parameters[timbre][i].beat & 31;
@@ -1857,7 +1861,7 @@ impl PolyphonicRenderer {
         if let (Some(clock), Some(modulation)) = (&mut self.clock, &voice.modulation) {
             let slot = assignment.slot as usize;
             clock.divisions.voices[slot] = program.tempo_divisions;
-            for i in 0..2 {
+            for i in 0..LFO_COUNT {
                 clock.bank.voices[slot][i].previous_increment = clock
                     .tables
                     .compile_increment(
@@ -1869,7 +1873,7 @@ impl PolyphonicRenderer {
                 clock.bank.voices[slot][i].initialize_note(
                     program.lfo[i].phase_sync,
                     program.tempo_divisions[i],
-                    clock.bank.timbres[voice.timbre as usize][i],
+                    clock.bank.timbres[voice.timbre as usize][synthesis_clock_slot(i)],
                 );
                 clock.bank.voices[slot][i].phase = modulation.pair.states[i].phase;
             }
@@ -2087,7 +2091,7 @@ impl PolyphonicRenderer {
     pub fn retained_modulation_state(
         &self,
         slot: usize,
-    ) -> Option<[radias_synth_domain::lfo::LfoState; 2]> {
+    ) -> Option<[radias_synth_domain::lfo::LfoState; LFO_COUNT]> {
         self.controller_slot_valid
             .get(slot)
             .copied()
@@ -2341,9 +2345,10 @@ impl PolyphonicRenderer {
             pair.synthesis.parameters = program.lfo;
         }
         if let Some(clock) = &mut self.clock {
-            for i in 0..2 {
-                clock.divisions.timbres[timbre as usize][i] = program.tempo_divisions[i];
-                clock.bank.timbres[timbre as usize][i].previous_increment = clock
+            for i in 0..LFO_COUNT {
+                let c = synthesis_clock_slot(i);
+                clock.divisions.timbres[timbre as usize][c] = program.tempo_divisions[i];
+                clock.bank.timbres[timbre as usize][c].previous_increment = clock
                     .tables
                     .compile_increment(
                         (program.tempo_divisions[i] & 31) as i32,
@@ -2361,7 +2366,7 @@ impl PolyphonicRenderer {
                 modulation.edit_with_clock(program, self.clock.is_some())?;
                 if let Some(clock) = &mut self.clock {
                     clock.divisions.voices[slot] = program.tempo_divisions;
-                    for i in 0..2 {
+                    for i in 0..LFO_COUNT {
                         clock.bank.voices[slot][i].previous_increment = clock
                             .tables
                             .compile_increment(
@@ -2532,28 +2537,34 @@ impl PolyphonicRenderer {
                 );
             }
         }
-        for timbre in (parity * 2)..(parity * 2 + 2) {
+        for timbre in (0..TIMBRE_COUNT)
+            .step_by(4)
+            .flat_map(|start| (start + parity * 2)..(start + parity * 2 + 2))
+        {
             let shared = &mut self.shared_lfo[timbre];
             if let Some(clock) = &mut self.clock {
-                for i in 0..2 {
-                    shared.tempo[i] = clock.bank.timbres[timbre][i];
+                for i in 0..LFO_COUNT {
+                    shared.tempo[i] = clock.bank.timbres[timbre][synthesis_clock_slot(i)];
                     shared.synthesis.states[i].phase = shared.tempo[i].phase;
+                }
+                for i in 0..2 {
                     shared.effects[i].tempo = clock.bank.timbres[timbre][i + 2];
                     shared.effects[i].state.phase = shared.effects[i].tempo.phase;
                 }
                 shared.tick(
                     self.timbre_modulation_active[timbre],
-                    [
-                        clock.divisions.timbres[timbre][0],
-                        clock.divisions.timbres[timbre][1],
-                    ],
+                    core::array::from_fn(|i| {
+                        clock.divisions.timbres[timbre][synthesis_clock_slot(i)]
+                    }),
                     self.effect_lfo_parameters[timbre],
                     &tables.lfo,
                     &clock.tables,
                     &mut self.modulation_random,
                 );
+                for i in 0..LFO_COUNT {
+                    clock.bank.timbres[timbre][synthesis_clock_slot(i)] = shared.tempo[i];
+                }
                 for i in 0..2 {
-                    clock.bank.timbres[timbre][i] = shared.tempo[i];
                     clock.bank.timbres[timbre][i + 2] = shared.effects[i].tempo;
                 }
             } else {
@@ -2807,7 +2818,7 @@ impl PolyphonicRenderer {
                     auxiliary: 0,
                 }
                 .normalized(&tables.amplifier);
-                let mut sources = [0; 16];
+                let mut sources = [0; SOURCE_COUNT];
                 sources[..10].copy_from_slice(&signals);
                 let targets = modulation.service(&mod_tables.lfo, &mod_tables.matrix, sources);
                 if let (Some(port), Some(port_tables)) =
@@ -3380,7 +3391,7 @@ impl PolyphonicRenderer {
                         .modulation
                         .as_ref()
                         .zip(modulation_tables)
-                        .map_or([0; 2], |(m, t)| m.pair.values(&t.lfo));
+                        .map_or([0; LFO_COUNT], |(m, t)| m.pair.values(&t.lfo));
                     circuit.controls([
                         if active.held { 1.0 } else { 0.0 },
                         active.velocity as f64 / 127.0,
@@ -3389,7 +3400,7 @@ impl PolyphonicRenderer {
                         eg[1] as f64 / 65535.0,
                         lfo[0] as f64 / 32768.0,
                         lfo[1] as f64 / 32768.0,
-                        0.0,
+                        lfo.get(2).copied().unwrap_or(0) as f64 / 32768.0,
                     ]);
                 }
                 self.drum_slots[slot] = active.drum_instrument.is_some();

@@ -60,6 +60,8 @@ enum Kind {
     Eg3,
     Lfo1,
     Lfo2,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    Lfo3,
     Gate,
     Velocity,
     Output,
@@ -88,6 +90,8 @@ fn kind(name: &str) -> Option<Kind> {
         "eg3" => Kind::Eg3,
         "lfo1" => Kind::Lfo1,
         "lfo2" => Kind::Lfo2,
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        "lfo3" => Kind::Lfo3,
         "gate" => Kind::Gate,
         "velocity" => Kind::Velocity,
         "output" => Kind::Output,
@@ -104,6 +108,10 @@ fn kind(name: &str) -> Option<Kind> {
     })
 }
 fn cv(k: Kind) -> bool {
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    if k == Kind::Lfo3 {
+        return true;
+    }
     matches!(
         k,
         Kind::Eg1
@@ -607,6 +615,8 @@ impl SignalProcessor for CircuitVoice {
                 Kind::Eg3 => self.controls[4],
                 Kind::Lfo1 => self.controls[5],
                 Kind::Lfo2 => self.controls[6],
+                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                Kind::Lfo3 => self.controls[7],
                 Kind::Gate => self.controls[0],
                 Kind::Velocity => self.controls[1],
                 Kind::Output => input[0],

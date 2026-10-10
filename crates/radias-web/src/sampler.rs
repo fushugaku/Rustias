@@ -5,7 +5,8 @@ use radias_synth_application::{
     clock::InstrumentClock,
     comb::CombVoiceControl,
     drum_program::DrumInstrumentProgram,
-    modulation::{VoiceModulation, VoiceModulationTables},
+    lfo::LFO_COUNT,
+    modulation::{SOURCE_COUNT, VoiceModulation, VoiceModulationTables},
     note_pitch::VoiceNotePitch,
     scale_bus,
     voice_envelopes::VoiceEnvelopes,
@@ -584,8 +585,8 @@ impl Sampler {
         let modulation = VoiceModulation::from_prior_with_clock(
             p.controls.modulation,
             (pitch as i32) << 8,
-            [Default::default(); 2],
-            [Default::default(); 2],
+            [Default::default(); LFO_COUNT],
+            [Default::default(); LFO_COUNT],
             &mut self.seed,
             true,
         )
@@ -675,7 +676,7 @@ impl Sampler {
                 .controls
                 .envelope
                 .map(|e| e.velocity_level_sensitivity),
-            lfo,
+            lfo: [lfo[0], lfo[1]],
             velocity: v.velocity,
             bend: settings[137] as i16,
             wheel: settings[138] as u8,
@@ -683,7 +684,7 @@ impl Sampler {
             auxiliary: 0,
         }
         .normalized(&self.controllers.amplifier);
-        let mut inputs = [0; 16];
+        let mut inputs = [0; SOURCE_COUNT];
         inputs[..10].copy_from_slice(&sources);
         let targets = v
             .modulation
@@ -863,7 +864,7 @@ impl Sampler {
                     eg[1] as f64 / 65535.0,
                     lfo[0] as f64 / 32768.0,
                     lfo[1] as f64 / 32768.0,
-                    0.0,
+                    lfo.get(2).copied().unwrap_or(0) as f64 / 32768.0,
                 ]);
                 let parameters = radias_synth_domain::voice::VoiceParameters {
                     primary: radias_synth_domain::primary_oscillator::PrimaryParameters::waveform(

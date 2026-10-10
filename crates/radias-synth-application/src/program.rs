@@ -84,7 +84,7 @@ impl TimbreControls {
     pub fn from_timbre(timbre: Timbre<'_>) -> Result<Self, InvalidPatchDestination> {
         let p = timbre.synthesis();
         let mut modulation = ModulationProgram::default();
-        for (i, lfo) in modulation.lfo.iter_mut().enumerate() {
+        for (i, lfo) in modulation.lfo.iter_mut().take(2).enumerate() {
             let b = 0x4c + i * 5;
             *lfo = LfoParameters {
                 waveform: p[b],

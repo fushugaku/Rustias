@@ -55,7 +55,7 @@ export function prepareNewInterface(){
   const fx=element('aside','nw-fx'),fxHead=element('div','nw-stage-heading'),fxTitle=element('h2','','Effects'),fxFold=button('−','Collapse effects');fxHead.append(fxTitle,fxFold);fx.append(fxHead,$('#effects'));stage.append(sound,fx);instrument.insertBefore(stage,macros.nextSibling);
   fxFold.addEventListener('click',()=>{fx.classList.toggle('folded');fxFold.textContent=fx.classList.contains('folded')?'+':'−';fxFold.setAttribute('aria-label',fx.classList.contains('folded')?'Expand effects':'Collapse effects');fxFold.setAttribute('aria-expanded',!fx.classList.contains('folded'));});
   if(small)fx.classList.add('folded');fxFold.textContent=small?'+':'−';fxFold.setAttribute('aria-expanded',!small);fxFold.setAttribute('aria-label',small?'Expand effects':'Collapse effects');
-  const rack=$('#rack'),groups=[['Sound',['osc1','osc2','mixer','filter1','filter2','drive','amp']],['Modulation',['eg1','eg2','eg3','lfo1','lfo2']],['Virtual patch',Array.from({length:8},(_,i)=>'patch'+(i+1))],['Voice & tuning',['voice','midi','scale']],['Drum kit',['drums']]];
+  const rack=$('#rack'),groups=[['Sound',['osc1','osc2','mixer','filter1','filter2','drive','amp']],['Modulation',['eg1','eg2','eg3','lfo1','lfo2','lfo3']],['Virtual patch',Array.from({length:8},(_,i)=>'patch'+(i+1))],['Voice & tuning',['voice','midi','scale']],['Drum kit',['drums']]];
   groups.forEach(([label,keys],group)=>{const divider=element('h2','nw-rack-divider',label);divider.style.order=group*100;rack.append(divider);keys.forEach((key,index)=>rack.querySelector('.module-'+key).style.order=group*100+index+1);});
   for(const id of [1,2,3,4,5,6,7,8,11,12,17,18,19,31])rack.querySelector(`[data-parameter="${id}"]`)?.classList.add('nw-primary');
 

@@ -5,7 +5,7 @@ export const MODULES={
   mixer:{name:'MIXER / AMP',panel:'mixer',out:'audio',inputs:{a:'audio',b:'audio',c:'audio'}},
   filter1:{name:'FILTER 1',panel:'filter1',out:'audio',inputs:{in:'audio',cutoff:'cv'}},filter2:{name:'FILTER 2',panel:'filter2',out:'audio',inputs:{in:'audio',cutoff:'cv'}},
   drive:{name:'DRIVE / WS',panel:'drive',out:'audio',inputs:{in:'audio'}},amp:{name:'AMPLIFIER',panel:'amp',out:'audio',inputs:{in:'audio',gain:'cv'}},
-  eg1:{name:'EG 1',panel:'eg1',out:'cv'},eg2:{name:'EG 2',panel:'eg2',out:'cv'},eg3:{name:'EG 3',panel:'eg3',out:'cv'},lfo1:{name:'LFO 1',panel:'lfo1',out:'cv'},lfo2:{name:'LFO 2',panel:'lfo2',out:'cv'},
+  eg1:{name:'EG 1',panel:'eg1',out:'cv'},eg2:{name:'EG 2',panel:'eg2',out:'cv'},eg3:{name:'EG 3',panel:'eg3',out:'cv'},lfo1:{name:'LFO 1',panel:'lfo1',out:'cv'},lfo2:{name:'LFO 2',panel:'lfo2',out:'cv'},lfo3:{name:'LFO 3',panel:'lfo3',out:'cv'},
   gate:{name:'KEY GATE',out:'cv'},velocity:{name:'VELOCITY',out:'cv'},output:{name:'OUTPUT',inputs:{in:'audio'}},
   oscillator:{name:'OSCILLATOR',out:'audio',inputs:{pitch:'cv'},controls:{wave:['Wave',0,3,0,['Saw','Pulse','Triangle','Sine']],semitone:['Semi',-48,48,0],level:['Level',0,127,64]}},
   oscillator1:{name:'OSC 1',out:'audio',inputs:{mod:'audio',ctrl1:'cv',ctrl2:'cv',pitch:'cv',lfo:'cv'},controls:{wave:['Waveform',0,5,0,['Saw','Pulse','Triangle','Sine','Noise','Formant']],mode:['Mode',0,3,0,['Waveform','Cross','Unison','VPM']],ctrl1:['CTRL 1',0,127,0],ctrl2:['CTRL 2',0,127,0],semitone:['Semi',-48,48,0],fine:['Fine ¢',-100,100,0],level:['Level',0,127,64]}},
@@ -20,7 +20,7 @@ export const MODULES={
 export const EXTRA_MODULES=['oscillator1','oscillator','filter','shaper','vca','sum','lfo','envelope','switch'];
 export const outputPorts=kind=>MODULES[kind].outputs??(MODULES[kind].out?{out:MODULES[kind].out}:{});
 const BUILTINS=['osc1','osc2','noise','mixer','filter1','filter2','drive','amp','eg1','eg2','eg3','lfo1','lfo2','gate','velocity','output'];
-export const availableModules=circuit=>[...EXTRA_MODULES,...BUILTINS.filter(kind=>kind!=='output'&&!circuit.nodes.some(n=>n.kind===kind))];
+export const availableModules=circuit=>[...EXTRA_MODULES,...[...BUILTINS,'lfo3'].filter(kind=>kind!=='output'&&!circuit.nodes.some(n=>n.kind===kind))];
 export function removeModule(circuit,id){
   const node=circuit.nodes.find(n=>n.id===id);if(!node)throw new Error('Module is missing.');if(node.kind==='output')throw new Error('Keep one Output module.');
   return validateCircuit({...structuredClone(circuit),enabled:true,nodes:circuit.nodes.filter(n=>n.id!==id),wires:circuit.wires.filter(w=>w.from!==id&&w.to!==id)});
@@ -28,6 +28,7 @@ export function removeModule(circuit,id){
 export function defaultCircuit(v=[]){
   const positions=[[24,24],[24,400],[24,780],[350,24],[700,24],[1050,24],[1400,24],[1750,24],[350,580],[700,580],[1050,580],[1400,580],[1750,580],[350,1120],[700,1120],[2100,24]];
   const nodes=BUILTINS.map((kind,id)=>({id,kind,x:positions[id][0]+(positions[id][0]>=350?24:0),y:positions[id][1],params:{}}));
+  nodes.push({id:63,kind:'lfo3',x:2124,y:580,params:{}});
   const wires=[{from:0,to:3,port:'a'},{from:1,to:3,port:'b'},{from:2,to:3,port:'c'}];
   const chain=(v[30]??0)===0?[3,6,4,5,7,15]:[3,4,5,6,7,15];
   for(let i=1;i<chain.length;i++)wires.push({from:chain[i-1],to:chain[i],port:'in'});
