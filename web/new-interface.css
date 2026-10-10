@@ -34,3 +34,4 @@
 .new-interface #rack .module:is(.module-voice,.module-drums){grid-column:1/-1!important}
 @media(max-width:1100px) and (min-width:801px){.new-interface #rack .module{grid-column:span 6!important}}
 @media(max-width:800px){.new-interface #rack .module{grid-column:span 4!important}.new-interface #rack .module:is(.module-voice,.module-scale,.module-midi,.module-drums,.module-filter1,.module-filter2,.module-drive,.module-amp,.module-mixer,.module-eg1,.module-eg2,.module-eg3,.module-lfo1,.module-lfo2,.patch-module){grid-column:1/-1!important}}
+@media(min-width:801px){.new-interface .nw-stage:has(.nw-fx.folded){grid-template-columns:minmax(0,1fr) 44px}.new-interface .nw-fx.folded .nw-stage-heading{height:100%;padding:0;justify-content:center}.new-interface .nw-fx.folded .nw-stage-heading h2{display:none}}
