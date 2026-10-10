@@ -7,7 +7,9 @@ use radias_synth_application::{
     polyphony::{ActiveVoice, PolyphonicRenderer},
     shared_lfo::EffectLfoParameters,
 };
-use radias_synth_domain::{lfo::LfoState, lfo_tempo::LfoTempoState, pan::VoiceBus};
+use radias_synth_domain::{
+    effect_lfo_program::EffectLfoProgram, lfo::LfoState, lfo_tempo::LfoTempoState, pan::VoiceBus,
+};
 use radias_synth_infrastructure::{
     firmware::{MasterTables, lfo_tables, lfo_tempo_tables, modulation_tables},
     prepared::PreparedVoice,
@@ -55,17 +57,33 @@ fn effect(v: &Value) -> Result<EffectLfoParameters, Box<dyn std::error::Error>> 
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = PathBuf::from(std::env::args().nth(1).ok_or("Repository required")?);
-    let raw = fs::read(root.join("runs/native-clone/lfo-schedule.bin"))?;
+    let prefix = std::env::args()
+        .nth(2)
+        .unwrap_or_else(|| "runs/native-clone/lfo-schedule-note-construction".into());
+    let raw = fs::read(root.join(format!("{prefix}.bin")))?;
     if raw.len() != 16 * 257 * WORDS * 4 {
         return Err("LFO schedule corpus incomplete".into());
     }
-    let inputs: Value = serde_json::from_slice(&fs::read(
-        root.join("runs/native-clone/lfo-schedule-programs.json"),
-    )?)?;
+    let inputs: Value =
+        serde_json::from_slice(&fs::read(root.join(format!("{prefix}-programs.json")))?)?;
     if inputs.as_array().ok_or("Schedule metadata absent")?.len() != 16 {
         return Err("Scenario count differs".into());
     }
     let sys = fs::read(root.join("firmware/RADIAS_SYS_0200.bin"))?;
+    let effect_values = radias_synth_infrastructure::effects::EffectLibrary::from_system(&sys)?
+        .lfo_value_tables()?;
+    let effect_raw = fs::read(root.join(format!("{prefix}-effect-values.bin")))?;
+    let effect_words: Vec<_> = effect_raw
+        .chunks_exact(4)
+        .map(|v| u32::from_le_bytes(v.try_into().unwrap()))
+        .collect();
+    if effect_words.len() != 87249 || effect_words[0] != 0x454c5331 {
+        return Err("Complete scheduled effect-value corpus required".into());
+    }
+    let mut effect_cursor = 1;
+    let mut effect_config = [EffectLfoProgram::default(); 9];
+    let mut effect_value_errors = 0;
+    let mut effect_value_checks = 0;
     let master = fs::read(root.join("firmware/dsp-master-host-stream.bin"))?;
     let data = MasterTables::from_host_stream(&master)?;
     let tables = VoiceModulationTables {
@@ -90,6 +108,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if tick == u32::MAX {
             pool = PolyphonicRenderer::default();
             let input = &inputs[scenario];
+            if effect_words[effect_cursor..effect_cursor + 2] != [0x1000, scenario as u32] {
+                return Err("Effect value configuration order differs".into());
+            }
+            effect_cursor += 2;
+            for config in &mut effect_config {
+                config.bytes = core::array::from_fn(|i| effect_words[effect_cursor + i] as u8);
+                effect_cursor += 6;
+            }
+            if input["oscillator_random_prefix_included"].as_bool() != Some(true) {
+                return Err(
+                    "Production pool comparison requires original oscillator RNG initialization"
+                        .into(),
+                );
+            }
             if input["tempo"].as_bool().ok_or("Clock setting absent")? {
                 pool.enable_tempo_clock(
                     lfo_tempo_tables(&sys)?,
@@ -172,6 +204,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             pool.service_lfos(word(r, 2) as u8, &tables);
         }
+        if effect_words[effect_cursor..effect_cursor + 3] != [0x2000, scenario as u32, tick] {
+            return Err("Effect value observation order differs".into());
+        }
+        effect_cursor += 3;
+        for (slot, state) in pool.effect_lfo_value_states().into_iter().enumerate() {
+            let actual = effect_values
+                .values(&tables.lfo, effect_config[slot], state)
+                .map(|v| v as u32);
+            if actual != effect_words[effect_cursor..effect_cursor + 2] {
+                effect_value_errors += 1;
+            }
+            effect_cursor += 2;
+            effect_value_checks += 2;
+        }
         for i in 0..65 {
             let actual = if i < 48 {
                 pool.retained_modulation_state(i / 2)
@@ -218,13 +264,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         snapshots += 1;
     }
-    let passed = phase_errors == 0 && tempo_errors == 0 && seed_errors == 0;
+    let passed = phase_errors == 0
+        && tempo_errors == 0
+        && seed_errors == 0
+        && effect_value_errors == 0
+        && effect_value_checks == 74016
+        && effect_cursor == effect_words.len();
     let report = serde_json::json!({"passed":passed,"whole_original_schedule_calls":4096,"continuous_scenarios":16,
         "initial_snapshots_compared":16,"phase_state_observations":snapshots*65,"tempo_state_observations":8*257*65,
         "phase_errors":phase_errors,"tempo_errors":tempo_errors,"seed_errors":seed_errors,
+        "live_production_effect_value_checks":effect_value_checks,"live_production_effect_value_errors":effect_value_errors,
+        "effect_value_getters_use_evolved_native_pool_states":true,"recorded_effect_phase_or_value_outputs_replayed_as_inputs":false,
         "native_production_pool_used":true,"all_24_private_slots":true,"all_16_shared_states":true,"global_effect_lfo":true,
         "even_odd_physical_slots_qualified":true,"free_and_tempo_branches":true,"enabled_timbre_masks_changed":true,
         "clock_pulses_are_fixture_inputs":true,"original_instructions_modified":false,
+        "source_corpus_prefix":prefix,"original_oscillator_random_prefixes":384,"original_oscillator_random_calls":1152,
+        "oscillator_prefix_executes_original_01ef78_to_01ef9e_without_callee_stubs":true,
+        "whole_oscillator_note_constructor_qualified":false,
         "source_initial_state_replayed":false,"independent_audio_hpi_timing_qualified":false,"effect_audio_qualified":false,"complete_engine":false});
     fs::write(
         root.join("runs/native-clone/lfo-schedule-parity.json"),

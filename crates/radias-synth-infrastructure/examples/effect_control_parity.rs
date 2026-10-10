@@ -267,7 +267,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 EffectCoefficientAssignments::new(library.coefficient_update_indices()?);
         }
         let change = CoefficientChange {
-            direct_switch: number(&row, "direct_switch") as u16,
+            direct_switch: number(&row, "direct_switch") as u32,
             standalone: number(&row, "call_mode") != 0,
             enabled_argument: number(&row, "enabled") as u32,
             mode: number(&row, "mode") as u8,

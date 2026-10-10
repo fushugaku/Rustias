@@ -71,6 +71,7 @@ struct EngineState {
     version: u8,
     timbres: Vec<Vec<i32>>,
     drums: Vec<Vec<i32>>,
+    effects: crate::effects::State,
 }
 #[derive(Default, Serialize)]
 struct Source {
@@ -209,6 +210,7 @@ pub fn convert(bytes: &[u8]) -> Result<ImportedLibrary, &'static str> {
                 version: 1,
                 timbres: timbres.iter().map(|v| v.to_vec()).collect(),
                 drums: drums.iter().map(|v| v.to_vec()).collect(),
+                effects: crate::effects::State::from_stored(&program, &mut source.notices),
             },
             rdl: source,
         });

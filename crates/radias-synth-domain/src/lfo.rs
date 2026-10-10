@@ -100,9 +100,14 @@ impl LfoTables {
         ((factor as i64 * value as i64) >> 15) as i32
     }
     pub fn value(&self, wave: LfoWave, phase: u16, shape: i8, state: LfoState) -> i16 {
+        self.value_raw(wave, phase, shape, state) as i16
+    }
+    /// Original leaf's complete register result, before a caller narrows to a
+    /// signed word. Saw at phase zero deliberately returns positive 32768.
+    pub fn value_raw(&self, wave: LfoWave, phase: u16, shape: i8, state: LfoState) -> i32 {
         debug_assert!((-64..=63).contains(&shape));
         let p = phase as i32;
-        let result = match wave {
+        match wave {
             LfoWave::Saw => 32768 - self.warp(phase, shape) as i32,
             LfoWave::Pulse => {
                 if p <= 32768 + (shape as i32) * 512 {
@@ -164,8 +169,7 @@ impl LfoTables {
                 Self::sine_bend(value, shape)
             }
             LfoWave::Zero => 0,
-        };
-        result as i16
+        }
     }
 }
 

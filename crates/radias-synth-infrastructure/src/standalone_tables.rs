@@ -329,6 +329,6 @@ pub fn noise() -> radias_synth_application::noise::NoiseTables {
 /// This analytic data port contains no firmware words.
 pub fn shapers() -> radias_synth_domain::waveshaper::ShaperTables {
     radias_synth_domain::waveshaper::ShaperTables {
-        sub_edges: core::array::from_fn(|i| if i == 0 { 32767 } else { (16384 / i) as i16 }),
+        sub_edges: core::array::from_fn(|i| 16384usize.checked_div(i).unwrap_or(32767) as i16),
     }
 }

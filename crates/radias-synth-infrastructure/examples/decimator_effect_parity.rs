@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let interpolation = EffectInterpolationControl {
-            direct_switch: direct as u16,
+            direct_switch: direct,
             enabled_argument: enabled,
         };
         if step == 0 {
@@ -181,12 +181,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         seen.insert((sequence, step));
     }
     let mut expected = BTreeSet::new();
-    for sequence in 0..54 {
+    for sequence in 0..108 {
         for step in 0..95 {
             expected.insert((sequence, step));
         }
     }
-    for sequence in 54..58 {
+    for sequence in 108..112 {
         for step in 0..21 {
             expected.insert((sequence, step));
         }
@@ -234,7 +234,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let passed =
-        errors == 0 && cases == 5214 && seen == expected && rejections == 58 && invalid == 3;
+        errors == 0 && cases == 10344 && seen == expected && rejections == 112 && invalid == 3;
     let report = json!({"passed":passed,"whole_original_parameter_calls":cases,"errors":errors,"first_difference":first,
         "queue_words_compared":queue_words,"host_words_compared":host_words,"host_packets_compared":packets,
         "full_queue_atomic_rejections":rejections,"invalid_parameter_changes_rejected_atomically":invalid,

@@ -2571,6 +2571,9 @@ dependencies = [
 [[package]]
 name = "radias-synth-domain"
 version = "0.1.0"
+dependencies = [
+ "libm",
+]
 
 [[package]]
 name = "radias-synth-infrastructure"

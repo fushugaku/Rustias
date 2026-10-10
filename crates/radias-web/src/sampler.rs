@@ -791,11 +791,17 @@ impl Sampler {
         ) as i16;
     }
     pub fn sample(&mut self, synth: &StandaloneSynth) -> StereoFrame {
+        self.next_buses(synth, false)[0]
+    }
+    pub fn sample_buses(&mut self, synth: &StandaloneSynth) -> [StereoFrame; 4] {
+        self.next_buses(synth, true)
+    }
+    fn next_buses(&mut self, synth: &StandaloneSynth, separate: bool) -> [StereoFrame; 4] {
         self.clock.next_audio_frame();
         if self.frames.is_multiple_of(24) {
             self.clock.controller_service();
         }
-        let mut bus = StereoFrame::default();
+        let mut buses = [StereoFrame::default(); 4];
         for slot in 0..VOICES {
             if self.frames.is_multiple_of(96) {
                 if let Some(v) = &mut self.voices[slot] {
@@ -814,6 +820,7 @@ impl Sampler {
             let Some(v) = &mut self.voices[slot] else {
                 continue;
             };
+            let bus = &mut buses[if separate { v.timbre as usize } else { 0 }];
             if (v.amplitude.finished() && !v.circuit.as_ref().is_some_and(|p| p.tail_active()))
                 || (v.mode != 2 && v.position >= v.data.len() as f64)
             {
@@ -886,10 +893,10 @@ impl Sampler {
                     level,
                     synth.engine.waveform_table(),
                 );
-                bus = pan::route(
+                *bus = pan::route(
                     Sample(saturate((output.0 as f64 * self.gain) as i64)),
                     v.pan.next(SLEW),
-                    bus,
+                    *bus,
                 );
                 continue;
             }
@@ -953,15 +960,15 @@ impl Sampler {
             } else {
                 filtered
             };
-            bus = pan::route(
+            *bus = pan::route(
                 Sample(saturate(
                     (multiply_q15(filtered.0, level) as f64 * self.gain) as i64,
                 )),
                 v.pan.next(SLEW),
-                bus,
+                *bus,
             );
         }
         self.frames = self.frames.wrapping_add(1);
-        scale_bus(bus)
+        buses.map(scale_bus)
     }
 }

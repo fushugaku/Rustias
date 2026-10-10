@@ -15,6 +15,20 @@ pub struct EffectLfoParameters {
     /// State byte +1e is supplied by the effect controller, not phase advance.
     pub alternate_phase: u8,
 }
+impl EffectLfoParameters {
+    pub fn with_program(
+        self,
+        program: radias_synth_domain::effect_lfo_program::EffectLfoProgram,
+    ) -> Self {
+        Self {
+            mode: program.bytes[0],
+            frequency: program.bytes[2],
+            phase_sync: program.bytes[3],
+            beat: program.bytes[4],
+            ..self
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EffectLfoController {
     pub state: LfoState,

@@ -53,7 +53,7 @@ pub fn dispatch_coefficient_plan<P: EffectProgramPort>(
     port: &mut P,
     plan: &CoefficientChangePlan,
 ) -> Result<(), P::Error> {
-    crate::decimator_effect::dispatch_words(port, &plan.entries[..usize::from(plan.count)])
+    crate::effect_parameters::dispatch_words(port, &plan.entries[..usize::from(plan.count)])
 }
 pub fn load_effect<P: EffectProgramPort>(
     port: &mut P,

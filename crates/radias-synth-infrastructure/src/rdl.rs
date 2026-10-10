@@ -32,6 +32,7 @@ pub struct ImportLibrary<'a> {
     pub programs: Vec<&'a [u8]>,
     pub drum_kits: Vec<&'a [u8]>,
     pub global: Option<&'a [u8]>,
+    pub formants: Vec<&'a [u8]>,
 }
 pub fn import_library<'a>(bytes: &'a [u8]) -> Result<ImportLibrary<'a>, &'static str> {
     let outer = chunk(bytes)?;
@@ -42,10 +43,12 @@ pub fn import_library<'a>(bytes: &'a [u8]) -> Result<ImportLibrary<'a>, &'static
         programs: Vec::new(),
         drum_kits: Vec::new(),
         global: None,
+        formants: Vec::new(),
     };
     let mut program_bank = false;
     let mut drum_bank = false;
     let mut global_bank = false;
+    let mut formant_bank = false;
     let mut section = |kind: &[u8], payload: &'a [u8]| -> Result<(), &'static str> {
         match kind {
             b"316p" => {
@@ -72,6 +75,13 @@ pub fn import_library<'a>(bytes: &'a [u8]) -> Result<ImportLibrary<'a>, &'static
                 }
                 library.global = Some(payload);
             }
+            b"316f" => {
+                formant_record(payload)?;
+                library.formants.push(payload);
+                if library.formants.len() > 16 {
+                    return Err("Too many RDL Formant Motion records");
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -84,6 +94,12 @@ pub fn import_library<'a>(bytes: &'a [u8]) -> Result<ImportLibrary<'a>, &'static
     } else if outer.kind == b"316p" {
         section(outer.kind, outer.payload)?;
         &[]
+    } else if outer.kind == b"316F" {
+        section_records(outer.payload, b"316f", &mut section)?;
+        &[]
+    } else if outer.kind == b"316f" {
+        section(outer.kind, outer.payload)?;
+        &[]
     } else {
         return Err("Choose a RADIAS .rdl library or program file");
     };
@@ -94,6 +110,7 @@ pub fn import_library<'a>(bytes: &'a [u8]) -> Result<ImportLibrary<'a>, &'static
             b"316P" => (&mut program_bank, b"316p"),
             b"316D" => (&mut drum_bank, b"316d"),
             b"316G" => (&mut global_bank, b"316g"),
+            b"316F" => (&mut formant_bank, b"316f"),
             _ => continue,
         };
         if *seen {
@@ -102,8 +119,8 @@ pub fn import_library<'a>(bytes: &'a [u8]) -> Result<ImportLibrary<'a>, &'static
         *seen = true;
         section_records(bank.payload, record, &mut section)?;
     }
-    if library.programs.is_empty() {
-        return Err("The RDL file contains no programs");
+    if library.programs.is_empty() && library.formants.is_empty() {
+        return Err("The RDL file contains no programs or Formant Motion records");
     }
     Ok(library)
 }
@@ -235,4 +252,22 @@ pub fn drum_kits(bytes: &[u8]) -> Result<Vec<DrumKit>, &'static str> {
         bank = Some(kits);
     }
     bank.ok_or("No RDL drum bank")
+}
+
+/// Librarian Formant records use a16-byte editor prefix with LE frame count.
+/// Return only the typed frame data; `ImportLibrary` retains all source bytes.
+pub fn formant_record(
+    payload: &[u8],
+) -> Result<radias_synth_domain::formant_motion::MotionRecord<'_>, &'static str> {
+    if payload.len() < 16 {
+        return Err("Truncated RDL Formant Motion header");
+    }
+    let count = u32::from_le_bytes(payload[..4].try_into().unwrap()) as usize;
+    if count > radias_synth_domain::formant_motion::MAX_FRAMES
+        || payload.len() != 16 + 16 * count
+    {
+        return Err("Invalid RDL Formant Motion count or extent");
+    }
+    radias_synth_domain::formant_motion::MotionRecord::new(&payload[16..])
+        .map_err(|_| "Invalid Formant Motion frames")
 }

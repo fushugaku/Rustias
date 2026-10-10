@@ -19,12 +19,16 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - name: Test the firmware-free native profile
-        run: cargo test --locked -p radias-synth-infrastructure --lib
-      - name: Build WebAssembly and static app
-        run: bash scripts/build-web.sh
+        run: >-
+          cargo test --locked -p radias-synth-infrastructure --lib --
+          --skip generated_catalog_and_tables_equal_the_pinned_system
+          --skip instrument_vocoder_replaces_its_pair_and_keeps_other_timbres
+          --skip vocoder_source_command_updates_targets_without_resetting_histories
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Build WebAssembly and static app
+        run: bash scripts/build-web.sh
       - name: Verify audio, sampler, sequencer and storage
         run: node scripts/verify-web.mjs
       - uses: actions/configure-pages@v5

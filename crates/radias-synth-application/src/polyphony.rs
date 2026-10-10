@@ -2414,6 +2414,64 @@ impl PolyphonicRenderer {
         }
         Ok(())
     }
+    /// Apply original effect configuration/rate publication without resetting
+    /// the existing phase, random seed or MIDI clock correction state.
+    pub fn apply_effect_lfo_publication(
+        &mut self,
+        publication: radias_synth_domain::effect_lfo_program::EffectLfoPublication,
+    ) -> Result<(), crate::lfo::TempoSynchronizationPending> {
+        let slot = usize::from(publication.slot.raw());
+        if slot < 8 {
+            let timbre = slot / 2;
+            let effect = slot % 2;
+            let parameters =
+                self.effect_lfo_parameters[timbre][effect].with_program(publication.program);
+            self.edit_effect_lfo(Some(timbre as u8), effect, parameters)?;
+            self.shared_lfo[timbre].effects[effect]
+                .tempo
+                .previous_increment = publication.tempo_increment;
+            if let Some(clock) = &mut self.clock {
+                clock.bank.timbres[timbre][effect + 2].previous_increment =
+                    publication.tempo_increment;
+            }
+        } else {
+            let parameters = self.global_lfo_parameters.with_program(publication.program);
+            self.edit_effect_lfo(None, 0, parameters)?;
+            self.global_lfo.tempo.previous_increment = publication.tempo_increment;
+            if let Some(clock) = &mut self.clock {
+                clock.bank.global.previous_increment = publication.tempo_increment;
+            }
+        }
+        Ok(())
+    }
+    pub fn effect_lfo_parameters(&self, slot: u8) -> Option<EffectLfoParameters> {
+        if slot < 8 {
+            Some(self.effect_lfo_parameters[usize::from(slot) / 2][usize::from(slot) % 2])
+        } else if slot == 8 {
+            Some(self.global_lfo_parameters)
+        } else {
+            None
+        }
+    }
+    pub fn effect_lfo_rate(&self, slot: u8) -> Option<u32> {
+        if slot < 8 {
+            let t = usize::from(slot) / 2;
+            let e = usize::from(slot) % 2;
+            Some(if let Some(clock) = &self.clock {
+                clock.bank.timbres[t][e + 2].previous_increment
+            } else {
+                self.shared_lfo[t].effects[e].tempo.previous_increment
+            })
+        } else if slot == 8 {
+            Some(if let Some(clock) = &self.clock {
+                clock.bank.global.previous_increment
+            } else {
+                self.global_lfo.tempo.previous_increment
+            })
+        } else {
+            None
+        }
+    }
     pub fn shared_lfo_states(
         &self,
         timbre: usize,
@@ -2429,6 +2487,27 @@ impl PolyphonicRenderer {
     }
     pub fn global_lfo_state(&self) -> radias_synth_domain::lfo::LfoState {
         self.global_lfo.state
+    }
+    pub fn effect_lfo_value_states(
+        &self,
+    ) -> [radias_synth_domain::effect_lfo_values::EffectLfoValueState; 9] {
+        core::array::from_fn(|slot| {
+            let (oscillator, alternate_phase) = if slot < 8 {
+                (
+                    self.shared_lfo[slot / 2].effects[slot % 2].state,
+                    self.effect_lfo_parameters[slot / 2][slot % 2].alternate_phase,
+                )
+            } else {
+                (
+                    self.global_lfo.state,
+                    self.global_lfo_parameters.alternate_phase,
+                )
+            };
+            radias_synth_domain::effect_lfo_values::EffectLfoValueState {
+                oscillator,
+                alternate_phase,
+            }
+        })
     }
     /// Original 0172e8 traverses even/odd physical slots, independently of the
     /// Master/Slave DSP split. The caller owns the scheduler parity and timing.

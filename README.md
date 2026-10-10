@@ -61,7 +61,15 @@ In Drum Kit, **808 kit** and **909 kit** load sixteen-instrument kits. **Source*
 
 Custom files stay in IndexedDB on this browser and device; they are never uploaded to a server. JSON exports contain their assignments, while the audio stays in IndexedDB. To use such a patch on another browser, upload its custom files there again. The 64 bundled 808 WAVs come from [Michael Fischer’s TR-808 recordings](https://github.com/tidalcycles/sounds-tr808-fischer), distributed under [CC0-1.0](web/samples/LICENSE.txt). The complete 160-file [TR-909 set by Jason Baker / Rob Roy Recordings](https://github.com/fluid-music/open-drums/tree/475cc3314fe06f6d1af02e9790ad9707c1f2b26b/tr-909/TR909all) is bundled separately, with WAVs and the [original terms](web/samples/tr-909/TR909SET.TXT) unchanged: the set may be copied and distributed for free, but may not be modified or distributed for profit. The 909 set is not CC0. [The manifest](web/samples/manifest.json) records each bank’s license and source revision, original filenames and SHA-256 hashes.
 
-The standalone profile supplies every native controller with mathematically generated tables, including filters, Comb, envelopes, LFO/tempo, modulation, noise, tuning, pan and voice groups. Waveform interpolation correction remains zero. These are independent data for the shared DSP algorithms; they do not copy factory ROM or reproduce its factory programs. The original PCM/Audio In generators, FXD03 effects, vocoder and firmware sequencers remain unfinished in the native engine. The local PCM sampler and polyphonic sequencer described above are web-only additions.
+The standalone voice profile supplies mathematically generated tables for filters, Comb, envelopes, LFO/tempo, modulation, noise, tuning, pan and voice groups. Waveform interpolation correction remains zero. Effects use the same immutable catalog, control tables and Rust audio processor as the native player. No firmware file is loaded at runtime. Original ROM PCM, live Audio In, vocoder and firmware sequencers are not exposed in this browser profile; the local sampler and polyphonic sequencer are web additions.
+
+### Insert and Master effects
+
+The three silver FX panels follow the rack and remain available in Build: **Insert FX 1 → Insert FX 2** for the selected timbre, then one shared **Master FX** after all four stereo buses. The same effects process native voices, Drum Kit PCM and direct sequencer samples. Each slot offers all 30 algorithms: compressor/limiter/gate, filter/wah, EQ/distortion/cabinet/tube/decimator, reverb/early reflections, seven delays/echoes, chorus/ensemble/flanger/phaser, tremolo/ring modulation, pitch/grain shift, vibrato, rotary and talking modulation. Master variants retain their own parameters, including four-band EQ.
+
+Choose the type, edit every native property, and use **On/Off** to bypass without losing settings. Free-time and synced delay fields keep independent values; TempoSync enables the appropriate fields, and BPM updates the native clock. Live parameter edits preserve delay/filter histories and sounding voices; type changes clear incompatible history. Rotary/Talking in Insert 1 use both insert slots, as in the native rack. The catalog is generated from Rust during the web build, rather than maintained separately in JavaScript.
+
+Programs save all nine slots; individual timbres save their two inserts and leave Master unchanged when loaded elsewhere. JSON/session restore, RDL imports and previously saved RDL source records preserve the FX settings. Older plain patches without effects start bypassed. The audible FX reconstruction is shared with desktop; its sample arithmetic/topology has **not** been qualified against original FXD03 audio.
 
 Build and serve locally:
 
@@ -74,6 +82,9 @@ python3 -m http.server 8080 --directory dist
 Open `http://localhost:8080`. AudioWorklet requires HTTPS or localhost. The build produces `dist/` with HTML, JavaScript, the drum WAV libraries and `rustias.wasm`. It requires no wasm-bindgen, npm installation or application server. Native synthesis runs at 48 kHz; the Web Audio adapter resamples when the output context uses another rate.
 
 Run `node scripts/verify-web.mjs` to check the compiled module and AudioWorklet at 48/44.1 kHz. The [Pages workflow](.github/workflows/pages.yml) tests the standalone profile, builds WebAssembly and deploys `dist/` on pushes to `main`. Set Settings → Pages → Source to **GitHub Actions**.
+Node.js 22 or newer is required to export the Rust effect catalog during the build and run verification; npm packages are not needed.
+
+Three native reference tests require local firmware/captures and are excluded from the firmware-free Pages job. To run all native library tests against an existing reference checkout: `RADIAS_REFERENCE_ROOT=/path/to/radias-emulator cargo test --locked -p radias-synth-infrastructure --lib`. Reference files remain outside the repository and web build.
 
 ### Modular browser mode
 

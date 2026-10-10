@@ -17,6 +17,11 @@ pub enum EffectCurve {
     OffsetQuadratic,
 }
 impl EffectParameterRange {
+    pub fn clamp_encoded(self, value: u8) -> u8 {
+        let decoded = i32::from(value) - i32::from(self.encoded_zero);
+        (decoded.clamp(i32::from(self.minimum), i32::from(self.maximum))
+            + i32::from(self.encoded_zero)) as u8
+    }
     pub fn compile(self, curve: EffectCurve, value: i32, first: i32, second: i32) -> Option<i32> {
         let width = if matches!(
             curve,

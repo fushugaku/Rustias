@@ -1,5 +1,7 @@
 //! Synthesis use cases. The domain owns arithmetic; adapters own external data.
 #![no_std]
+pub mod effect_audio;
+pub mod dsp_audio_exchange;
 extern crate alloc;
 #[cfg(feature = "web-modular")]
 use alloc::boxed::Box;
@@ -20,25 +22,63 @@ pub mod actor_preparation;
 pub mod actor_startup;
 pub mod amplifier;
 pub mod amplifier_transport;
+pub mod auto_pan_delay;
+pub mod cabinet_effect;
+pub mod chorus_effect;
 pub mod clock;
 pub mod comb;
 pub mod comb_pointer_publication;
 pub mod complete_actor_startup;
 pub mod construction_first_pass;
+pub mod decimator_effect;
+pub mod delay_effect;
 pub mod drum_program;
 pub mod dsp_buffers;
 pub mod dsp_dispatch;
 pub mod dsp_receiver;
 pub mod dsp_transport;
+pub mod dynamics_effect;
+pub mod early_reflect_effect;
+pub mod early_reflect_time;
+pub mod effect_buffer_allocation;
+pub mod effect_buffers;
+pub mod effect_modulation;
+pub mod mixed_effect_midi;
+pub mod mixed_effect_parameter;
+pub mod effect_pair_transition;
+pub mod effect_parameters;
+pub mod effect_routing;
+pub mod effect_rack_initialization;
+pub mod effect_rack_rebuild;
+pub mod timbre_output;
+pub mod master_pressure_type_change;
+pub mod master_pressure_type_value;
+pub mod master_assignment_release;
+pub mod master_parameter_caller;
+pub mod insert_parameter_caller;
+pub mod effect_header_event;
+pub mod effect_property;
+pub mod effect_value_change;
+pub mod master_type_value_change;
+pub mod master_type_value_streaming;
+pub mod effect_transition_queue;
 pub mod effects;
-pub mod decimator_effect;
+pub mod ensemble_effect;
+pub mod equalizer_effect;
 pub mod filter1_initial_publication;
 pub mod filter2;
+pub mod filter_effect;
+pub mod flanger_phaser_effect;
 pub mod inactive_frame;
+pub mod insert_effect_initialization;
+pub mod insert_paired_initialization;
+pub mod insert_effect_control;
+pub mod insert_program_initialization;
 pub mod lfo;
 pub mod live_modulation;
 pub mod manual_parameters;
 pub mod mixer;
+pub mod mod_delay;
 pub mod modulation;
 pub mod motion_initialization;
 pub mod noise;
@@ -47,17 +87,24 @@ pub mod note_pitch;
 pub mod note_refresh;
 pub mod parameter_transport;
 pub mod pitch_delivery;
+pub mod pitch_grain_shifter;
 pub mod polyphony;
 pub mod portamento;
 pub mod primary;
 pub mod program;
+pub mod reverb_effect;
+pub mod reverb_time;
 pub mod secondary;
 pub mod shaper;
 pub mod shared_lfo;
 pub mod stored_program;
 pub mod synthesis_transport;
+pub mod tremolo_ring_mod_effect;
+pub mod tube_effect;
 pub mod voice_envelopes;
 pub mod voice_groups;
+pub mod vocoder;
+pub mod wah_effect;
 
 use radias_synth_domain::control_slew::SlewWeights;
 use radias_synth_domain::filter::{FilterCoefficients, ResonantFilter};
@@ -943,3 +990,24 @@ pub fn scale_bus(native: StereoFrame) -> StereoFrame {
         right: Sample(saturate((native.right.0 as i64) << 5)),
     }
 }
+
+pub mod vibrato_effect;
+
+pub mod rotary_effect;
+
+pub mod talking_effect;
+
+pub mod master_effect_control;
+
+pub mod master_effect_buffers;
+
+pub mod master_effect_construction;
+
+pub mod master_effect_initialization;
+pub mod master_rack_coefficients;
+pub mod master_initial_mask;
+
+pub mod master_effect_type_change;
+
+pub mod insert_effect_construction;
+pub mod insert_type_construction;

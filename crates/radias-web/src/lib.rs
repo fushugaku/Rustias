@@ -1,6 +1,7 @@
 //! Firmware-free native synthesizer C ABI for an AudioWorklet.
 use radias_synth_infrastructure::standalone::{PARAMETER_COUNT, StandaloneSynth};
 use std::cell::RefCell;
+mod effects;
 mod rdl_import;
 mod sampler;
 use sampler::Sampler;
@@ -9,6 +10,7 @@ const PRESET_CAPACITY: usize = 65536;
 struct WebEngine {
     synth: StandaloneSynth,
     sampler: Sampler,
+    effects: Box<radias_synth_application::effect_audio::EffectAudioRack>,
     held_drums: [[u16; 128]; 4],
     unavailable_timbres: u8,
     unavailable_drums: u16,
@@ -20,6 +22,40 @@ struct WebEngine {
 }
 thread_local! {
     static ENGINE: RefCell<Option<Box<WebEngine>>> = const { RefCell::new(None) };
+    static EFFECT_CATALOG: Vec<u8> = serde_json::to_vec(&effects::catalog()).unwrap();
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_effect_catalog() -> u32 {
+    EFFECT_CATALOG.with(|b| b.len() as u32)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_effect_catalog_buffer() -> *const u8 {
+    EFFECT_CATALOG.with(|b| b.as_ptr())
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_effect(slot: u32, length: u32) -> u32 {
+    if slot >= 9 || length as usize > PRESET_CAPACITY {
+        return 0;
+    }
+    ENGINE.with(|state| {
+        let mut state = state.borrow_mut();
+        let Some(e) = state.as_mut() else {
+            return 0;
+        };
+        let Ok(p) = serde_json::from_slice::<effects::Program>(&e.preset[..length as usize]) else {
+            return 0;
+        };
+        if p.master != (slot == 8) {
+            return 0;
+        }
+        let Ok(settings) = radias_synth_infrastructure::effect_audio::compile(
+            p.into(),
+            e.synth.settings[0][89] as u16,
+        ) else {
+            return 0;
+        };
+        e.effects.configure(slot as usize, settings).is_ok() as u32
+    })
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_init() {
@@ -29,6 +65,9 @@ pub extern "C" fn rustias_init() {
         *state.borrow_mut() = Some(Box::new(WebEngine {
             synth,
             sampler,
+            effects: effects::State::default()
+                .prepare(1200)
+                .expect("Native default effect rack"),
             held_drums: [[0; 128]; 4],
             unavailable_timbres: 0,
             unavailable_drums: 0,
@@ -63,6 +102,20 @@ pub extern "C" fn rustias_control(timbre: u32, parameter: u32, value: i32) -> u3
                 e.synth.control(timbre as u8, parameter as usize, value)
             };
             if accepted {
+                if e.channel(timbre as usize) == e.synth.settings[0][148] as u8 {
+                    let source = match parameter {
+                        137 => Some((2, value as f32 / 8192.0)),
+                        138 => Some((3, value as f32 / 127.0)),
+                        139 => Some((6, if value != 0 { 1.0 } else { 0.0 })),
+                        _ => None,
+                    };
+                    if let Some((source, value)) = source {
+                        e.effects.set_controller(4, source, value);
+                    }
+                }
+                if parameter == 89 {
+                    e.configure_effect_tempo();
+                }
                 if matches!(parameter, 140 | 141) {
                     e.sampler.stop_kit();
                     e.held_drums = [[0; 128]; 4];
@@ -114,10 +167,13 @@ pub extern "C" fn rustias_note(timbre: u32, note: u32, velocity: u32) -> u32 {
         return 0;
     }
     ENGINE.with(|state| {
-        state
-            .borrow_mut()
-            .as_mut()
-            .is_some_and(|e| e.note(timbre as u8, note as u8, velocity as u8)) as u32
+        state.borrow_mut().as_mut().is_some_and(|e| {
+            let accepted = e.note(timbre as u8, note as u8, velocity as u8);
+            if accepted {
+                e.effect_note(timbre as usize, note as u8, velocity as u8);
+            }
+            accepted
+        }) as u32
     })
 }
 #[unsafe(no_mangle)]
@@ -126,10 +182,16 @@ pub extern "C" fn rustias_drum_pad(index: u32, velocity: u32) -> u32 {
         return 0;
     }
     ENGINE.with(|state| {
-        state
-            .borrow_mut()
-            .as_mut()
-            .is_some_and(|e| e.drum_pad(index as usize, velocity as u8)) as u32
+        state.borrow_mut().as_mut().is_some_and(|e| {
+            let accepted = e.drum_pad(index as usize, velocity as u8);
+            if accepted {
+                let t = e.synth.settings[0][141] as usize;
+                let n = (e.synth.drum_settings[index as usize][146] + e.synth.settings[0][145] - 64)
+                    .clamp(0, 127) as u8;
+                e.effect_note(t, n, velocity as u8);
+            }
+            accepted
+        }) as u32
     })
 }
 #[unsafe(no_mangle)]
@@ -199,7 +261,9 @@ pub extern "C" fn rustias_save() -> u32 {
         let Some(e) = state.as_mut() else {
             return 0;
         };
-        let bytes = e.synth.save();
+        let mut program: serde_json::Value = serde_json::from_slice(&e.synth.save()).unwrap();
+        program["effects"] = serde_json::to_value(e.effect_state()).unwrap();
+        let bytes = serde_json::to_vec(&program).unwrap();
         if bytes.len() > PRESET_CAPACITY {
             return 0;
         }
@@ -220,9 +284,25 @@ pub extern "C" fn rustias_load(length: u32) -> u32 {
         let Some(synth) = StandaloneSynth::load(&e.preset[..length as usize]) else {
             return 0;
         };
+        let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&e.preset[..length as usize])
+        else {
+            return 0;
+        };
+        let fx = if let Some(value) = raw.get("effects") {
+            let Ok(fx) = serde_json::from_value::<effects::State>(value.clone()) else {
+                return 0;
+            };
+            fx
+        } else {
+            effects::State::default()
+        };
+        let Ok(rack) = fx.prepare(synth.settings[0][89] as u16) else {
+            return 0;
+        };
         e.sampler.stop();
         e.held_drums = [[0; 128]; 4];
         e.synth = synth;
+        e.effects = rack;
         e.synth.engine.set_drum_gain(e.drum_gain);
         e.unavailable_timbres = 0;
         e.unavailable_drums = 0;
@@ -237,6 +317,7 @@ pub extern "C" fn rustias_stop() {
             e.synth.stop();
             e.sampler.stop();
             e.held_drums = [[0; 128]; 4];
+            e.effects.release_notes(None);
         }
     });
 }
@@ -267,11 +348,33 @@ pub extern "C" fn rustias_render() -> *const f32 {
             return std::ptr::null();
         };
         e.peak = 0.0;
+        e.update_effect_controllers();
+        let fx_active = e
+            .effects
+            .programs()
+            .iter()
+            .any(|p| p.kind != 0 && p.enabled);
         for frame in e.output.chunks_exact_mut(2) {
-            let sample = e.synth.engine.sample();
-            let pcm = e.sampler.sample(&e.synth);
-            frame[0] = (sample.left.0 as f64 + pcm.left.0 as f64) as f32 / 2147483648.0;
-            frame[1] = (sample.right.0 as f64 + pcm.right.0 as f64) as f32 / 2147483648.0;
+            if fx_active {
+                let mut buses = e.synth.engine.sample_buses()[0];
+                let pcm = e.sampler.sample_buses(&e.synth);
+                for (bus, pcm) in buses.iter_mut().zip(pcm) {
+                    bus.left.0 = radias_synth_domain::fixed::saturate(
+                        i64::from(bus.left.0) + i64::from(pcm.left.0),
+                    );
+                    bus.right.0 = radias_synth_domain::fixed::saturate(
+                        i64::from(bus.right.0) + i64::from(pcm.right.0),
+                    );
+                }
+                let sample = e.effects.process(buses);
+                frame[0] = sample.left.0 as f32 / 2147483648.0;
+                frame[1] = sample.right.0 as f32 / 2147483648.0;
+            } else {
+                let sample = e.synth.engine.sample();
+                let pcm = e.sampler.sample(&e.synth);
+                frame[0] = (sample.left.0 as f64 + pcm.left.0 as f64) as f32 / 2147483648.0;
+                frame[1] = (sample.right.0 as f64 + pcm.right.0 as f64) as f32 / 2147483648.0;
+            }
             e.peak = e.peak.max(frame[0].abs()).max(frame[1].abs());
         }
         e.frames = e.frames.wrapping_add(128);
@@ -296,6 +399,37 @@ pub extern "C" fn rustias_peak() -> f32 {
 }
 
 impl WebEngine {
+    fn effect_state(&self) -> effects::State {
+        effects::State {
+            version: 1,
+            slots: self.effects.programs().map(Into::into),
+        }
+    }
+    fn effect_note(&mut self, t: usize, n: u8, v: u8) {
+        if v == 0 {
+            self.effects.note_off(t, n);
+        } else {
+            self.effects.note_on(t, n, v);
+        }
+    }
+    fn configure_effect_tempo(&mut self) {
+        let tempo = self.synth.settings[0][89] as u16;
+        for (slot, p) in self.effects.programs().into_iter().enumerate() {
+            if let Ok(settings) = radias_synth_infrastructure::effect_audio::compile(p, tempo) {
+                let _ = self.effects.configure(slot, settings);
+            }
+        }
+        self.effects.set_tempo(tempo);
+    }
+    fn update_effect_controllers(&mut self) {
+        for t in 0..4 {
+            let v = self.synth.settings[t];
+            self.effects.set_controller(t, 2, v[137] as f32 / 8192.0);
+            self.effects.set_controller(t, 3, v[138] as f32 / 127.0);
+            self.effects
+                .set_controller(t, 6, if v[139] != 0 { 1.0 } else { 0.0 });
+        }
+    }
     fn limit_voices(&mut self, new_sample: bool) {
         let capacity = radias_synth_domain::voice_allocation::VOICE_COUNT;
         while self.synth.engine.active_count() + self.sampler.active_count() > capacity {
@@ -416,15 +550,51 @@ impl WebEngine {
             let velocity = if status & 240 == 0x80 { 0 } else { second };
             for t in 0..4 {
                 if self.channel(t) == channel {
-                    self.note(t as u8, first, velocity);
+                    if self.note(t as u8, first, velocity) {
+                        self.effect_note(t, first, velocity);
+                    }
                 }
             }
         } else {
             self.synth.midi(status, first, second);
+            if channel == self.synth.settings[0][148] as u8 {
+                if status & 240 == 0xe0 {
+                    let raw = u16::from(first) | (u16::from(second) << 7);
+                    self.effects
+                        .set_controller(4, 2, (f32::from(raw) - 8192.0) / 8192.0);
+                }
+                if status & 240 == 0xb0 {
+                    let source = match first {
+                        1 => Some(3),
+                        2 => Some(4),
+                        4 => Some(5),
+                        65 => Some(6),
+                        16..=20 => Some(usize::from(first - 8)),
+                        _ => None,
+                    };
+                    if let Some(source) = source {
+                        self.effects
+                            .set_controller(4, source, f32::from(second) / 127.0);
+                    }
+                }
+            }
             if status & 240 == 0xb0 {
                 for t in 0..4 {
                     if self.channel(t) == channel {
                         self.sampler.library_midi(t as u8, first, second);
+                        let source = match first {
+                            2 => Some(4),
+                            4 => Some(5),
+                            16..=20 => Some(usize::from(first - 8)),
+                            _ => None,
+                        };
+                        if let Some(source) = source {
+                            self.effects
+                                .set_controller(t, source, f32::from(second) / 127.0);
+                        }
+                        if matches!(first, 120 | 123) {
+                            self.effects.release_notes(Some(t));
+                        }
                     }
                 }
             }
@@ -615,6 +785,10 @@ pub extern "C" fn rustias_library_note(timbre: u32, id: u32, velocity: u32) -> u
                 .library_trigger(&e.synth, timbre as u8, id, velocity as u8);
             if velocity != 0 {
                 e.limit_voices(true);
+            }
+            if accepted {
+                let note = e.sampler.library_value(id, 146).clamp(0, 127) as u8;
+                e.effect_note(timbre as usize, note, velocity as u8);
             }
             accepted
         }) as u32

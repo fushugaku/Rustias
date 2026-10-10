@@ -1,4 +1,6 @@
 import {createCircuitEditor} from "./circuit-ui.js";
+import {setEffectCatalog,emptyEffects} from './effects.js';
+import {createEffectsPanel} from './effects-ui.js';
 import {audioCircuit,emptyCircuits} from "./circuit.js";
 import {createDrumSamples} from "./samples.js";
 import {createSequencer} from "./sequencer-ui.js";
@@ -15,6 +17,9 @@ try {
   const response = await fetch(new URL("./parameters.json", import.meta.url));
   if (!response.ok) throw new Error(`Could not load the parameter definitions (${response.status}).`);
   parameters = await response.json();
+  const fxResponse=await fetch(new URL('./effects.json',import.meta.url));
+  if(!fxResponse.ok)throw new Error(`Could not load effects (${fxResponse.status}).`);
+  setEffectCatalog(await fxResponse.json());
 } catch (error) { showError(error); throw error; }
 const defaults = parameters.map(p => p.default);
 const timbres = Array.from({length: 4}, (_, i) => ({values: defaults.map((v, id) => id === 72 ? i : v), preset: "init",name:"INIT",savedId:null,modified:false}));
@@ -29,7 +34,7 @@ const keyNames = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", 
 const computerKeys = ["a", "w", "s", "e", "d", "f", "t", "g", "y", "h", "u", "j", "k", "o", "l", "p"];
 let selected = 0, octave = 4, context, node, module, midiAccess, audioStarting;
 const held = new Map(), noteCounts = new Map();
-let sampleUI,circuitUI,circuitTimer,editingSample=null;
+let sampleUI,circuitUI,fxUI,circuitTimer,editingSample=null;
 let panel, programPicker, timbrePicker, sequenceUI, activeSavedPatch=null,programState="init",programDirty=false,patchDialogKind="program",patchDialogSlot=0, autosaveTimer, sequenceRequest=0, auditionRequest=0,sequenceConfigRequest=0;
 let rdlSource=null,lastRdlMasks;
 const patchStore=new PatchStore(window.localStorage),timbreStore=new TimbreStore(window.localStorage);
@@ -135,7 +140,7 @@ panel=createPanel({parameters,readValues:values,setControl,format,disabled,displ
 programPicker=makePicker({label:"Program",options:[{value:"init",label:"New program"},{value:"custom",label:"Unsaved"}],value:"init",onChange:applyProgram,searchable:true,searchLabel:'Search programs'});
 timbrePicker=makePicker({label:"Timbre sound",options:[...factorySounds],value:"init",onChange:applyPreset,searchable:true,searchLabel:'Search timbres'});$('#timbre-preset').append(timbrePicker.button);
 $("#preset").append(programPicker.button);
-document.querySelectorAll("[data-timbre]").forEach(button => button.addEventListener("click", () => { editingSample=null;selected = Number(button.dataset.timbre); document.querySelectorAll("[data-timbre]").forEach(tab => tab.setAttribute("aria-selected", tab === button)); circuitUI?.select(); updateControls(); updateKeys(); scheduleSession(); }));
+document.querySelectorAll("[data-timbre]").forEach(button => button.addEventListener("click", () => { editingSample=null;selected = Number(button.dataset.timbre); document.querySelectorAll("[data-timbre]").forEach(tab => tab.setAttribute("aria-selected", tab === button)); circuitUI?.select();fxUI?.select(); updateControls(); updateKeys(); scheduleSession(); }));
 function applyProgram(value){
   if(value==='init'){
     const engine={version:1,timbres:Array.from({length:4},(_,i)=>defaults.map((v,id)=>id===72?i:v)),drums:Array.from({length:16},(_,i)=>defaults.map((v,id)=>({3:0,4:32,5:0,6:20,146:60+i})[id]??v))};
@@ -155,10 +160,11 @@ function applyPreset(preset){
   const sound={kind:'rustias-timbre',version:1,values:defaults.map((v,id)=>presets[preset][id]??v),circuit:emptyCircuits().tracks[0],library:[]};
   try{loadTimbre(sound,factorySounds.find(s=>s.value===preset).label,null,preset);}catch(error){showError(error);}
 }
-function state() { return {version: 1, timbres: timbres.map(t => [...t.values]), drums: drums.map(v => [...v])}; }
+function state() { return {version: 1, timbres: timbres.map(t => [...t.values]), drums: drums.map(v => [...v]),effects:fxUI?.getConfig()??emptyEffects()}; }
 function acceptState(program) {
   for (let i = 0; i < 4; i++) timbres[i].values = [...program.timbres[i]];
   for (let i = 0; i < 16; i++) drums[i] = [...program.drums[i]];
+  if(program.effects)fxUI?.setConfig(program.effects);
   updateControls(); updateKeys();
 }
 function normalizeEngine(value){return checkEngine(value,parameters);}
@@ -168,7 +174,7 @@ function loadSnapshot(value){
   stop();editingSample=null;$('#error').hidden=true;rdlSource=checked.rdl??null;
   checked.timbreInfo.forEach((info,i)=>Object.assign(timbres[i],info));
   programState='custom';programDirty=false;
-  circuitUI?.setConfig(circuits);acceptState(program);sequenceUI.setConfig(sequence);
+  circuitUI?.setConfig(circuits);fxUI?.setConfig(program.effects);acceptState(program);sequenceUI.setConfig(sequence);
   if(checked.volume!=null){$('#volume').value=checked.volume;send({type:'gain',value:checked.volume/100});}
   const samplesReady=sampleUI?.setConfig(samples);loadEngine(program);send({type:'sequencer',config:sequence});
   samplesReady?.then(updateControls).catch(showError);
@@ -390,6 +396,7 @@ sampleUI=createDrumSamples({parameters,getDrumValues:i=>drums[i],getEditingSampl
 }});
 sampleUI.ready.then(()=>{sequenceUI.setSamples(sampleUI.options());updateControls();},()=>{});
 circuitUI=createCircuitEditor({getValues:values,getSelected:()=>selected,onError:showError,onChange:(_config,audio)=>{markTimbre();if(audio){$("#error").hidden=true;sendCircuits(selected);}scheduleSession();}});
+fxUI=createEffectsPanel({getSelected:()=>selected,onError:showError,onChange:(slot,program)=>{slot===8?markProgram():markTimbre(Math.floor(slot/2));send({type:'effect',slot,program});updateControls();scheduleSession();}});
 refreshLibrary();
 try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(session.snapshot);activeSavedPatch=session.activeSavedPatch??null;programState=session.programState??"custom";programDirty=session.programDirty??false;if(Number.isInteger(session.selected)&&session.selected>=0&&session.selected<4)$(`[data-timbre="${session.selected}"]`).click();if(Number.isFinite(session.volume))$("#volume").value=session.volume;}}catch(error){showError(new Error(`Could not restore the saved session: ${error.message}`));}
 updateControls(); updateKeys(); document.body.dataset.parameterCount = parameters.length;

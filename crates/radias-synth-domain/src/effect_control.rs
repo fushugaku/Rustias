@@ -96,6 +96,7 @@ pub struct EffectBufferLayout {
     pub selected_insert_base: u32,
     pub selected_master: u32,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PreparedEffect {
     pub words: [u64; 180],
     pub count: u16,

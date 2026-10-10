@@ -23,8 +23,240 @@ use radias_synth_domain::{
 pub struct NativeProgramLoad {
     pub compiled: crate::stored_program::CompiledProgram,
     pub drums: Option<Box<radias_synth_application::drum_program::CompiledDrumKit>>,
+    pub vocoder: Option<Box<radias_synth_application::vocoder::VocoderRenderer>>,
+    pub effects: Option<Box<radias_synth_application::effect_audio::EffectAudioRack>>,
+}
+
+#[cfg(test)]
+mod bus_output_tests {
+    use super::*;
+    use crate::standalone::StandaloneSynth;
+
+    #[test]
+    fn vocoder_source_command_updates_targets_without_resetting_histories() {
+        let root = crate::reference_root();
+        let raw = std::fs::read(root.join("runs/vocoder-native-synth-program.bin")).unwrap();
+        let program = radias_synth_domain::program::Program::from_bytes(&raw).unwrap();
+        let mut bytes = *program.vocoder().bytes;
+        bytes[40] = 2; // Original EG3 source; no Formant Shift.
+        bytes[43] = 127;
+        let stored = radias_synth_domain::vocoder_control::VocoderProgram { bytes: &bytes };
+        let controls = crate::vocoder_tables::original();
+        let mut renderer = radias_synth_application::vocoder::VocoderRenderer::from_program(
+            stored,
+            Default::default(),
+            &controls,
+            crate::vocoder_tables::interpolation(),
+        )
+        .unwrap();
+        renderer.processor.state[0x94] = 1234;
+        let before = renderer.processor.clone();
+        let sources = radias_synth_domain::vocoder_sources::VocoderSources {
+            actor: Some(radias_synth_domain::vocoder_sources::VocoderActorSources {
+                envelope_outputs: [0, 0, 8192],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let expected = stored.frequency_offset(sources.read(bytes[40]), &controls) as u16;
+        assert_ne!(expected, before.parameters[0xbf]);
+        let mut instrument = StandaloneSynth::new();
+        assert!(!instrument.engine.publish_vocoder_sources(sources));
+        instrument
+            .engine
+            .set_vocoder_program(bytes, Box::new(renderer));
+        instrument.engine.apply(Command::VocoderSources(sources));
+        let after = &instrument.engine.vocoder().unwrap().processor;
+        assert_eq!(after.state, before.state);
+        assert_eq!(after.parameters[0xc0], before.parameters[0xc0]);
+        assert_eq!(after.parameters[0xbf], expected);
+    }
+
+    #[test]
+    fn disabled_vocoder_keeps_the_original_dry_output_and_its_histories() {
+        let mut actual = StandaloneSynth::new();
+        let mut reference = StandaloneSynth::new();
+        for instrument in [&mut actual, &mut reference] {
+            instrument.engine.apply(Command::Note(0, 60, 96));
+        }
+        let processor = radias_synth_domain::vocoder::Vocoder {
+            parameters: [0; 352],
+            state: [123; 300],
+        };
+        actual.engine.set_vocoder(Some(Box::new(
+            radias_synth_application::vocoder::VocoderRenderer {
+                processor: processor.clone(),
+                tables: crate::vocoder_tables::interpolation(),
+            },
+        )));
+        for _ in 0..256 {
+            assert_eq!(actual.engine.sample(), reference.engine.sample());
+        }
+        assert_eq!(actual.engine.vocoder().unwrap().processor, processor);
+    }
+
+    #[test]
+    fn instrument_vocoder_replaces_its_pair_and_keeps_other_timbres() {
+        use radias_synth_domain::vocoder::{InterpolationTables, Vocoder, VocoderFrame};
+        let root = crate::reference_root();
+        let raw =
+            std::fs::read(root.join("runs/native-clone/vocoder-audio-parameters.bin")).unwrap();
+        let image = std::fs::read(root.join("firmware/dsp-master-host-stream.bin")).unwrap();
+        let origin = u16::from_be_bytes(image[..2].try_into().unwrap()) as usize;
+        let source = |address: usize| {
+            let at = 2 + 2 * (address - origin);
+            u16::from_be_bytes(image[at..at + 2].try_into().unwrap())
+        };
+        let tables = InterpolationTables {
+            scalar_offsets: core::array::from_fn(|i| source(0x494b + i)),
+            wide_offset: source(0x4971),
+        };
+        let mut processor = Vocoder {
+            parameters: core::array::from_fn(|i| {
+                u16::from_le_bytes(raw[2 * i..2 * i + 2].try_into().unwrap())
+            }),
+            state: [0; 300],
+        };
+        processor.parameters[0xb4] = 12;
+        processor.parameters[0xb5] = 14;
+        let mut actual = StandaloneSynth::new();
+        let mut reference = StandaloneSynth::new();
+        for instrument in [&mut actual, &mut reference] {
+            for timbre in 0..4 {
+                assert!(instrument.control(timbre, 71, 1));
+                instrument
+                    .engine
+                    .apply(Command::Note(timbre, 48 + 4 * timbre, 96));
+            }
+        }
+        actual.engine.set_vocoder(Some(Box::new(
+            radias_synth_application::vocoder::VocoderRenderer {
+                processor: processor.clone(),
+                tables: tables.clone(),
+            },
+        )));
+        let mut nonzero_unaffected = [false; 4];
+        for index in 0..2048 {
+            if index == 1024 {
+                for instrument in [&mut actual, &mut reference] {
+                    instrument.engine.apply(Command::Note(2, 56, 0));
+                }
+            }
+            let input = StereoFrame {
+                left: radias_synth_domain::Sample(index * 104729),
+                right: radias_synth_domain::Sample(-index * 65537),
+            };
+            let dry = reference.engine.sample_buses()[0];
+            let mut frame = VocoderFrame::from_buses(dry, input);
+            processor.process(&mut frame, true, &tables).unwrap();
+            let rendered = frame.buses();
+            for timbre in [0, 2, 3] {
+                assert_eq!(rendered[timbre], dry[timbre]);
+                nonzero_unaffected[timbre] |= dry[timbre] != StereoFrame::default();
+            }
+            let output = actual.engine.sample_with_input(input, true).unwrap();
+            assert_eq!(
+                output.left.0,
+                radias_synth_domain::fixed::saturate(
+                    rendered.iter().map(|f| i64::from(f.left.0)).sum()
+                )
+            );
+            assert_eq!(
+                output.right.0,
+                radias_synth_domain::fixed::saturate(
+                    rendered.iter().map(|f| i64::from(f.right.0)).sum()
+                )
+            );
+            assert_eq!(actual.engine.vocoder().unwrap().processor, processor);
+        }
+        assert!(nonzero_unaffected[0] && nonzero_unaffected[2] && nonzero_unaffected[3]);
+    }
+
+    #[test]
+    fn bus_api_keeps_the_existing_sample_clock_and_all_four_timbres() {
+        let mut exposed = StandaloneSynth::new();
+        let mut previous = StandaloneSynth::new();
+        for instrument in [&mut exposed, &mut previous] {
+            for timbre in 0..4 {
+                assert!(instrument.control(timbre, 71, 1));
+                assert!(instrument.control(timbre, 0, i32::from(timbre)));
+                assert!(instrument.control(timbre, 7, 40));
+                for note in 0..4 {
+                    instrument
+                        .engine
+                        .apply(Command::Note(timbre, 48 + 3 * timbre + note, 96));
+                }
+            }
+        }
+        let mut heard = [false; 4];
+        let mut heard_slave = false;
+        let mut distinct_from_double_slave = false;
+        for frame in 0..4096 {
+            if frame == 2048 {
+                for instrument in [&mut exposed, &mut previous] {
+                    for timbre in 0..4 {
+                        instrument
+                            .engine
+                            .apply(Command::Note(timbre, 48 + 3 * timbre, 0));
+                    }
+                }
+            }
+            let engine = &mut previous.engine;
+            // Unchanged application projection used before the new public API.
+            let old_sample = engine.pool.next_sample_with_modulation(
+                &engine.table,
+                engine.controller_tables.as_ref(),
+                engine.modulation_tables.as_ref(),
+                |program| &engine.plans[program].events,
+            );
+            if frame % 3 == 1 {
+                assert_eq!(
+                    exposed.engine.sample(),
+                    old_sample,
+                    "mixed API clock at {frame}"
+                );
+                continue;
+            }
+            let buses = exposed.engine.sample_buses();
+            for (timbre, bus) in buses[0].iter().enumerate() {
+                heard[timbre] |= bus.left.0 != 0 || bus.right.0 != 0;
+            }
+            heard_slave |= buses[1]
+                .iter()
+                .any(|bus| bus.left.0 != 0 || bus.right.0 != 0);
+            let sum = |frames: &[StereoFrame]| {
+                let left: i64 = frames.iter().map(|f| i64::from(f.left.0)).sum();
+                let right: i64 = frames.iter().map(|f| i64::from(f.right.0)).sum();
+                StereoFrame {
+                    left: radias_synth_domain::Sample(radias_synth_domain::fixed::saturate(left)),
+                    right: radias_synth_domain::Sample(radias_synth_domain::fixed::saturate(right)),
+                }
+            };
+            assert_eq!(sum(&buses[0]), old_sample, "separate buses at {frame}");
+            distinct_from_double_slave |= sum(&buses.concat()) != old_sample;
+        }
+        assert_eq!(heard, [true; 4]);
+        assert!(
+            heard_slave,
+            "workload must reach the second synthesis processor"
+        );
+        assert!(
+            distinct_from_double_slave,
+            "guard must detect counting Slave output twice"
+        );
+        assert_eq!(
+            exposed.engine.active_count(),
+            previous.engine.active_count()
+        );
+    }
 }
 pub enum Command {
+    Effects(Box<radias_synth_application::effect_audio::EffectAudioRack>),
+    Effect(
+        usize,
+        Box<radias_synth_domain::effect_audio::EffectAudioSettings>,
+    ),
+    EffectControllers([f32; 13]),
     Program(Box<NativeProgramLoad>),
     Start,
     Stop,
@@ -99,6 +331,7 @@ pub enum Command {
     Timbre(u8, bool, u8),
     AllNotesOff(u8),
     AllSoundOff(u8),
+    VocoderSources(radias_synth_domain::vocoder_sources::VocoderSources),
 }
 pub struct Synthesizer {
     plans: Box<[PreparedVoice]>,
@@ -106,8 +339,11 @@ pub struct Synthesizer {
     voice_costs: Option<VoiceCostTables>,
     table: WaveformTable,
     pub(crate) pool: Box<PolyphonicRenderer>,
+    vocoder: Option<Box<radias_synth_application::vocoder::VocoderRenderer>>,
+    vocoder_program: Option<[u8; radias_synth_domain::vocoder_control::STORED_BYTES]>,
+    effects: Option<Box<radias_synth_application::effect_audio::EffectAudioRack>>,
     #[cfg(target_arch = "wasm32")]
-    buffer: [StereoFrame; 128],
+    buffer: [[[StereoFrame; TIMBRE_COUNT]; 2]; 128],
     #[cfg(target_arch = "wasm32")]
     position: usize,
     tuning: Option<(PitchTable, BandwidthTable)>,
@@ -209,8 +445,11 @@ impl Synthesizer {
             voice_costs,
             table,
             pool,
+            vocoder: None,
+            vocoder_program: None,
+            effects: None,
             #[cfg(target_arch = "wasm32")]
-            buffer: [StereoFrame::default(); 128],
+            buffer: [[[StereoFrame::default(); TIMBRE_COUNT]; 2]; 128],
             #[cfg(target_arch = "wasm32")]
             position: 128,
             tuning,
@@ -259,7 +498,8 @@ impl Synthesizer {
         self.pool.stop();
         #[cfg(target_arch = "wasm32")]
         {
-            self.buffer.fill(StereoFrame::default());
+            self.buffer
+                .fill([[StereoFrame::default(); TIMBRE_COUNT]; 2]);
             self.position = 128;
         }
         self.drum_pads = Default::default();
@@ -299,7 +539,8 @@ impl Synthesizer {
         self.pool.stop();
         #[cfg(target_arch = "wasm32")]
         {
-            self.buffer.fill(StereoFrame::default());
+            self.buffer
+                .fill([[StereoFrame::default(); TIMBRE_COUNT]; 2]);
             self.position = 128;
         }
         self.drum_pads = Default::default();
@@ -346,6 +587,9 @@ impl Synthesizer {
     ) {
         if !settings.enabled {
             return;
+        }
+        if let Some(effects) = &mut self.effects {
+            effects.note_on(usize::from(timbre), note, velocity);
         }
         let plan = &self.plans[settings.waveform];
         let synthesis_note = radias_synth_domain::note_pitch::fold_note(
@@ -489,12 +733,33 @@ impl Synthesizer {
     }
     pub fn apply(&mut self, command: Command) {
         match command {
+            Command::Effects(rack) => {
+                self.effects = Some(rack);
+            }
+            Command::Effect(slot, settings) => {
+                if let Some(rack) = &mut self.effects {
+                    let _ = rack.configure(slot, *settings);
+                }
+            }
+            Command::EffectControllers(controllers) => {
+                if let Some(rack) = &mut self.effects {
+                    rack.set_controllers(controllers);
+                }
+            }
+            Command::VocoderSources(sources) => {
+                self.publish_vocoder_sources(sources);
+            }
             Command::Program(program) => {
                 let NativeProgramLoad {
                     compiled: program,
                     drums,
+                    vocoder,
+                    effects,
                 } = *program;
                 self.drums = drums;
+                self.vocoder_program = vocoder.as_ref().map(|_| program.vocoder);
+                self.vocoder = vocoder;
+                self.effects = effects;
                 self.performance_enabled = true;
                 self.pool.stop();
                 self.pool.set_tempo(program.stored.tempo_tenths);
@@ -644,6 +909,9 @@ impl Synthesizer {
             }
             Command::Stop => {
                 self.pool.stop();
+                if let Some(effects) = &mut self.effects {
+                    effects.release_notes(None);
+                }
             }
             Command::Note(timbre, note, velocity) => self.note(timbre, note, velocity),
             Command::Midi(channel, note, velocity) => {
@@ -666,7 +934,15 @@ impl Synthesizer {
                     if self.timbres[timbre].channel == channel {
                         self.pool
                             .set_midi_pitch(timbre as u8, self.midi_pitch[channel as usize]);
+                        if let Some(effects) = &mut self.effects {
+                            effects.set_controller(timbre, 2, (f32::from(raw) - 8192.0) / 8192.0);
+                        }
                     }
+                }
+                if channel == self.performance.channel
+                    && let Some(effects) = &mut self.effects
+                {
+                    effects.set_controller(4, 2, (f32::from(raw) - 8192.0) / 8192.0);
                 }
             }
             Command::Wheel(channel, value) => {
@@ -675,7 +951,15 @@ impl Synthesizer {
                     if self.timbres[timbre].channel == channel {
                         self.pool
                             .set_midi_pitch(timbre as u8, self.midi_pitch[channel as usize]);
+                        if let Some(effects) = &mut self.effects {
+                            effects.set_controller(timbre, 3, f32::from(value) / 127.0);
+                        }
                     }
+                }
+                if channel == self.performance.channel
+                    && let Some(effects) = &mut self.effects
+                {
+                    effects.set_controller(4, 3, f32::from(value) / 127.0);
                 }
             }
             Command::Expression(channel, value) => {
@@ -845,7 +1129,12 @@ impl Synthesizer {
                 self.timbres[timbre as usize].modulation = program;
                 let _ = self.pool.edit_modulation(timbre, program);
             }
-            Command::Tempo(tempo) => self.pool.set_tempo(tempo),
+            Command::Tempo(tempo) => {
+                self.pool.set_tempo(tempo);
+                if let Some(effects) = &mut self.effects {
+                    effects.set_tempo(tempo);
+                }
+            }
             Command::FilterTables(tables) => self.pool.controller_filter_tables(*tables),
             Command::Filter2Tables(tables) => self.pool.configure_filter2(*tables),
             Command::Filter2Program(timbre, program) => {
@@ -902,6 +1191,11 @@ impl Synthesizer {
         let window = self.timbres[timbre as usize].key_window;
         if note < window[0] || note > window[1] {
             return;
+        }
+        if velocity == 0
+            && let Some(effects) = &mut self.effects
+        {
+            effects.note_off(usize::from(timbre), note);
         }
         if self
             .drums
@@ -1027,10 +1321,14 @@ impl Synthesizer {
         }
         self.pool.finish_note_event();
     }
-    pub fn sample(&mut self) -> StereoFrame {
+    /// Advance the instrument once, retaining each processor's four stereo
+    /// pairs for the effects input. Master already includes Slave ingress;
+    /// summing both processors would count the Slave voices twice.
+    /// `sample` and this method share one clock and one WASM block cursor.
+    pub fn sample_buses(&mut self) -> [[StereoFrame; TIMBRE_COUNT]; 2] {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.pool.next_sample_with_modulation(
+            self.pool.next_buses_with_modulation(
                 &self.table,
                 self.controller_tables.as_ref(),
                 self.modulation_tables.as_ref(),
@@ -1041,7 +1339,7 @@ impl Synthesizer {
         {
             if self.position == 128 {
                 for sample in &mut self.buffer {
-                    *sample = self.pool.next_sample_with_modulation(
+                    *sample = self.pool.next_buses_with_modulation(
                         &self.table,
                         self.controller_tables.as_ref(),
                         self.modulation_tables.as_ref(),
@@ -1054,5 +1352,130 @@ impl Synthesizer {
             self.position += 1;
             sample
         }
+    }
+
+    /// Install compiled data, without a firmware interpreter or audio-thread
+    /// allocation. Native RDL vocoder compilation belongs to the patch loader.
+    pub fn set_vocoder(
+        &mut self,
+        renderer: Option<Box<radias_synth_application::vocoder::VocoderRenderer>>,
+    ) {
+        self.vocoder = renderer;
+        self.vocoder_program = None;
+    }
+    pub fn set_vocoder_program(
+        &mut self,
+        program: [u8; radias_synth_domain::vocoder_control::STORED_BYTES],
+        renderer: Box<radias_synth_application::vocoder::VocoderRenderer>,
+    ) {
+        self.vocoder_program = Some(program);
+        self.vocoder = Some(renderer);
+    }
+    pub fn publish_vocoder_sources(
+        &mut self,
+        sources: radias_synth_domain::vocoder_sources::VocoderSources,
+    ) -> bool {
+        let (Some(renderer), Some(bytes)) = (&mut self.vocoder, &self.vocoder_program) else {
+            return false;
+        };
+        renderer.publish_sources(
+            radias_synth_domain::vocoder_control::VocoderProgram { bytes },
+            sources,
+            &crate::vocoder_tables::original(),
+        );
+        true
+    }
+    pub fn vocoder(&self) -> Option<&radias_synth_application::vocoder::VocoderRenderer> {
+        self.vocoder.as_deref()
+    }
+    /// Advance voices and their selected vocoder pair once. Master already
+    /// contains Slave ingress; no second Slave mix is added here.
+    pub fn sample_with_input(
+        &mut self,
+        input: StereoFrame,
+        interpolate_vocoder: bool,
+    ) -> Result<StereoFrame, radias_synth_domain::vocoder::VocoderError> {
+        self.sample_with_sources([input, StereoFrame::default()], interpolate_vocoder)
+    }
+    pub fn sample_with_sources(
+        &mut self,
+        inputs: [StereoFrame; 2],
+        interpolate_vocoder: bool,
+    ) -> Result<StereoFrame, radias_synth_domain::vocoder::VocoderError> {
+        let mut frame = radias_synth_domain::vocoder::VocoderFrame::from_sources(
+            [StereoFrame::default(); TIMBRE_COUNT],
+            inputs,
+        );
+        self.sample_frame(&mut frame, interpolate_vocoder)?;
+        let buses = frame.buses();
+        if let Some(effects) = &mut self.effects {
+            return Ok(effects.process(buses));
+        }
+        let (left, right) = buses.iter().fold((0i64, 0i64), |(left, right), bus| {
+            (left + i64::from(bus.left.0), right + i64::from(bus.right.0))
+        });
+        Ok(StereoFrame {
+            left: radias_synth_domain::Sample(radias_synth_domain::fixed::saturate(left)),
+            right: radias_synth_domain::Sample(radias_synth_domain::fixed::saturate(right)),
+        })
+    }
+
+    /// Advance both voice processors once and publish the eight Master mix
+    /// words at the original A333 frame offset. Preserve all caller-supplied
+    /// input, auxiliary and transport words for the subsequent processing path.
+    pub fn sample_frame(
+        &mut self,
+        frame: &mut radias_synth_domain::vocoder::VocoderFrame,
+        interpolate_vocoder: bool,
+    ) -> Result<(), radias_synth_domain::vocoder::VocoderError> {
+        let buses = self.sample_buses()[0];
+        for (timbre, bus) in buses.iter().enumerate() {
+            frame.samples[4 + 2 * timbre] = bus.left.0;
+            frame.samples[5 + 2 * timbre] = bus.right.0;
+        }
+        if let Some(vocoder) = &mut self.vocoder
+            && vocoder.processor.parameters[0] != 0
+        {
+            vocoder
+                .processor
+                .process(frame, interpolate_vocoder, &vocoder.tables)?;
+        }
+        Ok(())
+    }
+
+    /// Process a real working-buffer frame before TX conversion. Invalid frame
+    /// indexes are rejected before advancing any voice or vocoder history.
+    pub fn sample_exchange_frame(
+        &mut self,
+        exchange: &mut radias_synth_application::dsp_audio_exchange::DspAudioExchange,
+        index: usize,
+        interpolate_vocoder: bool,
+    ) -> Result<(), radias_synth_application::vocoder::VocoderBlockError> {
+        use radias_synth_application::vocoder::VocoderBlockError;
+        use radias_synth_domain::vocoder::VocoderError;
+        let mut frame = exchange
+            .vocoder_frame(index)
+            .map_err(|_| VocoderBlockError::Sample {
+                frame: index,
+                error: VocoderError::FrameRoute,
+            })?;
+        self.sample_frame(&mut frame, interpolate_vocoder)
+            .map_err(|error| VocoderBlockError::Sample {
+                frame: index,
+                error,
+            })?;
+        exchange
+            .replace_vocoder_frame(index, &frame)
+            .map_err(|_| VocoderBlockError::Sample {
+                frame: index,
+                error: VocoderError::FrameRoute,
+            })?;
+        Ok(())
+    }
+    /// Existing audition projection, before the unfinished FXD03 stage.
+    /// A configured vocoder receives digital-zero external input here.
+    pub fn sample(&mut self) -> StereoFrame {
+        self.sample_with_input(StereoFrame::default(), true)
+            .expect("Invalid compiled vocoder routes")
     }
 }

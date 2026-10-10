@@ -14,7 +14,7 @@ pub struct EffectCoefficientAssignments {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CoefficientChange {
-    pub direct_switch: u16,
+    pub direct_switch: u32,
     pub standalone: bool,
     pub enabled_argument: u32,
     pub mode: u8,

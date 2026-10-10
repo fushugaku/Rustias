@@ -12,11 +12,13 @@ import {verifyRdl} from './verify-rdl.mjs';
 import {verifyPrograms} from './verify-programs.mjs';
 import {verifyCircuitDrag} from './verify-circuit-drag.mjs';
 import {verifyCircuitSwitch} from './verify-circuit-switch.mjs';
+import {readEffectCatalog,verifyEffects} from './verify-effects.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
 assert.deepEqual(WebAssembly.Module.imports(module), [], "Standalone Wasm must have no runtime imports");
 const api = new WebAssembly.Instance(module, {}).exports;
+const effectCatalog=readEffectCatalog(api);
 api.rustias_init();
 assert.equal(api.rustias_note(4, 69, 100), 0);
 assert.equal(api.rustias_control(0, 0, 6), 0);
@@ -347,6 +349,7 @@ const primarySnapshot={...modularSnapshot,circuits:{version:1,tracks:[primaryGra
 const primarySaved=graphStore.save('Independent OSC1 and removed Noise',primarySnapshot);assert.deepEqual(validateCircuits(graphStore.list().find(p=>p.id===primarySaved.id).snapshot.circuits),primarySnapshot.circuits,'Independent OSC1 settings and removed builtins survive program storage');
 features.push('Full independent OSC1 modules: all 18 waveform/mode combinations, CTRL1/2, VPM ratio, pitch/cents, audio Cross and CV wiring, isolated states; builtin removal/re-addition and patch persistence');
 features.push(verifyCircuitSwitch({api,setCircuit,graphNote,render,rms,control}));
+features.push(verifyEffects({api,catalog:effectCatalog,render,rms,control,save,load,parameters:schema,module}));
 
 const reports = [];
 for (const sampleRate of [48000, 44100]) {

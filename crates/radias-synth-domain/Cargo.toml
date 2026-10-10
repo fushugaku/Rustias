@@ -6,3 +6,6 @@ edition.workspace = true
 [features]
 web-polyphony = []
 web-modular = []
+
+[dependencies]
+libm = "0.2.16"

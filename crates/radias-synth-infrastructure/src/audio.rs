@@ -522,10 +522,24 @@ impl NativePlayer {
         }
         self.commands
             .try_send(Command::Program(Box::new(NativeProgramLoad {
+                vocoder: crate::stored_program::compile_vocoder(&program)?,
+                effects: Some(crate::effect_audio::prepare_rack(program.effects,program.stored.tempo_tenths)?),
                 compiled: program,
                 drums: drums.map(Box::new),
             })))
             .map_err(|e| e.to_string())
+    }
+    /// Compile control data and allocate delay storage on the control thread.
+    pub fn configure_effects(&self, programs:[radias_synth_domain::effect_audio::EffectAudioProgram;9], tempo:u16)->Result<(),String> {
+        let rack=crate::effect_audio::prepare_rack(programs,tempo)?;
+        self.commands.try_send(Command::Effects(rack)).map_err(|e|e.to_string())
+    }
+    /// Ordinary parameter edits preserve delay/filter state and allocate nothing
+    /// on the audio callback; coefficient compilation happens before delivery.
+    pub fn effect(&self,slot:usize,program:radias_synth_domain::effect_audio::EffectAudioProgram,tempo:u16)->Result<(),String> {
+        if slot>=9 || program.master!=(slot==8) {return Err("Effect bank/slot mismatch".into());}
+        let settings=crate::effect_audio::compile(program,tempo).map_err(str::to_owned)?;
+        self.commands.try_send(Command::Effect(slot,Box::new(settings))).map_err(|e|e.to_string())
     }
     pub fn configure_performance(
         &self,

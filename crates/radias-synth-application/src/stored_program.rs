@@ -59,6 +59,9 @@ pub struct CompiledTimbre {
 pub struct CompiledProgram {
     pub stored: StoredProgram,
     pub timbres: [CompiledTimbre; 4],
+    pub vocoder: [u8; radias_synth_domain::vocoder_control::STORED_BYTES],
+    pub carrier_common_flags: [u8; 4],
+    pub effects: [radias_synth_domain::effect_audio::EffectAudioProgram; 9],
 }
 impl CompiledProgram {
     /// Compile cold static banks directly from the lossless stored inputs.
@@ -89,6 +92,9 @@ impl CompiledProgram {
         Ok(Self {
             stored,
             timbres: [compile(0), compile(1), compile(2), compile(3)],
+            vocoder: *program.vocoder().bytes,
+            carrier_common_flags: core::array::from_fn(|i| program.timbre(i).unwrap().bytes()[0]),
+            effects: radias_synth_domain::effect_audio::stored_effects(program),
         })
     }
     /// No silent oscillator substitution for a stored PCM/input timbre.
