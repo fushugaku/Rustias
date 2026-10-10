@@ -34,7 +34,7 @@ export function createRecorder({ensureAudio, getAudio, getProgram, send, onError
   const library = $('#recordings-library'), recordButton = $('#record-toggle'), timer = $('#record-time');
   let ready = false, phase = 'idle', active = null, starting, stopping, failed = false;
   let folders = [], recordings = [], folderId, programKey, programTask, programRequest = 0, playerUrl, player, previewRequest = 0;
-  const downloadUrls = new Set();
+  const exportJobs = new Map();
   const movers = [];
   const replies = new Map(), closed = new Set();
   const folderPicker = makePicker({label: 'Recording folder', options: [], value: '', searchable: true, searchLabel: 'Search folders', onChange: id => { folderId = id; updateFolder(); }});
@@ -148,7 +148,22 @@ export function createRecorder({ensureAudio, getAudio, getProgram, send, onError
     if (player) { player.pause(); player.removeAttribute('src'); player.load(); player.hidden = true; player = null; }
     if (playerUrl) URL.revokeObjectURL(playerUrl); playerUrl = null;
   }
-  function clearDownloads() { for (const url of downloadUrls) URL.revokeObjectURL(url); downloadUrls.clear(); }
+  function clearDownloads() {
+    for (const [key, job] of exportJobs) if (job.url) { URL.revokeObjectURL(job.url); exportJobs.delete(key); }
+    $('#record-message').querySelector('.record-ready-download')?.remove();
+  }
+  function exportButton(id, format) { return library.querySelector(`[data-recording-id="${id}"] .record-${format}`); }
+  function showExport(button, recording, format) {
+    const job = exportJobs.get(`${recording.id}:${format}`), disabled = recording.id === active?.id || !recording.frames || job?.pending;
+    button.setAttribute('aria-disabled', !!disabled); button.tabIndex = disabled ? -1 : 0;
+    button.textContent = job?.pending ? `${job.progress}%` : format.toUpperCase() + (job?.url ? ' ↓' : '');
+    button.href = job?.url ?? '#'; if (job?.url) button.download = job.filename;
+  }
+  function updateExport(id, format) {
+    const button = exportButton(id, format), recording = recordings.find(r => r.id === id);
+    if (button && recording) showExport(button, recording, format);
+    return button;
+  }
   function report(promise) { promise.catch(onError); }
   function takeDetails(recording, live) {
     return `${recordingTime(recording.frames / recording.sampleRate)} · ${recording.sampleRate / 1000} kHz · ${new Date(recording.createdAt).toLocaleString()}${live ? ' · Recording' : recording.status === 'recording' ? ' · Recovered' : ''}`;
@@ -166,7 +181,7 @@ export function createRecorder({ensureAudio, getAudio, getProgram, send, onError
     input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); save(); input.blur(); } });
   }
   function renderLibrary() {
-    stopPlayer(); clearDownloads(); movers.length = 0; const list = $('#recording-folders'); list.replaceChildren();
+    stopPlayer(); movers.length = 0; const list = $('#recording-folders'); list.replaceChildren();
     $('#recordings-empty').hidden = recordings.length > 0;
     for (const folder of folders) {
       const takes = recordings.filter(r => r.folderId === folder.id);
@@ -193,21 +208,25 @@ export function createRecorder({ensureAudio, getAudio, getProgram, send, onError
         mover.button.title = 'Move to folder'; mover.render(folder.id, 'Move'); mover.button.disabled = live; row.querySelector('.record-move').append(mover.button);
         movers.push({picker:mover,recording});
         for (const format of ['wav', 'mp3']) {
-          const button = row.querySelector(`.record-${format}`); let fileUrl;
-          button.setAttribute('aria-disabled', live || !recording.frames);
-          if (live || !recording.frames) button.tabIndex = -1;
+          const button = row.querySelector(`.record-${format}`), key = `${recording.id}:${format}`;
+          showExport(button, recording, format);
           button.addEventListener('click', async event => {
-            if (fileUrl) { button.download = recordingFilename(folder.name, input.value, format); return; }
+            if (exportJobs.get(key)?.url) { button.download = recordingFilename(folder.name, input.value, format); return; }
             event.preventDefault(); if (button.getAttribute('aria-disabled') === 'true') return;
-            button.setAttribute('aria-disabled', 'true');
+            const job = {pending:true, progress:0, filename:recordingFilename(folder.name, input.value, format)};
+            exportJobs.set(key, job); updateExport(recording.id, format);
             try {
-              const blob = await audioFile(recording, format, progress => { button.textContent = `${progress}%`; });
-              if (!row.isConnected || library.hidden) return;
-              fileUrl = URL.createObjectURL(blob); downloadUrls.add(fileUrl); button.href = fileUrl;
-              button.download = recordingFilename(folder.name, input.value, format);
-              button.setAttribute('aria-disabled', 'false'); button.click();
-            } catch (error) { onError(error); }
-            finally { button.setAttribute('aria-disabled', 'false'); button.textContent = format.toUpperCase() + (fileUrl ? ' ↓' : ''); }
+              const blob = await audioFile(recording, format, progress => { job.progress = progress; updateExport(recording.id, format); });
+              job.url = URL.createObjectURL(blob); job.pending = false;
+              const current = updateExport(recording.id, format);
+              if (current && !library.hidden) current.click();
+              else {
+                const link = document.createElement('a'); link.className = 'record-ready-download'; link.href = job.url; link.download = job.filename;
+                link.textContent = `${format.toUpperCase()} ↓`; link.title = job.filename;
+                link.setAttribute('aria-label', `Download ${format.toUpperCase()}`);
+                $('#record-message').replaceChildren(link); link.click();
+              }
+            } catch (error) { exportJobs.delete(key); updateExport(recording.id, format); onError(error); }
           });
         }
         const listen = row.querySelector('.record-listen'), audio = row.querySelector('audio');
