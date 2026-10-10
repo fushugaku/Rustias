@@ -6,6 +6,7 @@ export const MOD_LANES=6,MOD_STEPS=128;
 export const MOD_RESOLUTIONS=['1/48',...RESOLUTIONS];
 export const MOD_DIRECTIONS=['Forward','Reverse','Alt1','Alt2'];
 export const MOD_RUN_MODES=['Loop','OneShot'];
+export const MOD_KEY_SYNC=['Off','Timbre','Voice'];
 const integer=(value,min,max)=>Number.isInteger(value)&&value>=min&&value<=max;
 export const emptyModulation=()=>({version:1,tracks:Array.from({length:MAX_TIMBRES},()=>[])});
 export function modulationTarget(raw){
@@ -30,6 +31,7 @@ export function validateModulation(raw){
     return lanes.map(lane=>{
       const target=modulationTarget(lane.target),range=modulationRange(target);
       if(typeof lane.id!=='string'||!/^[a-zA-Z0-9-]{1,64}$/.test(lane.id)||ids.has(lane.id)||typeof lane.enabled!=='boolean'||!integer(lane.amount,-100,100)||!integer(lane.length,1,MOD_STEPS)||!MOD_RESOLUTIONS.includes(lane.resolution)||!['Step','Slide'].includes(lane.motion)||!MOD_DIRECTIONS.includes(lane.direction)||!MOD_RUN_MODES.includes(lane.runMode)||!Array.isArray(lane.values)||lane.values.length!==MOD_STEPS||lane.values.some(v=>!integer(v,-range,range)))throw new Error('Invalid modulation sequence.');
+      if(lane.keySync!=null&&!MOD_KEY_SYNC.includes(lane.keySync))throw new Error('Invalid modulation key sync.');
       ids.add(lane.id);
       return {...lane,target,values:[...lane.values]};
     });
@@ -63,12 +65,17 @@ export function modulationStep(lane,tick){
   return i;
 }
 export class ModulationClock {
-  constructor(){this.config=emptyModulation();this.phases=new Map();this.tempo=120;this.running=false;this.frame=0;this.positions=Array.from({length:MAX_TIMBRES},()=>[]);}
+  constructor(){this.config=emptyModulation();this.phases=new Map();this.tempo=120;this.running=false;this.frame=0;this.positions=Array.from({length:MAX_TIMBRES},()=>[]);this.held=Array.from({length:MAX_TIMBRES},()=>new Set());}
   setConfig(raw){const next=validateModulation(raw),keep=new Map();next.tracks.forEach((lanes,t)=>lanes.forEach(lane=>{const key=t+':'+lane.id;keep.set(key,this.phases.get(key)??0);}));this.phases=keep;this.config=next;}
   setTempo(tempo){this.tempo=Math.max(10,Math.min(300,tempo));}
   play(){for(const key of this.phases.keys())this.phases.set(key,0);this.running=true;}
-  stop(){this.running=false;this.positions=this.config.tracks.map(lanes=>lanes.map(()=>-1));}
+  stop(){this.running=false;this.positions=this.config.tracks.map(lanes=>lanes.map(()=>-1));this.held.forEach(notes=>notes.clear());}
   reset(){for(const key of this.phases.keys())this.phases.set(key,0);}
+  note(timbre,note,velocity){
+    const held=this.held[timbre],first=!held.size;
+    if(velocity){if(!this.running)this.play();held.add(note);for(const lane of this.config.tracks[timbre])if(lane.keySync==='Voice'||lane.keySync==='Timbre'&&first)this.phases.set(timbre+':'+lane.id,0);}
+    else held.delete(note);
+  }
   beforeRender(frames=128){
     const offsets=new Map();
     this.positions=this.config.tracks.map((lanes,t)=>lanes.map(lane=>{

@@ -2,6 +2,7 @@ import {SequenceClock,StepAudition} from "./sequence.js";
 import {RecordingTap} from './recording-tap.js';
 import {ModulationAutomation} from './modulation.js';
 import {ModulationHost} from './modulation-host.js';
+import {MAX_TIMBRES} from './limits.js';
 class RustiasProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
@@ -76,8 +77,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
         }
         else if(data.type==='rdl-muted')this.wasm.rustias_rdl_mute(data.timbres,data.drums);
         else if (data.type === "midi") {
-          if((data.bytes[0]&240)===144&&data.bytes[2]&&!this.modulation.clock.running)this.modulation.clock.play();
-          this.wasm.rustias_midi(...data.bytes);
+          if(!this.midiSequence(data.bytes))this.wasm.rustias_midi(...data.bytes);
           if ((data.bytes[0] & 240) === 176 || (data.bytes[0] & 240) === 224) this.snapshot(data.bytes);
         }
         else if(data.type==="audition")this.audition.play(data.timbre,data.step,this.wasm.rustias_value(0,89)/10,data.resolution);
@@ -101,14 +101,24 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.port.postMessage({ type: "ready", sampleRate });
   }
   ownedNote(timbre,note,velocity,sequence){
-    if(velocity&&!this.modulation.clock.running)this.modulation.clock.play();
+    if(!sequence&&typeof note==='number'&&this.sequencer.trigger(timbre,note,velocity))return;
+    if(sequence&&velocity&&typeof note==='number'&&(note<this.wasm.rustias_value(timbre,119)||note>this.wasm.rustias_value(timbre,120)))return;
     const key=`${timbre}:${note}`,before=(this.sequenceNotes.get(key)??0)+(this.manualNotes.has(key)?1:0)+(this.auditionNotes.has(key)?1:0);
     if(sequence==="audition"){if(velocity)this.auditionNotes.add(key);else this.auditionNotes.delete(key);}
     else if(sequence){const count=Math.max(0,(this.sequenceNotes.get(key)??0)+(velocity?1:-1));if(count)this.sequenceNotes.set(key,count);else this.sequenceNotes.delete(key);}
     else if(velocity)this.manualNotes.add(key);else this.manualNotes.delete(key);
     const after=(this.sequenceNotes.get(key)??0)+(this.manualNotes.has(key)?1:0)+(this.auditionNotes.has(key)?1:0);
     const emit=value=>{if(typeof note==='string'){const profile=this.libraryProfiles.get(key);if(profile)this.wasm.rustias_library_note(timbre,profile.id,value);}else this.wasm.rustias_note(timbre,note,value);};
-    if(velocity&&!before)emit(velocity);else if(!after&&before)emit(0);
+    if(velocity&&!before){this.modulation.clock.note(timbre,note,velocity);emit(velocity);}else if(!after&&before){this.modulation.clock.note(timbre,note,0);emit(0);}
+  }
+  midiSequence(bytes){
+    const command=bytes[0]&240;if(command!==128&&command!==144)return false;
+    const channel=bytes[0]&15,note=bytes[1],velocity=command===144?bytes[2]:0,global=this.wasm.rustias_value(0,148),matched=[];
+    const triggers=t=>{const track=this.sequencer.config.tracks[t];return track.enabled&&(track.keyTriggered||track.runMode==='Step')&&note>=(track.scanBottom??0)&&note<=(track.scanTop??127);};
+    for(let t=0;t<MAX_TIMBRES;t++){const ch=this.wasm.rustias_value(t,72),triggered=triggers(t);if(this.wasm.rustias_value(t,71)&&((ch===16?global:ch)===channel||triggered&&global===channel)&&(triggered||note>=this.wasm.rustias_value(t,119)&&note<=this.wasm.rustias_value(t,120)))matched.push(t);}
+    const handled=matched.some(triggers);
+    for(const t of matched)if(handled)this.ownedNote(t,note,velocity,false);else this.modulation.clock.note(t,note,velocity);
+    return handled;
   }
   snapshot(midi) {
     const length = this.wasm.rustias_save(), pointer = this.wasm.rustias_preset_buffer();

@@ -1,5 +1,5 @@
 import {MAX_TIMBRES} from './limits.js';
-import {emptySequence} from './sequence.js';
+import {sequencesFromRdl} from './rdl-sequence.js';
 export const MAX_RDL_BYTES=8*1024*1024;
 
 export function parseRdl(api,buffer){
@@ -21,11 +21,11 @@ export function readRdl(module,buffer){
   });
 }
 export function rdlPatches(library,file,digest){
-  return library.programs.map(program=>({
+  return library.programs.map(program=>{const sequences=sequencesFromRdl(program.rdl.program);return ({
     id:`rdl:${digest}:${program.slot}`,name:program.name,updatedAt:Date.now(),
-    snapshot:{version:2,engine:program.engine,sequencer:emptySequence(),samples:null,
-      rdl:{...program.rdl,file,slot:program.slot,digest}},
-  }));
+    snapshot:{version:2,engine:program.engine,sequencer:sequences.sequencer,modulation:sequences.modulation,samples:null,
+      rdl:{...program.rdl,sequenceImportVersion:1,notices:[...program.rdl.notices,...sequences.notices],file,slot:program.slot,digest}},
+  });});
 }
 export function validateRdlSource(value){
   if(value==null)return null;

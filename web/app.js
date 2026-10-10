@@ -357,12 +357,13 @@ $("#program-file").addEventListener("change", async event => {
       const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',buffer))].map(b=>b.toString(16).padStart(2,'0')).join('');
       const library=await readRdl(module,buffer),imported=rdlPatches(library,file.name.slice(0,256),digest);
       // Validate every patch before the one atomic library write or any UI change.
-      for(const patch of imported){normalizeEngine(patch.snapshot.engine);validateRdlSource(patch.snapshot.rdl);}
+      for(const patch of imported)normalizeProgram(patch.snapshot,parameters);
       let result;try{result=patchStore.import(imported);}catch(error){if(error.name==='QuotaExceededError')throw new Error('Browser storage is full. The RDL bank was not imported; your existing patches are unchanged.');throw error;}
       const first=patchStore.list().find(p=>p.id===imported[0].id);loadSnapshot(first.snapshot);activeSavedPatch=first.id;refreshLibrary();saveSession();
       const partial=imported.filter(p=>p.snapshot.rdl.unavailable.length||p.snapshot.rdl.notices.length).length;
       rdlReport('RDL imported',`${result.added} ${result.added===1?'program':'programs'} saved${result.duplicates?` · ${result.duplicates} already in your library`:''}. Choose them in Program.`,[
-        ...(partial?[`${partial} ${partial===1?'program refers':'programs refer'} to sources or settings outside the web engine. Open RDL on a selected patch for details. PCM/input-dependent instruments are muted until their source is replaced.`]:[]),
+        ...(partial?[`${partial} ${partial===1?'program has':'programs have'} conversion details. Open RDL on the selected program to inspect them.`]:[]),
+        ...(imported.some(p=>p.snapshot.rdl.unavailable.length)?['PCM/input-dependent instruments are muted until their source is replaced.']:[]),
       ]);
     }else{
       if(file.size>1024*1024)throw new Error('Choose a JSON patch up to 1 MiB.');

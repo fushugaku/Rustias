@@ -1,3 +1,4 @@
+import {compressStorage,decompressStorage} from './storage-codec.js';
 const LEGACY='rustias.patches.v1',LIBRARY='rustias.patches.v2',SESSION='rustias.session.v2';
 
 // Banks repeat kits, parameter blocks, empty sequences and original records.
@@ -17,9 +18,11 @@ function pack(value){
     if(id===undefined){id=pool.length;known.set(key,id);pool.push(entry);}
     return {$:id};
   }
-  const root=encode(value);return JSON.stringify({format:2,pool,root});
+  const root=encode(value),plain=JSON.stringify({format:2,pool,root});
+  const compact=JSON.stringify({format:3,codec:'lzw16',data:compressStorage(plain)});return compact.length<plain.length?compact:plain;
 }
 function unpack(value){
+  if(value?.format===3&&value.codec==='lzw16')value=JSON.parse(decompressStorage(value.data));
   if(value?.format!==2||!Array.isArray(value.pool)||value.pool.length>500000)throw new Error('Invalid patch library.');
   const memo=new Map(),visiting=new Set();
   function decode(node,depth=0){

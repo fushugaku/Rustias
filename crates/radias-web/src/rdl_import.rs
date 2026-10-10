@@ -190,14 +190,8 @@ pub fn convert(bytes: &[u8]) -> Result<ImportedLibrary, &'static str> {
         if program.vocoder_flags() & 128 != 0 {
             source.notices.push("Vocoder is enabled in the original program; it is not available in the web engine.".into());
         }
-        if program.arpeggiator_flags() & 128 != 0 {
-            source.notices.push("Hardware arpeggiator / step sequencing is retained as source data. The browser sequencers start empty.".into());
-        }
-        if (0..4).any(|i| program.timbre(i).unwrap().bytes()[220] & 128 != 0) {
-            source.notices.push(
-                "Motion sequencing is retained as source data and is not played by the web engine."
-                    .into(),
-            );
+        if (0..4).any(|i| (program.timbre(i).unwrap().bytes()[0] >> 2) & 3 == 1) {
+            source.notices.push("The hardware arpeggiator is retained as source data. Note step sequences and modulation sequences are imported into browser tracks.".into());
         }
         let mut program_name = name(program.name());
         if program_name.is_empty() {

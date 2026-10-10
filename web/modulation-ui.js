@@ -1,5 +1,5 @@
 import {makeDial,makePicker} from './panel.js';
-import {emptyModulation,validateModulation,newModulationLane,modulationKey,modulationRange,modulationBarChoices,MOD_LANES,MOD_STEPS,MOD_RESOLUTIONS,MOD_DIRECTIONS,MOD_RUN_MODES} from './modulation.js';
+import {emptyModulation,validateModulation,newModulationLane,modulationKey,modulationRange,modulationBarChoices,MOD_LANES,MOD_STEPS,MOD_RESOLUTIONS,MOD_DIRECTIONS,MOD_RUN_MODES,MOD_KEY_SYNC} from './modulation.js';
 
 export function createModulationEditor({panels,getTargets,onChange,onError,onCounts}){
   let config=emptyModulation(),status={positions:[]};
@@ -20,7 +20,7 @@ export function createModulationEditor({panels,getTargets,onChange,onError,onCou
   function paint(view){
     const lane=view.lane;view.power.textContent=lane.enabled?'On':'Off';view.power.setAttribute('aria-pressed',lane.enabled);view.root.classList.toggle('muted',!lane.enabled);
     view.steps.render(lane.length);view.bars.options=modulationBarChoices(lane);view.bars.render(lane.length);view.resolution.render(lane.resolution);view.amount.render();
-    view.motionButtons.forEach(b=>b.setAttribute('aria-pressed',b.textContent===lane.motion));view.direction.render(lane.direction);view.runMode.render(lane.runMode);
+    view.motionButtons.forEach(b=>b.setAttribute('aria-pressed',b.textContent===lane.motion));view.direction.render(lane.direction);view.runMode.render(lane.runMode);view.keySync.render(lane.keySync??'Off');
     view.bank=Math.min(view.bank,Math.floor((lane.length-1)/16));view.block.options=Array.from({length:Math.ceil(lane.length/16)},(_,i)=>({value:i,label:(i*16+1)+'–'+Math.min(lane.length,(i+1)*16)}));view.block.render(view.bank);view.blockWrap.hidden=lane.length<=16;
     const range=modulationRange(lane.target),position=status.positions[view.t]?.[view.index];
     view.grid.style.setProperty('--mod-columns',Math.min(4,lane.length-view.bank*16));
@@ -49,7 +49,8 @@ export function createModulationEditor({panels,getTargets,onChange,onError,onCou
       const motion=document.createElement('div');motion.className='mod-motion segmented';motion.setAttribute('role','group');motion.setAttribute('aria-label',aria+' motion');const motionButtons=['Step','Slide'].map(value=>{const b=document.createElement('button');b.type='button';b.textContent=value;b.setAttribute('aria-label',aria+' '+value);b.addEventListener('click',()=>{lane.motion=value;notify(t);paint(view);});motion.append(b);return b;});tools.append(field('Motion',motion));
       const direction=makePicker({label:aria+' direction',options:MOD_DIRECTIONS.map(value=>({value,label:value})),value:lane.direction,onChange:value=>{lane.direction=value;notify(t);paint(view);}});tools.append(field('SeqType',direction.button));
       const runMode=makePicker({label:aria+' run mode',options:MOD_RUN_MODES.map(value=>({value,label:value})),value:lane.runMode,onChange:value=>{lane.runMode=value;notify(t);paint(view);}});tools.append(field('RunMode',runMode.button));
-      const view={root,power,grid,lane,t,index,aria,bank:0,target,amount,steps,bars,resolution,motionButtons,direction,runMode,knobs:[]};
+      const keySync=makePicker({label:aria+' key sync',options:MOD_KEY_SYNC.map(value=>({value,label:value})),value:lane.keySync??'Off',onChange:value=>{lane.keySync=value;notify(t);paint(view);}});tools.append(field('KeySync',keySync.button));keySync.button.title='Voice resets the shared timbre clock on every note.';
+      const view={root,power,grid,lane,t,index,aria,bank:0,target,amount,steps,bars,resolution,motionButtons,direction,runMode,keySync,knobs:[]};
       const block=makePicker({label:aria+' block',options:[],value:0,onChange:value=>{view.bank=value;paint(view);}}),blockWrap=field('Steps',block.button,'mod-block');tools.append(blockWrap,remove);Object.assign(view,{block,blockWrap});
       for(let i=0;i<16;i++){
         const step=document.createElement('div'),label=document.createElement('label'),range=modulationRange(lane.target);step.className='mod-step';

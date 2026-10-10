@@ -1,5 +1,5 @@
 import {MAX_TIMBRES,INITIAL_TIMBRES,timbreArray} from './limits.js';
-import {emptySequence,validateSequence,STEPS,VIEW_STEPS,RESOLUTIONS,MAX_EVENTS,stepEvents} from './sequence.js';
+import {emptySequence,validateSequence,STEPS,VIEW_STEPS,RESOLUTIONS,MAX_EVENTS,stepEvents,SEQUENCE_RUN_MODES} from './sequence.js';
 import {copySteps,pasteSteps} from './sequence-edit.js';
 import {makePicker,isChoosing} from './panel.js';
 import {noteName,sequenceLabels} from './sequence-labels.js';
@@ -16,8 +16,9 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
   function render(){
     tracks.forEach((view,t)=>{
       const track=sequence.tracks[t];view.group.hidden=t>=timbreCount;view.enable.setAttribute('aria-pressed',track.enabled);view.row.classList.toggle('muted',!track.enabled);view.length.render(track.length);view.resolution.render(track.resolution);view.row.classList.toggle('drum-track',!!kitFor(t));view.block.render(view.bank);
+      for(const control of view.settingsControls)control.render();
       view.steps.forEach((button,local)=>{const index=view.bank*VIEW_STEPS+local,step=track.steps[index],active=editing?.timbre===t&&editing.step===index,inRange=selection?.timbre===t&&index>=Math.min(selection.start,selection.end)&&index<=Math.max(selection.start,selection.end);
-        button.dataset.step=index;button.setAttribute('aria-label',`Timbre ${t+1} step ${index+1}`);button.setAttribute('aria-current',active?'step':'false');button.setAttribute('aria-pressed',!!inRange);button.querySelector('.step-index').textContent=String(index+1).padStart(2,'0');button.classList.toggle('filled',stepEvents(step).length>0);button.classList.toggle('editing',active);button.classList.toggle('selected',!!inRange);button.classList.toggle('outside-loop',index>=track.length);button.classList.toggle('sample-step',step.samples.length>0);button.classList.toggle('current',positions[t]===index);button.querySelector('.step-notes').textContent=label(step,t);button.title=`Timbre ${t+1} · Step ${index+1}: ${labels(step,t).join(', ')||'empty'}`;
+        button.dataset.step=index;button.setAttribute('aria-label',`Timbre ${t+1} step ${index+1}`);button.setAttribute('aria-current',active?'step':'false');button.setAttribute('aria-pressed',!!inRange);button.querySelector('.step-index').textContent=String(index+1).padStart(2,'0');button.classList.toggle('filled',stepEvents(step).length>0);button.classList.toggle('step-muted',step.trigger===false);button.classList.toggle('editing',active);button.classList.toggle('selected',!!inRange);button.classList.toggle('outside-loop',index>=track.length);button.classList.toggle('sample-step',step.samples.length>0);button.classList.toggle('current',positions[t]===index);button.querySelector('.step-notes').textContent=label(step,t);button.title=`Timbre ${t+1} · Step ${index+1}: ${labels(step,t).join(', ')||'empty'}${step.trigger===false?' · Off':''}`;
       });
     });
     $('#seq-play').textContent=playing?'Stop':'Play';$('#seq-play').setAttribute('aria-pressed',playing);$('#seq-select').setAttribute('aria-pressed',selecting);$('#seq-copy').disabled=!selection&&!editing;$('#seq-paste').disabled=!clipboard||!destination();$('#step-paste').disabled=!clipboard;$('#seq-undo').disabled=!undo;
@@ -32,6 +33,12 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
     }catch(error){onError(error);}
   }
   const sourcePicker=makePicker({label:'Add sequence sample',options:[],value:null,searchable:true,searchLabel:'Search all samples',onChange:source=>addSample(source)});$('#step-sample-source').append(sourcePicker.button);
+  const modes=document.createElement('div');modes.className='step-modes';const stepModes=[];
+  function field(label,control){const wrap=document.createElement('label'),text=document.createElement('span');wrap.className='sequence-field';text.textContent=label;wrap.append(text,control);return wrap;}
+  for(const [key,label,options,fallback]of [['trigger','Trigger',[{value:true,label:'On'},{value:false,label:'Off'}],true],['tie','Gate mode',[{value:false,label:'%'},{value:true,label:'TIE'}],false],['velocityMode','Velocity mode',[{value:'Fixed',label:'Fixed'},{value:'Key',label:'Key'}],'Fixed']]){
+    const picker=makePicker({label,options,value:fallback,onChange:value=>{if(editing){sequence.tracks[editing.timbre].steps[editing.step][key]=value;commit();renderEditor();}}});modes.append(field(label,picker.button));stepModes.push({key,picker,fallback});
+  }
+  gate.closest('label').parentElement.after(modes);
   $('#step-sample-upload').addEventListener('click',()=>{const target={...editing};onUploadSample(target.timbre,source=>addSample(source,target));});
   function renderEditor(){
     if(!editing)return;const step=sequence.tracks[editing.timbre].steps[editing.step],kit=kitFor(editing.timbre);notes.replaceChildren();
@@ -51,7 +58,7 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
     for(const source of step.samples){const chip=document.createElement('div'),edit=document.createElement('button'),remove=document.createElement('button');chip.className='sequence-sample';edit.type=remove.type='button';edit.className='sample-edit';edit.textContent=sampleName(source);edit.setAttribute('aria-label',`Edit sound: ${sampleName(source)}`);edit.title=`Edit sound: ${sampleName(source)}`;remove.className='sample-remove';remove.textContent='×';remove.setAttribute('aria-label',`Remove sample: ${sampleName(source)}`);
       edit.addEventListener('click',()=>{const timbre=editing.timbre;dialog.close();onEditSample(timbre,source);});remove.addEventListener('click',()=>{step.samples=step.samples.filter(id=>id!==source);commit();renderEditor();audition(editing.timbre,step);});chip.append(edit,remove);samples.append(chip);
     }
-    velocity.value=step.velocity;gate.value=step.gate;$('#step-octave-down').disabled=octave===-1;$('#step-octave-up').disabled=octave===8;$('#step-paste').disabled=!clipboard;
+    velocity.value=step.velocity;gate.value=step.gate;velocity.disabled=step.velocityMode==='Key';gate.disabled=!!step.tie;stepModes.forEach(({key,picker,fallback})=>picker.render(step[key]??fallback));$('#step-octave-down').disabled=octave===-1;$('#step-octave-up').disabled=octave===8;$('#step-paste').disabled=!clipboard;
   }
   function selectRange(timbre,start,end=start){selection={timbre,start,end};cursor={timbre,step:Math.min(start,end)};notice='';render();}
   function copy(){const range=selection??(editing?{timbre:editing.timbre,start:editing.step,end:editing.step}:null);if(!range)return;clipboard=copySteps(sequence,range.timbre,range.start,range.end,kitFor(range.timbre));notice=`${clipboard.steps.length} copied`;selection=null;cursor=null;drag=null;render();}
@@ -64,7 +71,15 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
     enable.type='button';enable.className='track-enable';enable.setAttribute('aria-label',`Sequencer timbre ${timbre+1} enabled`);enable.innerHTML='<span class="switch-led"></span>';enable.addEventListener('click',()=>{sequence.tracks[timbre].enabled=!sequence.tracks[timbre].enabled;commit();});
     const length=makePicker({label:`Sequencer timbre ${timbre+1} length`,options:Array.from({length:STEPS},(_,i)=>({value:i+1,label:String(i+1)})),value:16,onChange:value=>{sequence.tracks[timbre].length=value;commit();}});length.button.classList.add('track-length');head.append(select,modToggle,enable,length.button);
     const resolution=makePicker({label:`Sequencer timbre ${timbre+1} resolution`,options:RESOLUTIONS.map(value=>({value,label:value})),value:'1/16',onChange:value=>{sequence.tracks[timbre].resolution=value;commit();}});resolution.button.classList.add('track-resolution');head.append(resolution.button);
-    const view={bank:0};
+    const view={bank:0,settingsControls:[]},settingsPanel=document.createElement('div'),settingsToggle=document.createElement('button');settingsPanel.className='sequence-settings';settingsPanel.hidden=true;settingsPanel.setAttribute('role','region');settingsPanel.setAttribute('aria-label',`Sequencer timbre ${timbre+1} settings`);settingsToggle.type='button';settingsToggle.className='sequence-settings-toggle';settingsToggle.textContent='⋯';settingsToggle.setAttribute('aria-label',`Sequencer timbre ${timbre+1} settings`);settingsToggle.setAttribute('aria-expanded','false');settingsToggle.addEventListener('click',()=>{settingsPanel.hidden=!settingsPanel.hidden;settingsToggle.setAttribute('aria-expanded',!settingsPanel.hidden);});head.append(settingsToggle);
+    const aria=`Sequencer timbre ${timbre+1}`;
+    const patternWrap=field('Pattern',document.createElement('span')),patternPicker=makePicker({label:aria+' imported pattern',options:[],value:null,onChange:value=>{const enabled=sequence.tracks[timbre].enabled;sequence.tracks[timbre]={...structuredClone(sequence.patterns[value].track),enabled,pattern:value};commit();}});patternWrap.lastChild.replaceWith(patternPicker.button);settingsPanel.append(patternWrap);view.settingsControls.push({render(){patternWrap.hidden=!sequence.patterns?.length;patternPicker.options=(sequence.patterns??[]).map((p,i)=>({value:i,label:p.name}));const value=sequence.tracks[timbre].pattern??null;patternPicker.render(value,value==null?'Custom':undefined);}});
+    const setting=(key,label,options,fallback)=>{const picker=makePicker({label:aria+' '+label.toLowerCase(),options,value:fallback,onChange:value=>{sequence.tracks[timbre][key]=value;commit();}});settingsPanel.append(field(label,picker.button));view.settingsControls.push({render:()=>picker.render(sequence.tracks[timbre][key]??fallback)});};
+    setting('runMode','RunMode',SEQUENCE_RUN_MODES.map(value=>({value,label:value})),'Loop');
+    for(const [key,label,fallback]of [['keyTriggered','Key trigger',false],['latch','Latch',false],['keySync','KeySync',false],['transpose','Transpose',false]])setting(key,label,[{value:false,label:'Off'},{value:true,label:'On'}],fallback);
+    for(const [key,label,min,max,fallback]of [['swing','Swing %',-100,100,0],['gateOffset','Gate offset',-100,100,0],['baseNote','BaseNote',0,127,60],['scanBottom','Scan bottom',0,127,0],['scanTop','Scan top',0,127,127]]){
+      const input=document.createElement('input');input.type='number';input.min=min;input.max=max;input.step=1;input.setAttribute('aria-label',aria+' '+label.toLowerCase());input.addEventListener('change',()=>{if(!input.validity.valid||input.value==='')return;const track=sequence.tracks[timbre],value=Number(input.value);if(key==='scanBottom'&&value>(track.scanTop??127)||key==='scanTop'&&value<(track.scanBottom??0)){input.value=track[key]??fallback;return;}track[key]=value;commit();});settingsPanel.append(field(label,input));view.settingsControls.push({render(){if(document.activeElement!==input)input.value=sequence.tracks[timbre][key]??fallback;}});
+    }
     const block=makePicker({label:`Sequencer timbre ${timbre+1} block`,options:Array.from({length:STEPS/VIEW_STEPS},(_,i)=>({value:i,label:`${i*VIEW_STEPS+1}–${(i+1)*VIEW_STEPS}`})),value:0,onChange:value=>{view.bank=value;render();}});block.button.classList.add('track-block');head.append(block.button);
     const steps=Array.from({length:VIEW_STEPS},(_,local)=>{
       const button=document.createElement('button');button.type='button';button.className='sequence-step';button.innerHTML='<span class="step-index"></span><span class="step-notes">—</span>';
@@ -76,7 +91,7 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
         if(event.shiftKey||selecting){const anchor=selection?.timbre===timbre?selection.start:cursor?.timbre===timbre?cursor.step:index;selecting=true;selectRange(timbre,anchor,index);return;}
         cursor={timbre,step:index};selection=null;notice='';editing={...cursor};renderEditor();dialog.showModal();render();
       });grid.append(button);return button;
-    });row.append(head,grid);group.append(row,modPanel);$('#sequence-tracks').append(group);Object.assign(view,{group,row,modPanel,modToggle,enable,length,resolution,block,steps});tracks.push(view);
+    });row.append(head,grid);group.append(row,settingsPanel,modPanel);$('#sequence-tracks').append(group);Object.assign(view,{group,row,settingsPanel,modPanel,modToggle,enable,length,resolution,block,steps});tracks.push(view);
   }
   document.addEventListener('pointerup',()=>{suppressClick=!!drag?.moved;drag=null;setTimeout(()=>{suppressClick=false;},20);});document.addEventListener('pointercancel',()=>{drag=null;suppressClick=false;});
   $('#seq-select').addEventListener('click',()=>{selecting=!selecting;selection=null;cursor=null;notice='';render();});$('#seq-copy').addEventListener('click',copy);$('#seq-paste').addEventListener('click',paste);$('#step-paste').addEventListener('click',paste);$('#seq-undo').addEventListener('click',()=>{if(undo){sequence=undo;undo=null;notice='Undone';commit();renderEditor();}});

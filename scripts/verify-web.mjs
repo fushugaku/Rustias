@@ -11,7 +11,7 @@ import {emptySamples,validateSamples,migrateSampleAmplifiers,sampleValues,validS
 import {copySteps,pasteSteps} from '../web/sequence-edit.js';
 import {PatchStore} from "../web/patches.js";
 import {defaultCircuit,validateCircuits,connect,audioCircuit,removeModule,availableModules,MODULES} from "../web/circuit.js";
-import {verifyRdl} from './verify-rdl.mjs';
+import {verifyRdl,verifyRdlPlayback} from './verify-rdl.mjs';
 import {verifyPrograms} from './verify-programs.mjs';
 import {verifyCircuitDrag} from './verify-circuit-drag.mjs';
 import {verifyCircuitSwitch} from './verify-circuit-switch.mjs';
@@ -363,6 +363,7 @@ features.push(verifyEffects({api,catalog:effectCatalog,render,rms,control,save,l
 const reports = [];
 features.push(verifyRecordings());
 features.push(verifyModulation({parameters:schema,module,workletSource,sequenceSource}));
+features.push(verifyRdlPlayback({parameters:schema,module,workletSource,sequenceSource}));
 for (const sampleRate of [48000, 44100]) {
   let Processor;
   const messages = [];

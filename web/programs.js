@@ -7,6 +7,7 @@ import {MAX_TIMBRES,INITIAL_TIMBRES} from './limits.js';
 import {extendValues} from './parameters.js';
 import {normalizeMacros} from './macros.js';
 import {validateModulation,remapModulationLane} from './modulation.js';
+import {sequencesFromRdl,emptyNotePatterns} from './rdl-sequence.js';
 // Routing, splits and live performance belong to the program's timbre slot.
 export const SLOT_PARAMETERS=new Set([71,72,119,120,137,138,139,150]);
 const slot=t=>{if(!Number.isInteger(t)||t<0||t>=MAX_TIMBRES)throw new Error('Invalid timbre slot.');};
@@ -36,10 +37,20 @@ export function normalizeProgram(raw,parameters){
   const engine=migrateSampleAmplifiers(normalizeEngine(wrapped?raw.engine:raw,parameters),wrapped?raw.samples:null,samples);
   if(wrapped&&raw.engine?.effects==null&&raw.rdl?.program)engine.effects=effectsFromRdl(raw.rdl.program);
   for(const v of engine.timbres.slice(timbreCount))v[71]=0;
-  const sequencer=validateSequence(wrapped?raw.sequencer:emptySequence());for(const track of sequencer.tracks.slice(timbreCount))track.enabled=false;
-  const modulation=validateModulation(wrapped?raw.modulation:null);for(const lanes of modulation.tracks.slice(timbreCount))for(const lane of lanes)lane.enabled=false;
+  let sequencer=validateSequence(wrapped?raw.sequencer:emptySequence()),modulation=validateModulation(wrapped?raw.modulation:null);
+  const rdl=validateRdlSource(wrapped?raw.rdl:null);
+  if(rdl&&!rdl.sequenceImportVersion){
+    const imported=sequencesFromRdl(rdl.program);
+    // Migrate the old empty importer once, preserving any user-authored pattern.
+    if(emptyNotePatterns(sequencer))sequencer=imported.sequencer;
+    else sequencer.patterns=imported.sequencer.patterns;
+    if(modulation.tracks.every(lanes=>!lanes.length))modulation=imported.modulation;
+    rdl.sequenceImportVersion=1;rdl.notices=rdl.notices.filter(n=>!n.includes('browser sequencers start empty')&&!n.includes('Motion sequencing is retained')).concat(imported.notices);
+  }
+  for(const track of sequencer.tracks.slice(timbreCount))track.enabled=false;
+  for(const lanes of modulation.tracks.slice(timbreCount))for(const lane of lanes)lane.enabled=false;
   const result={kind:'rustias-program',version:2,timbreCount,engine,sequencer,modulation,samples,macros:normalizeMacros(wrapped?raw.macros:null),circuits:validateCircuits(wrapped?raw.circuits:null,engine.timbres),timbreInfo:timbreInfo(wrapped?raw.timbreInfo:null)};
-  const rdl=validateRdlSource(wrapped?raw.rdl:null);if(rdl)result.rdl=rdl;
+  if(rdl)result.rdl=rdl;
   if(wrapped&&raw.volume!=null){if(!Number.isFinite(raw.volume)||raw.volume<0||raw.volume>100)throw new Error('Invalid program volume.');result.volume=raw.volume;}
   return result;
 }
