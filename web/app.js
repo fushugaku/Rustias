@@ -1,6 +1,7 @@
 import {createCircuitEditor} from "./circuit-ui.js";
 import {setEffectCatalog,emptyEffects} from './effects.js';
 import {createEffectsPanel} from './effects-ui.js';
+import {createRecorder} from './recordings-ui.js';
 import {audioCircuit,emptyCircuits} from "./circuit.js";
 import {createDrumSamples} from "./samples.js";
 import {createSequencer} from "./sequencer-ui.js";
@@ -34,7 +35,7 @@ const keyNames = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", 
 const computerKeys = ["a", "w", "s", "e", "d", "f", "t", "g", "y", "h", "u", "j", "k", "o", "l", "p"];
 let selected = 0, octave = 4, context, node, module, midiAccess, audioStarting;
 const held = new Map(), noteCounts = new Map();
-let sampleUI,circuitUI,fxUI,circuitTimer,editingSample=null;
+let sampleUI,circuitUI,fxUI,recorder,circuitTimer,editingSample=null;
 let panel, programPicker, timbrePicker, sequenceUI, activeSavedPatch=null,programState="init",programDirty=false,patchDialogKind="program",patchDialogSlot=0, autosaveTimer, sequenceRequest=0, auditionRequest=0,sequenceConfigRequest=0;
 let rdlSource=null,lastRdlMasks;
 const patchStore=new PatchStore(window.localStorage),timbreStore=new TimbreStore(window.localStorage);
@@ -131,6 +132,7 @@ function updateControls() {
   $("#edit-context").title=$("#edit-context").textContent;
   const programLabel=patchStore.list().find(p=>p.id===activeSavedPatch)?.name??(programState==='init'?'INIT':'Unsaved');
   programPicker?.render(activeSavedPatch?`saved:${activeSavedPatch}`:programState,programLabel+(programDirty?' *':''));
+  recorder?.programChanged();
   const sound=timbres[selected],saved=timbreStore.list().find(p=>p.id===sound.savedId);
   timbrePicker?.render(saved?`saved:${sound.savedId}`:factorySounds.some(p=>p.value===sound.preset)?sound.preset:'custom',sound.name+(sound.modified?' *':''));
 }
@@ -301,11 +303,12 @@ async function setupAudio() {
     const pendingNode = new AudioWorkletNode(context, "rustias", {numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: {module, gain: Number($("#volume").value) / 100}});
     const ready = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("The Rust audio engine did not start.")), 10000);
-      pendingNode.onprocessorerror = () => { clearTimeout(timeout); reject(new Error("The audio engine stopped unexpectedly.")); showError(new Error("The audio engine stopped unexpectedly.")); };
+      pendingNode.onprocessorerror = () => { clearTimeout(timeout); reject(new Error("The audio engine stopped unexpectedly.")); showError(new Error("The audio engine stopped unexpectedly.")); recorder?.stop(); };
       pendingNode.port.onmessage = ({data}) => {
         if(sampleUI?.handleMessage(data))return;
+        if(recorder?.handleMessage(data))return;
         if (data.type === "ready") { clearTimeout(timeout); resolve(); }
-        else if (data.type === "error") { clearTimeout(timeout); reject(new Error(data.message)); showError(new Error(data.message)); }
+        else if (data.type === "error") { clearTimeout(timeout); reject(new Error(data.message)); showError(new Error(data.message)); recorder?.stop(); }
         else if (data.type === "state") {sampleUI.acceptVolumes(data.libraryVolumes,data.program,data.midi);acceptState(data.program);scheduleSession();}
         else if (data.type === "warning") showError(new Error(data.message));
         else if (data.type === "stats") {
@@ -365,7 +368,7 @@ $("#octave-down").addEventListener("click", () => { releaseAll(); octave = Math.
 $("#octave-up").addEventListener("click", () => { releaseAll(); octave = Math.min(7, octave + 1); updateKeys(); });
 $("#volume").addEventListener("input", event => {send({type: "gain", value: Number(event.target.value) / 100});markProgram();updateControls();scheduleSession();});
 $("#panic").addEventListener("click", stop);
-$("#power").addEventListener("click", async () => { try { if (context?.state === "running") { stop(); await context.suspend(); updatePower(); } else await startAudio(); } catch (error) { showError(error); } });
+$("#power").addEventListener("click", async () => { try { if (context?.state === "running") { await recorder?.stop(); stop(); await context.suspend(); updatePower(); } else await startAudio(); } catch (error) { showError(error); } });
 $("#midi").addEventListener("click", async () => {
   try {
     if (!navigator.requestMIDIAccess) throw new Error("Web MIDI is unavailable in this browser. The keyboard and pads still work.");
@@ -397,10 +400,11 @@ sampleUI=createDrumSamples({parameters,getDrumValues:i=>drums[i],getEditingSampl
 sampleUI.ready.then(()=>{sequenceUI.setSamples(sampleUI.options());updateControls();},()=>{});
 circuitUI=createCircuitEditor({getValues:values,getSelected:()=>selected,onError:showError,onChange:(_config,audio)=>{markTimbre();if(audio){$("#error").hidden=true;sendCircuits(selected);}scheduleSession();}});
 fxUI=createEffectsPanel({getSelected:()=>selected,onError:showError,onChange:(slot,program)=>{slot===8?markProgram():markTimbre(Math.floor(slot/2));send({type:'effect',slot,program});updateControls();scheduleSession();}});
+recorder=createRecorder({ensureAudio:startAudio,getAudio:()=>context,send,onError:showError,getProgram:()=>{const saved=patchStore.list().find(p=>p.id===activeSavedPatch);return {key:saved?`program:${saved.id}`:'unsaved',name:saved?.name??'Unsaved program'};}});
 refreshLibrary();
 try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(session.snapshot);activeSavedPatch=session.activeSavedPatch??null;programState=session.programState??"custom";programDirty=session.programDirty??false;if(Number.isInteger(session.selected)&&session.selected>=0&&session.selected<4)$(`[data-timbre="${session.selected}"]`).click();if(Number.isFinite(session.volume))$("#volume").value=session.volume;}}catch(error){showError(new Error(`Could not restore the saved session: ${error.message}`));}
 updateControls(); updateKeys(); document.body.dataset.parameterCount = parameters.length;
 try {
   const response = await fetch(new URL("./rustias.wasm", import.meta.url)); if (!response.ok) throw new Error(`Could not load the Rust engine (${response.status}).`);
-  module = await WebAssembly.compile(await response.arrayBuffer()); sequenceUI.setReady(true); $("#power").disabled = false;$('#load-program').disabled=false;updatePower(); document.body.dataset.engine = "ready";
+  module = await WebAssembly.compile(await response.arrayBuffer()); sequenceUI.setReady(true);recorder.setReady(true); $("#power").disabled = false;$('#load-program').disabled=false;updatePower(); document.body.dataset.engine = "ready";
 } catch (error) { $("#status").textContent = "Engine unavailable"; showError(error); }

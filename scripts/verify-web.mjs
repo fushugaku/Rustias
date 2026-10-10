@@ -13,6 +13,8 @@ import {verifyPrograms} from './verify-programs.mjs';
 import {verifyCircuitDrag} from './verify-circuit-drag.mjs';
 import {verifyCircuitSwitch} from './verify-circuit-switch.mjs';
 import {readEffectCatalog,verifyEffects} from './verify-effects.mjs';
+import {RecordingTap} from '../web/recording-tap.js';
+import {verifyRecordings} from './verify-recordings.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
@@ -352,15 +354,18 @@ features.push(verifyCircuitSwitch({api,setCircuit,graphNote,render,rms,control})
 features.push(verifyEffects({api,catalog:effectCatalog,render,rms,control,save,load,parameters:schema,module}));
 
 const reports = [];
+features.push(verifyRecordings());
 for (const sampleRate of [48000, 44100]) {
   let Processor;
   const messages = [];
   vm.runInNewContext(sequenceSource + "\n" + workletSource.replace(/^import .*;\n/gm,""), {
-    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,
+    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,RecordingTap,
     AudioWorkletProcessor: class { constructor() { this.port = { postMessage: message => messages.push(message) }; } },
     registerProcessor: (_name, processor) => { Processor = processor; },
   });
   const processor = new Processor({ processorOptions: { module, gain: 0.3 } });
+  const recordingId=`actual-output-${sampleRate}`, expectedPCM=[];
+  processor.port.onmessage({data:{type:'record-start',id:recordingId}});
   processor.port.onmessage({ data: { type: "note", timbre: 0, note: 69, velocity: 100 } });
   let frames = 0, crossings = 0, previous = 0, workletPeak = 0;
   for (let block = 0; frames < sampleRate; block++) {
@@ -370,6 +375,7 @@ for (const sampleRate of [48000, 44100]) {
     for (let i = 0; i < size; i++) {
       assert.ok(Number.isFinite(left[i]) && Number.isFinite(right[i]));
       workletPeak = Math.max(workletPeak, Math.abs(left[i]), Math.abs(right[i]));
+      for(const value of [left[i],right[i]])expectedPCM.push(Math.round(Math.max(-1,Math.min(1,value))*(value<0?32768:32767))|0);
       if (previous <= 0 && left[i] > 0) crossings++;
       previous = left[i];
     }
@@ -381,6 +387,11 @@ for (const sampleRate of [48000, 44100]) {
   assert.ok(Math.abs(hz - 440) < 3, `A4 tuning at ${sampleRate} Hz: ${hz}`);
   const nativeFrames = processor.wasm.rustias_frames();
   assert.ok(Math.abs(nativeFrames - frames * 48000 / sampleRate) <= 128, "Resampling must retain the native clock");
+  processor.port.onmessage({data:{type:'record-stop',id:recordingId}});
+  const captured=messages.filter(m=>m.type==='record-chunk'&&m.id===recordingId).flatMap(m=>Array.from(m.pcm));
+  assert.deepEqual(captured,expectedPCM,'Recorder captures the actual stereo output, including monitor gain and device-rate resampling');
+  assert.equal(messages.find(m=>m.type==='record-stopped'&&m.id===recordingId).frames,frames);
+  assert.equal(processor.wasm.rustias_voices(),1,'Stopping recording preserves the held note');
   const workletCircuit=defaultCircuit();workletCircuit.enabled=true;workletCircuit.wires=workletCircuit.wires.filter(w=>w.to!==15);
   processor.port.onmessage({data:{type:'circuit',timbre:0,circuit:audioCircuit(workletCircuit)}});
   const mutedLeft=new Float32Array(512),mutedRight=new Float32Array(512);processor.process([],[[mutedLeft,mutedRight]]);

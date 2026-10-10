@@ -20,4 +20,7 @@ mkdir -p dist/samples/tr-909
 cp web/samples/tr-909/* dist/samples/tr-909/
 touch dist/.nojekyll
 cp web/effects.js web/effects-ui.js dist/
+cp web/recording-tap.js web/recording-format.js web/recordings-store.js web/recordings-worker.js web/recordings-ui.js dist/
+mkdir -p dist/vendor/lamejs
+cp web/vendor/lamejs/* dist/vendor/lamejs/
 printf 'Web build ready: %s/dist\n' "$PWD"

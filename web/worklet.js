@@ -1,4 +1,5 @@
 import {SequenceClock,StepAudition} from "./sequence.js";
+import {RecordingTap} from './recording-tap.js';
 class RustiasProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
@@ -12,13 +13,16 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.audibleFrames = 0;
     this.peak = 0;
     this.failed = false;
+    this.recording = new RecordingTap((data, transfer) => this.port.postMessage(data, transfer ?? []), sampleRate);
     this.libraryProfiles=new Map();
     this.manualNotes=new Set();this.sequenceNotes=new Map();this.auditionNotes=new Set();
     this.sequencer=new SequenceClock((t,n,v)=>this.ownedNote(t,n,v,true));
     this.audition=new StepAudition((t,n,v)=>this.ownedNote(t,n,v,"audition"));
     this.port.onmessage = ({ data }) => {
       try {
-        if (data.type === "note") this.ownedNote(data.timbre,data.note,data.velocity,false);
+        if (data.type === 'record-start') this.recording.start(data.id);
+        else if (data.type === 'record-stop') this.recording.stop(data.id);
+        else if (data.type === "note") this.ownedNote(data.timbre,data.note,data.velocity,false);
         else if (data.type === "control") {
           if (!this.wasm.rustias_control(data.timbre, data.parameter, data.value)) this.snapshot();
           if(data.parameter===89)this.sequencer.setTempo(this.wasm.rustias_value(0,89)/10);
@@ -105,6 +109,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
   }
   fail(error) {
     this.failed = true;
+    this.recording.stop();
     this.port.postMessage({ type: "error", message: error.message ?? String(error) });
   }
   nativeSample() {
@@ -142,6 +147,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
           }
         }
       }
+      this.recording.capture(left, right);
       for (let i = 0; i < left.length; i++) {
         this.peak = Math.max(this.peak, Math.abs(left[i]), Math.abs(right[i]));
         if (left[i] !== 0 || right[i] !== 0) this.audibleFrames++;
