@@ -1403,11 +1403,14 @@ impl Synthesizer {
         interpolate_vocoder: bool,
     ) -> Result<StereoFrame, radias_synth_domain::vocoder::VocoderError> {
         let mut frame = radias_synth_domain::vocoder::VocoderFrame::from_sources(
-            [StereoFrame::default(); TIMBRE_COUNT],
+            [StereoFrame::default(); 4],
             inputs,
         );
         self.sample_frame(&mut frame, interpolate_vocoder)?;
-        let buses = frame.buses();
+        let original_buses = frame.buses();
+        let buses = core::array::from_fn::<_, TIMBRE_COUNT, _>(|i| {
+            original_buses.get(i).copied().unwrap_or_default()
+        });
         if let Some(effects) = &mut self.effects {
             return Ok(effects.process(buses));
         }
@@ -1429,7 +1432,7 @@ impl Synthesizer {
         interpolate_vocoder: bool,
     ) -> Result<(), radias_synth_domain::vocoder::VocoderError> {
         let buses = self.sample_buses()[0];
-        for (timbre, bus) in buses.iter().enumerate() {
+        for (timbre, bus) in buses.iter().take(4).enumerate() {
             frame.samples[4 + 2 * timbre] = bus.left.0;
             frame.samples[5 + 2 * timbre] = bus.right.0;
         }

@@ -9,6 +9,7 @@ use radias_synth_application::{
     drum_program::{CompiledDrumKit, DrumInstrumentProgram},
     mixer::MixerProgram,
     modulation::{ModulationProgram, PatchRoute},
+    polyphony::TIMBRE_COUNT,
     program::TimbreControls,
     secondary::SecondaryProgram,
     stored_program::{CompiledTimbre, ProgramFilterTables},
@@ -39,10 +40,15 @@ use radias_synth_domain::{
 };
 
 pub const SAMPLE_RATE: u32 = 48_000;
-pub const PARAMETER_COUNT: usize = 155;
+pub const NATIVE_PARAMETER_COUNT: usize = 155;
+pub const PARAMETER_COUNT: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+    163
+} else {
+    NATIVE_PARAMETER_COUNT
+};
 pub const PARAMETER_SCHEMA: &str = include_str!("parameters.json");
 pub type Values = [i32; PARAMETER_COUNT];
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 pub struct Parameter {
     pub id: usize,
     pub min: i32,
@@ -54,7 +60,21 @@ pub struct Parameter {
     pub scope: String,
 }
 pub fn parameters() -> Vec<Parameter> {
-    serde_json::from_str(PARAMETER_SCHEMA).expect("Static parameter schema")
+    let mut spec: Vec<Parameter> =
+        serde_json::from_str(PARAMETER_SCHEMA).expect("Static parameter schema");
+    if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+        spec[141].max = (TIMBRE_COUNT - 1) as i32;
+        for i in 0..6 {
+            spec[91 + i * 4].max = 41;
+            spec[91 + i * 4].values.as_mut().unwrap().extend([40, 41]);
+        }
+        for id in NATIVE_PARAMETER_COUNT..PARAMETER_COUNT {
+            let mut p = spec[90 + (id - NATIVE_PARAMETER_COUNT) % 4].clone();
+            p.id = id;
+            spec.push(p);
+        }
+    }
+    spec
 }
 pub fn default_values() -> Values {
     let mut v = [0; PARAMETER_COUNT];
@@ -97,14 +117,16 @@ fn modulation(v: &Values) -> ModulationProgram {
         }),
         tempo_divisions: [v[79] as u8, v[87] as u8],
         routes: core::array::from_fn(|i| {
-            let b = 90 + i * 4;
+            let b = if i < 6 { 90 + i * 4 } else { 155 + (i - 6) * 4 };
             PatchRoute {
                 source: v[b] as u8,
                 destination: ModulationDestination::new(v[b + 1] as u8).unwrap(),
                 intensity: v[b + 2] as u8,
             }
         }),
-        manual_offsets: core::array::from_fn(|i| v[93 + i * 4] as i8),
+        manual_offsets: core::array::from_fn(|i| {
+            v[if i < 6 { 93 + i * 4 } else { 158 + (i - 6) * 4 }] as i8
+        }),
         vibrato_depth: 0,
     }
 }
@@ -251,7 +273,7 @@ fn plan(wave: u8) -> PreparedVoice {
 }
 pub struct StandaloneSynth {
     pub engine: Synthesizer,
-    pub settings: [Values; 4],
+    pub settings: [Values; TIMBRE_COUNT],
     pub drum_settings: [Values; 16],
     spec: Vec<Parameter>,
     map: crate::prepared::ControlMap,
@@ -295,9 +317,12 @@ impl StandaloneSynth {
         engine.apply(Command::VoiceGroupTables(Box::new(tables::groups())));
         engine.apply(Command::PortamentoTables(Box::new(tables::portamento())));
         let defaults = default_values();
-        let mut settings = [defaults; 4];
+        let mut settings = [defaults; TIMBRE_COUNT];
         for (i, v) in settings.iter_mut().enumerate() {
             v[72] = i as i32;
+            if i >= 4 {
+                v[71] = 0;
+            }
         }
         let mut drum_settings = [defaults; 16];
         for (i, v) in drum_settings.iter_mut().enumerate() {
@@ -317,7 +342,7 @@ impl StandaloneSynth {
         };
         out.global_pitch();
         out.performance();
-        for i in 0..4 {
+        for i in 0..TIMBRE_COUNT as u8 {
             out.apply_timbre(i, None);
         }
         out
@@ -339,7 +364,7 @@ impl StandaloneSynth {
         self.settings[0][140] != 0 && self.settings[0][141] == t as i32
     }
     pub fn value(&self, t: u8, id: usize) -> i32 {
-        if t >= 4 || id >= PARAMETER_COUNT {
+        if t as usize >= TIMBRE_COUNT || id >= PARAMETER_COUNT {
             return 0;
         }
         if id == 118 {
@@ -466,7 +491,7 @@ impl StandaloneSynth {
         if is(&[65]) {
             self.engine.apply(Command::SustainProgram(t, c.sustain));
         }
-        if changed.is_none_or(|id| matches!(id,73..=88|90..=113)) {
+        if changed.is_none_or(|id| matches!(id,73..=88|90..=113|155..=162)) {
             self.engine.apply(Command::Modulation(t, c.modulation));
         }
     }
@@ -491,7 +516,7 @@ impl StandaloneSynth {
         }));
         self.engine.set_performance_enabled(v[152] != 0);
         if v[152] == 0 {
-            for t in 0..4 {
+            for t in 0..TIMBRE_COUNT as u8 {
                 self.engine
                     .set_source_gain(t, self.settings[t as usize][115] as u16);
             }
@@ -506,14 +531,18 @@ impl StandaloneSynth {
             raw[36 + i] = p[146] as u8;
         }
         let kit = DrumKit::from_bytes(&raw).unwrap();
+        let mut program = radias_synth_domain::drum::DrumProgram::from_raw(
+            ((v[141] + 1) << 5) as u8,
+            v[143] as u8,
+            v[144] as u8,
+            v[145] as u8,
+        );
+        if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+            program.timbre = Some(v[141] as u8);
+        }
         CompiledDrumKit {
             kit,
-            program: radias_synth_domain::drum::DrumProgram::from_raw(
-                ((v[141] + 1) as u8) << 5,
-                v[143] as u8,
-                v[144] as u8,
-                v[145] as u8,
-            ),
+            program,
             instruments: core::array::from_fn(|i| DrumInstrumentProgram {
                 controls: controls(&self.drum_settings[i]),
                 graph: self.graph(&self.drum_settings[i]),
@@ -542,7 +571,7 @@ impl StandaloneSynth {
         })
     }
     pub fn control(&mut self, t: u8, id: usize, value: i32) -> bool {
-        if t >= 4 || id >= self.spec.len() {
+        if t as usize >= TIMBRE_COUNT || id >= self.spec.len() {
             return false;
         }
         let p = &self.spec[id];
@@ -575,7 +604,7 @@ impl StandaloneSynth {
                 148..=149 | 152 => {
                     self.performance();
                     if id == 148 {
-                        for t in 0..4 {
+                        for t in 0..TIMBRE_COUNT as u8 {
                             if self.settings[t as usize][72] == 16 {
                                 self.apply_timbre(t, Some(72));
                             }
@@ -609,7 +638,7 @@ impl StandaloneSynth {
         }
         let channel = self.channel(t);
         if matches!(id, 66 | 137..=139 | 150) {
-            for i in 0..4 {
+            for i in 0..TIMBRE_COUNT as u8 {
                 if self.channel(i) == channel {
                     self.settings[i as usize][id] = value;
                 }
@@ -701,7 +730,7 @@ impl StandaloneSynth {
             _ => return,
         };
         if let Some(id) = id {
-            for i in 0..4 {
+            for i in 0..TIMBRE_COUNT as u8 {
                 if self.channel(i) == channel {
                     self.settings[i as usize][id] = value;
                 }
@@ -736,7 +765,27 @@ impl StandaloneSynth {
                 }
             }
         }
-        if p.version != 1 || p.timbres.len() != 4 || p.drums.len() != 16 {
+        if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+            let defaults = default_values();
+            for v in p.timbres.iter_mut().chain(&mut p.drums) {
+                if v.len() == NATIVE_PARAMETER_COUNT {
+                    v.extend_from_slice(&defaults[NATIVE_PARAMETER_COUNT..]);
+                }
+            }
+            if (4..=TIMBRE_COUNT).contains(&p.timbres.len()) {
+                let spec = parameters();
+                while p.timbres.len() < TIMBRE_COUNT {
+                    let mut v = defaults;
+                    v[71] = 0;
+                    v[72] = p.timbres.len() as i32;
+                    for parameter in spec.iter().filter(|p| p.scope == "global") {
+                        v[parameter.id] = p.timbres[0][parameter.id];
+                    }
+                    p.timbres.push(v.to_vec());
+                }
+            }
+        }
+        if p.version != 1 || p.timbres.len() != TIMBRE_COUNT || p.drums.len() != 16 {
             return None;
         }
         let spec = parameters();
@@ -759,15 +808,15 @@ impl StandaloneSynth {
             }
         }
         let mut out = Self::new();
-        for i in 0..4 {
-            out.settings[i].copy_from_slice(&p.timbres[i]);
+        for i in 0..TIMBRE_COUNT as u8 {
+            out.settings[i as usize].copy_from_slice(&p.timbres[i as usize]);
         }
         for i in 0..16 {
             out.drum_settings[i].copy_from_slice(&p.drums[i]);
         }
         out.global_pitch();
         out.performance();
-        for t in 0..4 {
+        for t in 0..TIMBRE_COUNT as u8 {
             out.apply_timbre(t, None);
             let v = out.settings[t as usize];
             out.engine
@@ -790,7 +839,7 @@ impl StandaloneSynth {
         Some(out)
     }
     pub fn note(&mut self, t: u8, n: u8, velocity: u8) -> bool {
-        if t >= 4 || n > 127 || velocity > 127 {
+        if t as usize >= TIMBRE_COUNT || n > 127 || velocity > 127 {
             return false;
         }
         self.engine.apply(Command::Note(t, n, velocity));
@@ -818,6 +867,18 @@ struct ProgramState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn browser_expansion_never_changes_native_capacities() {
+        assert_eq!(TIMBRE_COUNT, 4);
+        assert_eq!(PARAMETER_COUNT, 155);
+        assert_eq!(radias_synth_application::modulation::PATCH_ROUTES, 6);
+        assert_eq!(radias_synth_domain::voice_allocation::VOICE_COUNT, 24);
+        assert_eq!(radias_synth_application::effect_audio::EFFECT_SLOTS, 9);
+        assert_eq!(parameters()[141].max, 3);
+        assert!(radias_synth_domain::pan::VoiceBus::new(4).is_none());
+        assert!(ModulationDestination::new(40).is_none());
+    }
     fn run(f: impl FnOnce() + Send + 'static) {
         std::thread::Builder::new()
             .stack_size(32 * 1024 * 1024)
@@ -840,7 +901,7 @@ mod tests {
     fn drive_and_ws_keep_type_depth_and_position_independently() {
         run(|| {
             let mut s = StandaloneSynth::new();
-            for t in 0..4 {
+            for t in 0..TIMBRE_COUNT as u8 {
                 for kind in 0..11 {
                     assert!(s.control(t, 154, kind));
                     assert!(s.control(t, 31, 70));

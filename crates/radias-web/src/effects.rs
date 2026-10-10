@@ -1,5 +1,5 @@
 //! Browser data port for the same effect rack used by the native player.
-use radias_synth_application::effect_audio::EffectAudioRack;
+use radias_synth_application::effect_audio::{EFFECT_SLOTS, EffectAudioRack, MASTER_EFFECT_SLOT};
 use radias_synth_domain::effect_audio::EffectAudioProgram;
 use radias_synth_infrastructure::effect_audio::{definition, prepare_rack};
 use serde::{Deserialize, Serialize};
@@ -32,9 +32,29 @@ impl From<Program> for EffectAudioProgram {
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(try_from = "InputState")]
 pub struct State {
     pub version: u8,
-    pub slots: [Program; 9],
+    pub slots: [Program; EFFECT_SLOTS],
+}
+#[derive(Deserialize)]
+struct InputState {
+    version: u8,
+    slots: Vec<Program>,
+}
+impl TryFrom<InputState> for State {
+    type Error = &'static str;
+    fn try_from(input: InputState) -> Result<Self, Self::Error> {
+        if input.version != 1 || ![9, EFFECT_SLOTS].contains(&input.slots.len()) {
+            return Err("Invalid effect rack");
+        }
+        let mut state = Self::default();
+        let master = input.slots.len() - 1;
+        for (i, p) in input.slots.into_iter().enumerate() {
+            state.slots[if i == master { MASTER_EFFECT_SLOT } else { i }] = p;
+        }
+        Ok(state)
+    }
 }
 impl Default for State {
     fn default() -> Self {
@@ -43,7 +63,7 @@ impl Default for State {
             slots: core::array::from_fn(|i| Program {
                 kind: 0,
                 enabled: false,
-                master: i == 8,
+                master: i == MASTER_EFFECT_SLOT,
                 parameters: [0; 20],
             }),
         }
@@ -102,5 +122,5 @@ pub fn catalog() -> serde_json::Value {
         serde_json::json!({"kind":kind,"name":d.name,"defaults":d.properties.map(|p|p.default),"properties":d.properties.iter().take(usize::from(d.count)).map(|p|serde_json::json!({"name":p.name,"min":p.minimum,"max":p.maximum,"zero":p.zero,"default":p.default})).collect::<Vec<_>>()})
     }).collect::<Vec<_>>()
     };
-    serde_json::json!({"version":1,"insert":bank(false),"master":bank(true)})
+    serde_json::json!({"version":1,"insert":bank(false),"master":bank(true),"display":radias_synth_infrastructure::effect_audio::display_tables()})
 }

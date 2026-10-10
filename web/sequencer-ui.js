@@ -1,10 +1,11 @@
+import {MAX_TIMBRES,INITIAL_TIMBRES,timbreArray} from './limits.js';
 import {emptySequence,validateSequence,STEPS,VIEW_STEPS,RESOLUTIONS,MAX_EVENTS,stepEvents} from './sequence.js';
 import {copySteps,pasteSteps} from './sequence-edit.js';
 import {makePicker,isChoosing} from './panel.js';
 import {noteName,sequenceLabels} from './sequence-labels.js';
 const $=selector=>document.querySelector(selector);
 export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,onSelectDrum,onAudition,onSample,onEditSample,onCopySamples,onUploadSample,onError}){
-  let sequence=emptySequence(),playing=false,editing,octave=4,drumKit=null,drumKey='null',sampleOptions=[],positions=[-1,-1,-1,-1],selection,cursor,clipboard,selecting=false,drag,suppressClick=false,undo,notice='',epoch=0;
+  let sequence=emptySequence(),playing=false,editing,octave=4,drumKit=null,drumKey='null',sampleOptions=[],positions=timbreArray(-1),timbreCount=INITIAL_TIMBRES,selection,cursor,clipboard,selecting=false,drag,suppressClick=false,undo,notice='',epoch=0;
   const tracks=[],dialog=$('#step-editor'),notes=$('#step-notes'),velocity=$('#step-velocity'),gate=$('#step-gate');
   const kitFor=timbre=>drumKit?.timbre===timbre?drumKit:null;
   const sampleName=source=>sampleOptions.find(o=>o.value===source)?.label??source;
@@ -14,7 +15,7 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
   function label(step,timbre){const names=labels(step,timbre),limit=kitFor(timbre)||step.samples.length?1:2;return names.length?`${names.slice(0,limit).join(' ')}${names.length>limit?` +${names.length-limit}`:''}`:'—';}
   function render(){
     tracks.forEach((view,t)=>{
-      const track=sequence.tracks[t];view.enable.setAttribute('aria-pressed',track.enabled);view.row.classList.toggle('muted',!track.enabled);view.length.render(track.length);view.resolution.render(track.resolution);view.row.classList.toggle('drum-track',!!kitFor(t));view.block.render(view.bank);
+      const track=sequence.tracks[t];view.row.hidden=t>=timbreCount;view.enable.setAttribute('aria-pressed',track.enabled);view.row.classList.toggle('muted',!track.enabled);view.length.render(track.length);view.resolution.render(track.resolution);view.row.classList.toggle('drum-track',!!kitFor(t));view.block.render(view.bank);
       view.steps.forEach((button,local)=>{const index=view.bank*VIEW_STEPS+local,step=track.steps[index],active=editing?.timbre===t&&editing.step===index,inRange=selection?.timbre===t&&index>=Math.min(selection.start,selection.end)&&index<=Math.max(selection.start,selection.end);
         button.dataset.step=index;button.setAttribute('aria-label',`Timbre ${t+1} step ${index+1}`);button.setAttribute('aria-current',active?'step':'false');button.setAttribute('aria-pressed',!!inRange);button.querySelector('.step-index').textContent=String(index+1).padStart(2,'0');button.classList.toggle('filled',stepEvents(step).length>0);button.classList.toggle('editing',active);button.classList.toggle('selected',!!inRange);button.classList.toggle('outside-loop',index>=track.length);button.classList.toggle('sample-step',step.samples.length>0);button.classList.toggle('current',positions[t]===index);button.querySelector('.step-notes').textContent=label(step,t);button.title=`Timbre ${t+1} · Step ${index+1}: ${labels(step,t).join(', ')||'empty'}`;
       });
@@ -55,7 +56,7 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
   function selectRange(timbre,start,end=start){selection={timbre,start,end};cursor={timbre,step:Math.min(start,end)};notice='';render();}
   function copy(){const range=selection??(editing?{timbre:editing.timbre,start:editing.step,end:editing.step}:null);if(!range)return;clipboard=copySteps(sequence,range.timbre,range.start,range.end,kitFor(range.timbre));notice=`${clipboard.steps.length} copied`;selection=null;cursor=null;drag=null;render();}
   function paste(){const target=destination();if(!target||!clipboard)return;undo=structuredClone(sequence);const result=pasteSteps(sequence,clipboard,target.timbre,target.step);onCopySamples(clipboard.timbre,target.timbre,result.sequence.tracks[target.timbre].steps.slice(target.step,target.step+result.count).flatMap(s=>s.samples));sequence=result.sequence;selection={timbre:target.timbre,start:target.step,end:target.step+result.count-1};notice=`${result.count} pasted${result.truncated?' · end of pattern':''}`;selecting=false;commit();renderEditor();}
-  for(let timbre=0;timbre<4;timbre++){
+  for(let timbre=0;timbre<MAX_TIMBRES;timbre++){
     const row=document.createElement('div'),head=document.createElement('div'),select=document.createElement('button'),enable=document.createElement('button'),grid=document.createElement('div');row.className='sequence-track';head.className='track-head';grid.className='track-steps';
     select.type='button';select.textContent=`T${timbre+1}`;select.className='track-select';select.setAttribute('aria-label',`Edit timbre ${timbre+1}`);select.addEventListener('click',()=>onSelectTimbre(timbre));
     enable.type='button';enable.className='track-enable';enable.setAttribute('aria-label',`Sequencer timbre ${timbre+1} enabled`);enable.innerHTML='<span class="switch-led"></span>';enable.addEventListener('click',()=>{sequence.tracks[timbre].enabled=!sequence.tracks[timbre].enabled;commit();});
@@ -105,6 +106,7 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
     setSamples:options=>{sampleOptions=options;sourcePicker.options=options;render();if(editing)renderEditor();},
     setDrumKit:kit=>{const key=JSON.stringify(kit);if(key===drumKey)return;drumKey=key;drumKit=kit;render();if(editing)renderEditor();},
     setStatus:status=>{playing=status.running;positions=[...status.positions];tracks.forEach((view,t)=>view.steps.forEach((button,local)=>button.classList.toggle('current',status.positions[t]===view.bank*VIEW_STEPS+local)));$('#seq-play').textContent=playing?'Stop':'Play';$('#seq-play').setAttribute('aria-pressed',playing);},
+    setTimbreCount:count=>{timbreCount=count;render();},
     setReady:ready=>{$('#seq-play').disabled=!ready;}
   };
 }

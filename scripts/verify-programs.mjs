@@ -59,7 +59,7 @@ export function verifyPrograms(parameters,module){
   assert.deepEqual(kit.engine.drums,kitProgram.engine.drums);assert.deepEqual(kit.samples.slots,kitProgram.samples.slots);assert.equal(kit.samples.kitGain,20);
   assert.ok(kit.engine.timbres.every(v=>v[140]===1&&v[141]===1&&v[143]===90));assert.deepEqual(kit.sequencer,program.sequencer,'Moving a drum timbre restores its kit without replacing patterns');
   const old=normalizeProgram(engine,parameters);assert.deepEqual(old.sequencer,emptySequence());assert.deepEqual(old.samples,emptySamples());assert.deepEqual(old.circuits,emptyCircuits(engine.timbres));
-  const legacy=structuredClone(engine);for(const v of [...legacy.timbres,...legacy.drums])v.length=153;assert.equal(normalizeProgram(legacy,parameters).engine.timbres[0].length,155,'Old native programs still migrate');
+  const legacy=structuredClone(engine);for(const v of [...legacy.timbres,...legacy.drums])v.length=153;assert.equal(normalizeProgram(legacy,parameters).engine.timbres[0].length,parameters.length,'Old native programs still migrate');
   const invalid=structuredClone(sound);invalid.values[1]=999;assert.throws(()=>applyTimbre(program,0,invalid,parameters));assert.deepEqual(program,snapshotBefore,'Invalid imports leave the current program untouched');
   const programBytes=disk.getItem('rustias.patches.v2'),soundBytes=disk.getItem('rustias.timbres.v1'),failing=new TimbreStore({...disk,setItem(){throw new Error('Quota exceeded');}});
   assert.throws(()=>failing.save('Too large',sound));assert.equal(disk.getItem('rustias.timbres.v1'),soundBytes);assert.equal(disk.getItem('rustias.patches.v2'),programBytes,'A timbre quota failure cannot destroy programs or previous sounds');

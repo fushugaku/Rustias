@@ -11,12 +11,14 @@ use radias_synth_domain::{
     pan::StereoFrame,
 };
 
-pub const EFFECT_SLOTS: usize = 9;
+use crate::polyphony::TIMBRE_COUNT;
+pub const MASTER_EFFECT_SLOT: usize = 2 * TIMBRE_COUNT;
+pub const EFFECT_SLOTS: usize = MASTER_EFFECT_SLOT + 1;
 pub struct EffectAudioRack {
     instances: [EffectAudioProcessor; EFFECT_SLOTS],
     memory: [Box<[f32]>; EFFECT_SLOTS],
-    contexts: [EffectAudioContext; 5],
-    held: [[u8; 128]; 4],
+    contexts: [EffectAudioContext; TIMBRE_COUNT + 1],
+    held: [[u8; 128]; TIMBRE_COUNT],
 }
 impl EffectAudioRack {
     /// All delay allocation occurs on the caller's control thread.
@@ -24,8 +26,8 @@ impl EffectAudioRack {
         Self {
             instances: settings.map(EffectAudioProcessor::new),
             memory: core::array::from_fn(|_| vec![0.0; DELAY_WORDS].into_boxed_slice()),
-            contexts: [Default::default(); 5],
-            held: [[0; 128]; 4],
+            contexts: [Default::default(); TIMBRE_COUNT + 1],
+            held: [[0; 128]; TIMBRE_COUNT],
         }
     }
     pub fn programs(&self) -> [EffectAudioProgram; EFFECT_SLOTS] {
@@ -60,7 +62,7 @@ impl EffectAudioRack {
         }
     }
     pub fn set_controller(&mut self, timbre: usize, source: usize, value: f32) {
-        if timbre < 5 && source < 13 {
+        if timbre <= TIMBRE_COUNT && source < 13 {
             self.contexts[timbre].controllers[source] = if value.is_finite() {
                 value.clamp(-1.0, 1.0)
             } else {
@@ -69,7 +71,7 @@ impl EffectAudioRack {
         }
     }
     pub fn note_on(&mut self, timbre: usize, note: u8, velocity: u8) {
-        if timbre >= 4 || note >= 128 {
+        if timbre >= TIMBRE_COUNT || note >= 128 {
             return;
         }
         let first = self.held[timbre].iter().all(|&n| n == 0);
@@ -77,33 +79,33 @@ impl EffectAudioRack {
         self.held[timbre][usize::from(note)] =
             self.held[timbre][usize::from(note)].saturating_add(1);
         self.contexts[timbre].note = note;
-        self.contexts[4].note = note;
+        self.contexts[TIMBRE_COUNT].note = note;
         self.set_controller(timbre, 1, f32::from(velocity) / 127.0);
-        self.set_controller(4, 1, f32::from(velocity) / 127.0);
+        self.set_controller(TIMBRE_COUNT, 1, f32::from(velocity) / 127.0);
         if first {
             self.instances[2 * timbre].note_on();
             self.instances[2 * timbre + 1].note_on();
         }
         if first_master {
-            self.instances[8].note_on();
+            self.instances[MASTER_EFFECT_SLOT].note_on();
         }
     }
     pub fn note_off(&mut self, timbre: usize, note: u8) {
-        if timbre < 4 && note < 128 {
+        if timbre < TIMBRE_COUNT && note < 128 {
             self.held[timbre][usize::from(note)] =
                 self.held[timbre][usize::from(note)].saturating_sub(1);
         }
     }
     pub fn release_notes(&mut self, timbre: Option<usize>) {
         if let Some(timbre) = timbre {
-            if timbre < 4 {
+            if timbre < TIMBRE_COUNT {
                 self.held[timbre].fill(0);
             }
         } else {
-            self.held = [[0; 128]; 4];
+            self.held = [[0; 128]; TIMBRE_COUNT];
         }
     }
-    pub fn process(&mut self, buses: [StereoFrame; 4]) -> StereoFrame {
+    pub fn process(&mut self, buses: [StereoFrame; TIMBRE_COUNT]) -> StereoFrame {
         let mut left = 0i64;
         let mut right = 0i64;
         for (timbre, input) in buses.into_iter().enumerate() {
@@ -126,8 +128,12 @@ impl EffectAudioRack {
             left: Sample(crate_saturate(left)),
             right: Sample(crate_saturate(right)),
         };
-        self.instances[8]
-            .process(sample, &mut self.memory[8], &self.contexts[4])
+        self.instances[MASTER_EFFECT_SLOT]
+            .process(
+                sample,
+                &mut self.memory[MASTER_EFFECT_SLOT],
+                &self.contexts[TIMBRE_COUNT],
+            )
             .expect("Constructed Master effect storage and type")
     }
     pub fn delay_storage_bytes(&self) -> usize {

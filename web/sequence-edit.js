@@ -1,14 +1,15 @@
+import {MAX_TIMBRES} from './limits.js';
 import {validSampleSource} from './sample-state.js';
 import {validateSequence,STEPS} from './sequence.js';
 export function copySteps(sequence,timbre,start,end=start,kit){
   const checked=validateSequence(sequence);
-  if(!Number.isInteger(timbre)||timbre<0||timbre>3||![start,end].every(n=>Number.isInteger(n)&&n>=0&&n<STEPS))throw new Error('Invalid step selection.');
+  if(!Number.isInteger(timbre)||timbre<0||timbre>=MAX_TIMBRES||![start,end].every(n=>Number.isInteger(n)&&n>=0&&n<STEPS))throw new Error('Invalid step selection.');
   const first=Math.min(start,end),last=Math.max(start,end);
   return {version:1,timbre,start:first,steps:structuredClone(checked.tracks[timbre].steps.slice(first,last+1)),...(kit?{drums:structuredClone(kit.instruments)}:{})};
 }
 export function pasteSteps(sequence,clipboard,timbre,start){
   const next=validateSequence(sequence);
-  if(clipboard?.version!==1||!Number.isInteger(clipboard.timbre)||clipboard.timbre<0||clipboard.timbre>3||!Array.isArray(clipboard.steps)||!clipboard.steps.length||clipboard.steps.length>STEPS||!Number.isInteger(timbre)||timbre<0||timbre>3||!Number.isInteger(start)||start<0||start>=STEPS)throw new Error('Invalid step clipboard.');
+  if(clipboard?.version!==1||!Number.isInteger(clipboard.timbre)||clipboard.timbre<0||clipboard.timbre>=MAX_TIMBRES||!Array.isArray(clipboard.steps)||!clipboard.steps.length||clipboard.steps.length>STEPS||!Number.isInteger(timbre)||timbre<0||timbre>=MAX_TIMBRES||!Number.isInteger(start)||start<0||start>=STEPS)throw new Error('Invalid step clipboard.');
   if(clipboard.drums&&(!Array.isArray(clipboard.drums)||clipboard.drums.length>16||clipboard.drums.some(d=>!Number.isInteger(d?.note)||d.note< -64||d.note>190||d.source!=null&&d.source!=='synth'&&!validSampleSource(d.source))))throw new Error('Invalid kit clipboard.');
   const count=Math.min(clipboard.steps.length,STEPS-start),track=next.tracks[timbre];
   clipboard.steps.slice(0,count).forEach((step,i)=>{

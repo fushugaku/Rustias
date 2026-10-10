@@ -1,3 +1,4 @@
+import {MAX_TIMBRES,INITIAL_TIMBRES} from './limits.js';
 // The modular schema is browser-only. Native controls still feed the shared Rust kernels.
 export const MODULES={
   osc1:{name:'OSC 1',panel:'osc1',out:'audio'},osc2:{name:'OSC 2',panel:'osc2',out:'audio'},noise:{name:'NOISE',out:'audio'},
@@ -30,9 +31,9 @@ export function defaultCircuit(v=[]){
   const wires=[{from:0,to:3,port:'a'},{from:1,to:3,port:'b'},{from:2,to:3,port:'c'}];
   const chain=(v[30]??0)===0?[3,6,4,5,7,15]:[3,4,5,6,7,15];
   for(let i=1;i<chain.length;i++)wires.push({from:chain[i-1],to:chain[i],port:'in'});
-  return {enabled:false,nodes,wires,panels:Object.fromEntries(['patch1','patch2','patch3','patch4','patch5','patch6','voice','midi','scale','drums'].map((key,i)=>[key,{x:24+i%6*350,y:i<6?1310:1760}]))};
+  return {enabled:false,nodes,wires,panels:Object.fromEntries(['patch1','patch2','patch3','patch4','patch5','patch6','patch7','patch8','voice','midi','scale','drums'].map((key,i)=>[key,{x:24+i%8*350,y:i<8?1310:1760}]))};
 }
-export const emptyCircuits=values=>({version:1,tracks:Array.from({length:4},(_,i)=>defaultCircuit(values?.[i]))});
+export const emptyCircuits=values=>({version:1,tracks:Array.from({length:MAX_TIMBRES},(_,i)=>defaultCircuit(values?.[i]))});
 export function validateCircuit(raw){
   const c=structuredClone(raw);
   if(!c||typeof c.enabled!=='boolean'||!Array.isArray(c.nodes)||!c.nodes.length||c.nodes.length>64||!Array.isArray(c.wires)||c.wires.length>256)throw new Error('Invalid modular patch.');
@@ -46,9 +47,12 @@ export function validateCircuit(raw){
   for(const w of c.wires){const a=ids.get(w.from),b=ids.get(w.to),type=b&&MODULES[b.kind].inputs?.[w.port],key=`${w.to}:${w.port}`;
     if(!a||!b||!type||outputPorts(a.kind)[w.output??'out']!==type||inputs.has(key))throw new Error('Connect audio to audio and CV to CV; use a Mixer to combine signals.');inputs.add(key);}
   const done=new Set();while(done.size<c.nodes.length){const before=done.size;for(const n of c.nodes)if(!done.has(n.id)&&c.wires.filter(w=>w.to===n.id).every(w=>done.has(w.from)))done.add(n.id);if(done.size===before)throw new Error('This cable would create a feedback loop.');}
-  c.panels??={};for(const [key,pos]of Object.entries(c.panels))if(!/^[a-z][a-z0-9]*$/.test(key)||!['x','y'].every(a=>Number.isFinite(pos[a])&&pos[a]>=0&&pos[a]<=10000))throw new Error('Invalid panel position.');return c;
+  c.panels??={};for(const [key,pos]of Object.entries(c.panels))if(!/^[a-z][a-z0-9]*$/.test(key)||!['x','y'].every(a=>Number.isFinite(pos[a])&&pos[a]>=0&&pos[a]<=10000))throw new Error('Invalid panel position.');
+  const missing=['patch7','patch8'].filter(key=>!c.panels[key]);
+  if(missing.length){const y=Math.min(9600,Math.max(1310,...c.nodes.map(n=>n.y),...Object.values(c.panels).map(p=>p.y))+400);missing.forEach((key,i)=>c.panels[key]={x:24+350*i,y});}
+  return c;
 }
-export function validateCircuits(raw,values){if(raw==null)return emptyCircuits(values);if(raw.version!==1||raw.tracks?.length!==4)throw new Error('Invalid modular patch.');return {version:1,tracks:raw.tracks.map(validateCircuit)};}
+export function validateCircuits(raw,values){if(raw==null)return emptyCircuits(values);if(raw.version!==1||!Array.isArray(raw.tracks)||raw.tracks.length<INITIAL_TIMBRES||raw.tracks.length>MAX_TIMBRES)throw new Error('Invalid modular patch.');const tracks=raw.tracks.map(validateCircuit);while(tracks.length<MAX_TIMBRES)tracks.push(defaultCircuit(values?.[tracks.length]));return {version:1,tracks};}
 export function connect(circuit,from,to,port,output='out'){const copy=structuredClone(circuit);copy.wires=copy.wires.filter(w=>w.to!==to||w.port!==port);copy.wires.push({from,to,port,...(output==='out'?{}:{output})});copy.enabled=true;return validateCircuit(copy);}
 // Move the Drive in a serial audio path without changing any module position.
 // Branched/custom paths remain explicit: their cables are never discarded.

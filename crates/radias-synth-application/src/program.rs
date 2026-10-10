@@ -96,7 +96,7 @@ impl TimbreControls {
             };
             modulation.tempo_divisions[i] = p[b + 4];
         }
-        for (i, route) in modulation.routes.iter_mut().enumerate() {
+        for (i, route) in modulation.routes.iter_mut().take(6).enumerate() {
             let b = 0x56 + i * 3;
             *route = PatchRoute {
                 source: p[b],

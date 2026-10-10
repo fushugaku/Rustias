@@ -7,7 +7,7 @@ edition.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-radias-synth-infrastructure = { path = "../radias-synth-infrastructure", features = ["web-modular"] }
+radias-synth-infrastructure = { path = "../radias-synth-infrastructure", features = ["web-modular", "web-expanded"] }
 radias-synth-application = { path = "../radias-synth-application" }
 radias-synth-domain = { path = "../radias-synth-domain", features = ["web-polyphony"] }
 serde_json = "=1.0.151"

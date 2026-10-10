@@ -4,6 +4,12 @@ use radias_synth_domain::modulation::{
     VirtualPatch,
 };
 
+pub const PATCH_ROUTES: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+    8
+} else {
+    6
+};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PatchRoute {
     pub source: u8,
@@ -11,8 +17,8 @@ pub struct PatchRoute {
     pub intensity: u8,
 }
 pub struct VirtualPatchController {
-    pub routes: [PatchRoute; 6],
-    pub manual_offsets: [i8; 6],
+    pub routes: [PatchRoute; PATCH_ROUTES],
+    pub manual_offsets: [i8; PATCH_ROUTES],
     pub targets: AppliedModulationTargets,
 }
 
@@ -22,8 +28,8 @@ pub struct VirtualPatchController {
 pub struct ModulationProgram {
     pub lfo: [crate::lfo::LfoParameters; 2],
     pub tempo_divisions: [u8; 2],
-    pub routes: [PatchRoute; 6],
-    pub manual_offsets: [i8; 6],
+    pub routes: [PatchRoute; PATCH_ROUTES],
+    pub manual_offsets: [i8; PATCH_ROUTES],
     pub vibrato_depth: i32,
 }
 impl Default for ModulationProgram {
@@ -35,8 +41,8 @@ impl Default for ModulationProgram {
                 source: 3,
                 destination: ModulationDestination::new(0).unwrap(),
                 intensity: 64,
-            }; 6],
-            manual_offsets: [0; 6],
+            }; PATCH_ROUTES],
+            manual_offsets: [0; PATCH_ROUTES],
             vibrato_depth: 0,
         }
     }
@@ -196,7 +202,7 @@ impl VirtualPatchController {
         tables: &ModulationTables,
         sources: &[i32; 16],
     ) -> AppliedModulationTargets {
-        let patches = core::array::from_fn(|i| {
+        let patches: [VirtualPatch; PATCH_ROUTES] = core::array::from_fn(|i| {
             let p = self.routes[i];
             let selector = p.source & 15;
             VirtualPatch {
@@ -210,7 +216,7 @@ impl VirtualPatchController {
                 dynamic_offset: self.targets.controls[32 + i],
             }
         });
-        self.targets = tables.route(&patches).applied();
+        self.targets = tables.route_all(&patches).applied();
         self.targets
     }
 }

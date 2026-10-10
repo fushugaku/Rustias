@@ -1,3 +1,4 @@
+import {MAX_TIMBRES,INITIAL_TIMBRES,timbreArray} from './limits.js';
 import {validSampleSource} from "./sample-state.js";
 // Browser-only polyphonic clock. It dispatches notes to the native Wasm engine.
 export const STEPS = 128;
@@ -11,10 +12,10 @@ export function stepFrames(bpm,resolution="1/16"){
   const [numerator,denominator]=resolution.split("/").map(Number);return 48000*60/Math.max(10,Math.min(300,bpm))*4*numerator/denominator;
 }
 export function emptySequence() {
-  return {version:1,tracks:Array.from({length:4},()=>({enabled:true,length:16,resolution:"1/16",steps:Array.from({length:STEPS},()=>({notes:[],samples:[],velocity:100,gate:75}))}))};
+  return {version:1,tracks:Array.from({length:MAX_TIMBRES},(_,i)=>({enabled:i<INITIAL_TIMBRES,length:16,resolution:"1/16",steps:Array.from({length:STEPS},()=>({notes:[],samples:[],velocity:100,gate:75}))}))};
 }
 export function validateSequence(value) {
-  if(value?.version!==1||!Array.isArray(value.tracks)||value.tracks.length!==4)throw new Error("Invalid sequencer tracks.");
+  if(value?.version!==1||!Array.isArray(value.tracks)||value.tracks.length<INITIAL_TIMBRES||value.tracks.length>MAX_TIMBRES)throw new Error("Invalid sequencer tracks.");
   const tracks=value.tracks.map(track=>{
     if(typeof track.enabled!=="boolean"||!Number.isInteger(track.length)||track.length<1||track.length>STEPS||!Array.isArray(track.steps)||![16,STEPS].includes(track.steps.length))throw new Error("Invalid sequencer track.");
     const resolution=track.resolution??"1/16";if(!RESOLUTIONS.includes(resolution))throw new Error("Invalid sequencer resolution.");
@@ -26,27 +27,28 @@ export function validateSequence(value) {
     while(steps.length<STEPS)steps.push({notes:[],samples:[],velocity:100,gate:75});
     return {enabled:track.enabled,length:track.length,resolution,steps};
   });
+  while(tracks.length<MAX_TIMBRES)tracks.push(emptySequence().tracks[tracks.length]);
   return {version:1,tracks};
 }
 export class SequenceClock {
-  constructor(emit){this.emit=emit;this.config=emptySequence();this.frame=0;this.nextSteps=[0,0,0,0];this.ticks=[0,0,0,0];this.positions=[-1,-1,-1,-1];this.running=false;this.tempo=120;this.releases=[];}
+  constructor(emit){this.emit=emit;this.config=emptySequence();this.frame=0;this.nextSteps=timbreArray();this.ticks=timbreArray();this.positions=timbreArray(-1);this.running=false;this.tempo=120;this.releases=[];}
   periodFor(t){return stepFrames(this.tempo,this.config.tracks[t].resolution);}
   rescale(t,ratio){this.nextSteps[t]=this.frame+Math.max(0,this.nextSteps[t]-this.frame)*ratio;for(const release of this.releases)if(release.timbre===t)release.frame=this.frame+Math.max(0,release.frame-this.frame)*ratio;}
-  setTempo(bpm){const before=this.tempo;this.tempo=Math.max(10,Math.min(300,bpm));if(this.running)for(let t=0;t<4;t++)this.rescale(t,before/this.tempo);}
-  setConfig(config){const next=validateSequence(config);for(let t=0;t<4;t++){
+  setTempo(bpm){const before=this.tempo;this.tempo=Math.max(10,Math.min(300,bpm));if(this.running)for(let t=0;t<MAX_TIMBRES;t++)this.rescale(t,before/this.tempo);}
+  setConfig(config){const next=validateSequence(config);for(let t=0;t<MAX_TIMBRES;t++){
     if(!next.tracks[t].enabled)this.releaseTrack(t);
     if(this.running)this.rescale(t,stepFrames(this.tempo,next.tracks[t].resolution)/this.periodFor(t));
   }this.config=next;}
   releaseTrack(timbre){const keep=[];for(const release of this.releases){if(release.timbre===timbre)this.emit(release.timbre,release.note,0);else keep.push(release);}this.releases=keep;}
-  stop(){for(const release of this.releases)this.emit(release.timbre,release.note,0);this.releases=[];this.running=false;this.positions=[-1,-1,-1,-1];}
-  play(){this.stop();this.ticks=[0,0,0,0];this.nextSteps=[this.frame,this.frame,this.frame,this.frame];this.running=true;}
-  reset(){const running=this.running;this.stop();this.ticks=[0,0,0,0];this.nextSteps=[this.frame,this.frame,this.frame,this.frame];this.running=running;}
+  stop(){for(const release of this.releases)this.emit(release.timbre,release.note,0);this.releases=[];this.running=false;this.positions=timbreArray(-1);}
+  play(){this.stop();this.ticks=timbreArray();this.nextSteps=timbreArray(this.frame);this.running=true;}
+  reset(){const running=this.running;this.stop();this.ticks=timbreArray();this.nextSteps=timbreArray(this.frame);this.running=running;}
   // Native 128-frame boundaries: each lane retains its own fractional timing,
   // while Play starts all four at exactly the same boundary.
   beforeRender(frames=128){
     if(this.running){
       const due=this.releases.filter(r=>r.frame<=this.frame);this.releases=this.releases.filter(r=>r.frame>this.frame);for(const r of due)this.emit(r.timbre,r.note,0);
-      for(let timbre=0;timbre<4;timbre++){
+      for(let timbre=0;timbre<MAX_TIMBRES;timbre++){
         const track=this.config.tracks[timbre],period=this.periodFor(timbre);
         while(this.nextSteps[timbre]<=this.frame){
           this.positions[timbre]=this.ticks[timbre]%track.length;const step=track.steps[this.positions[timbre]];
@@ -64,7 +66,7 @@ export class SequenceClock {
 export class StepAudition {
   constructor(emit){this.emit=emit;this.frame=0;this.notes=[];this.releaseAt=0;}
   play(timbre,step,bpm,resolution="1/16"){
-    if(!Number.isInteger(timbre)||timbre<0||timbre>3)throw new Error("Invalid audition timbre.");
+    if(!Number.isInteger(timbre)||timbre<0||timbre>=MAX_TIMBRES)throw new Error("Invalid audition timbre.");
     const checked=emptySequence();checked.tracks[0].steps[0]=step;const chord=validateSequence(checked).tracks[0].steps[0];
     this.stop();this.notes=stepEvents(chord).map(note=>({timbre,note}));
     for(const voice of this.notes)this.emit(voice.timbre,voice.note,chord.velocity);

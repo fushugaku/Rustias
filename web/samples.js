@@ -35,7 +35,7 @@ export function createDrumSamples({getInstrument,isDrum,onAssign,onKit,onChange,
     if(editing){const profile=findProfile(editing.timbre,editing.source);profile.mode=mode;sendProfile(profile);}
     else{const instrument=getInstrument();config.slots[instrument].mode=mode;connection?.node.port.postMessage({type:"sample-mode",instrument,mode});}playback.render(mode);onChange();
   }});
-  const gain=makeDial({label:'Drum Kit gain',min:-24,max:24,defaultValue:12,read:()=>config.kitGain,onChange:value=>{config.kitGain=value;gain.render();connection?.node.port.postMessage({type:'drum-gain',value});onChange();},format:value=>`${value>0?'+':''}${value} dB`});
+  const gain=makeDial({label:'Drum Kit gain',min:-24,max:24,defaultValue:12,read:()=>config.kitGain,onChange:value=>{config.kitGain=value;gain.render();connection?.node.port.postMessage({type:'drum-gain',value});onChange({kind:'kit-gain'});},macroTarget:()=>({kind:'kit-gain'}),format:value=>`${value>0?'+':''}${value} dB`});
   $('.sample-gain').append(gain.button,gain.number);
   $("#sample-source").append(picker.button);$("#sample-mode").append(playback.button);
   function rebuildOptions(){
@@ -139,7 +139,7 @@ export function createDrumSamples({getInstrument,isDrum,onAssign,onKit,onChange,
   async function ensureLibrary(timbre,source){await ready;const existed=!!findProfile(timbre,source),profile=makeProfile(timbre,source);if(!existed)onChange();await ensureAudio();if(findProfile(timbre,source)===profile)await loadProfile(profile);return profile;}
   function resetLibrary(){generation++;assets.clear();profiles.clear();assetTasks.clear();profileTasks.clear();connection?.node.port.postMessage({type:'library-reset'});}
   render();
-  return {ready,render,validateConfig:value=>validateSamples(value,parameters),getConfig:()=>structuredClone(config),assigned:i=>config.slots[i].source!=="synth",
+  return {ready,render,setGain:value=>{config.kitGain=value;gain.render();connection?.node.port.postMessage({type:'drum-gain',value});},validateConfig:value=>validateSamples(value,parameters),getConfig:()=>structuredClone(config),assigned:i=>config.slots[i].source!=="synth",
     editProfile:(timbre,source)=>makeProfile(timbre,source),options:()=>picker.options.filter(o=>o.value!=='synth'),sampleName,findProfile,ensureLibrary,
     controlLibrary(timbre,source,parameter,value){const profile=findProfile(timbre,source);if(!profile)return;profile.values[parameter]=value;const loaded=profiles.get(keyFor(timbre,source));if(loaded)connection?.node.port.postMessage({type:'library-control',id:loaded.id,parameter,value});},
     copyProfiles(from,to,sources){if(from===to)return;for(const source of new Set(sources)){const original=findProfile(from,source)??makeProfile(from,source);if(!findProfile(to,source)){makeProfile(to,source,original);}}onChange();},

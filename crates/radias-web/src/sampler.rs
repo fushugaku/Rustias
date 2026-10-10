@@ -1,4 +1,5 @@
-//! Browser-only PCM source; all processing uses the native Rust DSP kernels.
+use radias_synth_application::polyphony::TIMBRE_COUNT;
+// Browser-only PCM source; all processing uses the native Rust DSP kernels.
 use radias_synth_application::{
     amplifier::{AmplifierController, AmplifierProgram, ControllerTables},
     clock::InstrumentClock,
@@ -80,7 +81,7 @@ struct LibrarySample {
 }
 
 pub struct Sampler {
-    circuits: [Option<Box<dyn radias_synth_application::VoiceCircuit>>; 4],
+    circuits: [Option<Box<dyn radias_synth_application::VoiceCircuit>>; TIMBRE_COUNT],
     samples: [Option<Rc<Vec<f32>>>; 16],
     modes: [u8; 16],
     pending: Vec<f32>,
@@ -311,7 +312,7 @@ impl Sampler {
         mode: u8,
     ) -> bool {
         if id == 0
-            || timbre >= 4
+            || timbre as usize >= TIMBRE_COUNT
             || mode > 2
             || (self.library.len() >= 1024 && !self.library.contains_key(&id))
         {
@@ -793,15 +794,19 @@ impl Sampler {
     pub fn sample(&mut self, synth: &StandaloneSynth) -> StereoFrame {
         self.next_buses(synth, false)[0]
     }
-    pub fn sample_buses(&mut self, synth: &StandaloneSynth) -> [StereoFrame; 4] {
+    pub fn sample_buses(&mut self, synth: &StandaloneSynth) -> [StereoFrame; TIMBRE_COUNT] {
         self.next_buses(synth, true)
     }
-    fn next_buses(&mut self, synth: &StandaloneSynth, separate: bool) -> [StereoFrame; 4] {
+    fn next_buses(
+        &mut self,
+        synth: &StandaloneSynth,
+        separate: bool,
+    ) -> [StereoFrame; TIMBRE_COUNT] {
         self.clock.next_audio_frame();
         if self.frames.is_multiple_of(24) {
             self.clock.controller_service();
         }
-        let mut buses = [StereoFrame::default(); 4];
+        let mut buses = [StereoFrame::default(); TIMBRE_COUNT];
         for slot in 0..VOICES {
             if self.frames.is_multiple_of(96) {
                 if let Some(v) = &mut self.voices[slot] {

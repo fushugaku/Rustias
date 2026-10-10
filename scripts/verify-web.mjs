@@ -1,3 +1,6 @@
+import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray} from '../web/limits.js';
+import {webParameters} from '../web/parameters.js';
+import {verifyExpanded} from './verify-expanded.mjs';
 import fs from "node:fs";
 import vm from "node:vm";
 import assert from "node:assert/strict";
@@ -22,7 +25,7 @@ assert.deepEqual(WebAssembly.Module.imports(module), [], "Standalone Wasm must h
 const api = new WebAssembly.Instance(module, {}).exports;
 const effectCatalog=readEffectCatalog(api);
 api.rustias_init();
-assert.equal(api.rustias_note(4, 69, 100), 0);
+assert.equal(api.rustias_note(MAX_TIMBRES, 69, 100), 0);
 assert.equal(api.rustias_control(0, 0, 6), 0);
 assert.equal(api.rustias_note(0, 69, 100), 1);
 let peak = 0;
@@ -35,7 +38,7 @@ api.rustias_note(0, 69, 0);
 for (let block = 0; block < 400; block++) api.rustias_render();
 assert.equal(api.rustias_voices(), 0, "Released notes must retire");
 
-const schema = JSON.parse(fs.readFileSync(new URL("../crates/radias-synth-infrastructure/src/parameters.json", import.meta.url)));
+const schema = webParameters(JSON.parse(fs.readFileSync(new URL("../crates/radias-synth-infrastructure/src/parameters.json", import.meta.url))));
 assert.equal(api.rustias_parameter_count(), schema.length);
 for (const p of schema) {
   assert.equal(api.rustias_control(0, p.id, p.default), 1, `${p.group} ${p.label}`);
@@ -55,6 +58,7 @@ function load(program) {
   return api.rustias_load(data.length);
 }
 const features=[];
+features.push(...verifyExpanded({api,parameters:schema,catalog:effectCatalog,control,render,rms,save,load}));
 features.push(verifyCircuitDrag());
 features.push(...verifyRdl(module).features);
 for(let mode=0;mode<4;mode++)for(let wave=0;wave<(mode===0?6:4);wave++) {
@@ -246,7 +250,7 @@ assert.equal(events.length,12);assert.ok(events.every(e=>e.time===0&&e.v>0),"All
 while(time<4608){clock.beforeRender(128);time+=128;}clock.beforeRender(128);time+=128;
 assert.equal(events.filter(e=>!e.v).length,12,"Gate releases every chord note");
 while(time<6144){clock.beforeRender(128);time+=128;}assert.equal(events.filter(e=>e.v>0&&e.t===0).length,6,"Per-track length loops independently");assert.equal(events.filter(e=>e.v>0&&e.t===3).length,3);
-clock.stop();assert.deepEqual(clock.status().positions,[-1,-1,-1,-1]);clock.play();clock.beforeRender();assert.ok(clock.status().positions.every(p=>p===0));clock.reset();clock.beforeRender();assert.ok(clock.status().positions.every(p=>p===0),"Reset starts all lanes together");
+clock.stop();assert.deepEqual(clock.status().positions,timbreArray(-1));clock.play();clock.beforeRender();assert.ok(clock.status().positions.every(p=>p===0));clock.reset();clock.beforeRender();assert.ok(clock.status().positions.every(p=>p===0),"Reset starts all lanes together");
 const muted=structuredClone(sequence);muted.tracks[0].enabled=false;const beforeMute=events.length;clock.setConfig(muted);assert.equal(events.slice(beforeMute).filter(e=>e.t===0&&!e.v).length,3,"Mute releases the track immediately");
 const remaining=clock.nextSteps[0]-clock.frame;clock.setTempo(240);assert.ok(Math.abs(clock.nextSteps[0]-clock.frame-remaining/2)<0.001,"Tempo changes preserve fractional position");clock.stop();
 const malformed=structuredClone(sequence);malformed.tracks[0].steps[0].notes=[128];assert.throws(()=>validateSequence(malformed));
@@ -307,7 +311,7 @@ api.rustias_init();control(3,0);control(4,127);control(5,127);control(6,127);set
 // Each note receives independent oscillator/filter/envelope state, including high mask bits.
 api.rustias_init();setCircuit(circuit);for(let n=0;n<128;n++)api.rustias_note(0,n,100);assert.equal(api.rustias_voices(),128);render(256);api.rustias_stop();
 api.rustias_init();libraryUpload(99,sine);libraryProfile(321,99,2);let sampleCircuit=defaultCircuit();sampleCircuit.enabled=true;setCircuit(sampleCircuit,2);api.rustias_library_note(2,321,100);const sampleGraph=rms(render().slice(3000));assert.ok(sampleGraph>.001,'PCM voices pass through the same modular routing');sampleCircuit.wires=sampleCircuit.wires.filter(w=>w.to!==15);setCircuit(sampleCircuit,2);assert.ok(rms(render().slice(1000))<.000001,'PCM Output cable disconnect is live');api.rustias_stop();
-const graphStore=new PatchStore(fakeStorage);const modularSnapshot={version:2,engine:program,sequencer:emptySequence(),samples:emptySamples(),circuits:{version:1,tracks:[circuit,defaultCircuit(),defaultCircuit(),defaultCircuit()]}};
+const graphStore=new PatchStore(fakeStorage);const modularSnapshot={version:2,engine:program,sequencer:emptySequence(),samples:emptySamples(),circuits:{version:1,tracks:[circuit,...Array.from({length:MAX_TIMBRES-1},()=>defaultCircuit())]}};
 const modularSaved=graphStore.save('Modular QA',modularSnapshot);assert.deepEqual(validateCircuits(graphStore.list().find(p=>p.id===modularSaved.id).snapshot.circuits),modularSnapshot.circuits,'Module positions, parameters and cables round-trip through patch storage');
 features.push('Browser-only per-voice modular audio/CV routing: native modules, additional oscillators/filters/Drive/VCA/mixers/LFO/ADSR, 128 independent states, live PCM wiring, cycle/type validation and patch persistence');
 
@@ -347,7 +351,7 @@ const removedNoise=removeModule(noiseGraph,2);assert.equal(removedNoise.nodes.so
 assert.ok(availableModules(removedNoise).includes('noise'),'A removed builtin can be added again');assert.ok(!availableModules(defaultCircuit()).includes('noise'),'Existing native modules are not duplicated');
 assert.throws(()=>removeModule(noiseGraph,15),/Output/,'The required Output stays protected');
 const minimalGraph=defaultCircuit();for(const n of [...minimalGraph.nodes])if(n.kind!=='output')Object.assign(minimalGraph,removeModule(minimalGraph,n.id));assert.equal(minimalGraph.nodes.length,1);assert.ok(rms(graphNote(minimalGraph))<.000001,'An empty graph is valid and silent');
-const primarySnapshot={...modularSnapshot,circuits:{version:1,tracks:[primaryGraph,removedNoise,defaultCircuit(),defaultCircuit()]}};
+const primarySnapshot={...modularSnapshot,circuits:{version:1,tracks:[primaryGraph,removedNoise,...Array.from({length:MAX_TIMBRES-2},()=>defaultCircuit())]}};
 const primarySaved=graphStore.save('Independent OSC1 and removed Noise',primarySnapshot);assert.deepEqual(validateCircuits(graphStore.list().find(p=>p.id===primarySaved.id).snapshot.circuits),primarySnapshot.circuits,'Independent OSC1 settings and removed builtins survive program storage');
 features.push('Full independent OSC1 modules: all 18 waveform/mode combinations, CTRL1/2, VPM ratio, pitch/cents, audio Cross and CV wiring, isolated states; builtin removal/re-addition and patch persistence');
 features.push(verifyCircuitSwitch({api,setCircuit,graphNote,render,rms,control}));
@@ -359,7 +363,7 @@ for (const sampleRate of [48000, 44100]) {
   let Processor;
   const messages = [];
   vm.runInNewContext(sequenceSource + "\n" + workletSource.replace(/^import .*;\n/gm,""), {
-    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,RecordingTap,
+    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,timbreArray,
     AudioWorkletProcessor: class { constructor() { this.port = { postMessage: message => messages.push(message) }; } },
     registerProcessor: (_name, processor) => { Processor = processor; },
   });

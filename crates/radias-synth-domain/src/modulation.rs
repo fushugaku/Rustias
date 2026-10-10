@@ -1,5 +1,10 @@
 //! Six Virtual Patch routes: original SH3 022300 and 022390..022610.
-pub const MODULATION_DESTINATIONS: usize = 40;
+pub const MODULATION_DESTINATIONS: usize =
+    if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+        42
+    } else {
+        40
+    };
 pub const VIRTUAL_PATCHES: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,7 +43,7 @@ impl ControllerSources {
 pub struct ModulationDestination(u8);
 impl ModulationDestination {
     pub fn new(raw: u8) -> Option<Self> {
-        (raw < 40).then_some(Self(raw))
+        ((raw as usize) < MODULATION_DESTINATIONS).then_some(Self(raw))
     }
     pub fn index(self) -> usize {
         self.0 as usize
@@ -81,14 +86,14 @@ pub struct ModulationTargets {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AppliedModulationTargets {
     pub oscillator_pitch_q16: [i32; 2],
-    pub controls: [i16; 38],
+    pub controls: [i16; MODULATION_DESTINATIONS - 2],
     pub linked_oscillator_pitch: i16,
 }
 impl Default for AppliedModulationTargets {
     fn default() -> Self {
         Self {
             oscillator_pitch_q16: [0; 2],
-            controls: [0; 38],
+            controls: [0; MODULATION_DESTINATIONS - 2],
             linked_oscillator_pitch: 0,
         }
     }
@@ -104,7 +109,7 @@ impl ModulationTargets {
                 let destination = n + 2;
                 let shift = match destination {
                     8 | 15 | 16 | 19 | 22..=33 => 7,
-                    17 | 18 | 20 | 21 | 34..=39 => 8,
+                    17 | 18 | 20 | 21 | 34..=41 => 8,
                     _ => 0,
                 };
                 (self.values[destination].clamp(-32767, 32767) >> shift) as i16
@@ -185,6 +190,10 @@ impl ModulationTables {
         }
     }
     pub fn route(&self, patches: &[VirtualPatch; VIRTUAL_PATCHES]) -> ModulationTargets {
+        self.route_all(patches)
+    }
+    /// Browser extensions use the same scaling and accumulator arithmetic.
+    pub fn route_all(&self, patches: &[VirtualPatch]) -> ModulationTargets {
         let mut targets = ModulationTargets::default();
         for &patch in patches {
             let depth = patch.depth();

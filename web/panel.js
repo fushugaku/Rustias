@@ -1,3 +1,5 @@
+import {PATCH_ROUTES} from './limits.js';
+import {bindMacroTarget} from './macro-gesture.js';
 // Shared hardware controls for the complete firmware-free instrument.
 const shortLabels = {
   9:"Morph",10:"Mode",11:"CTRL 1",12:"CTRL 2",15:"Semi",16:"Fine",17:"OSC 1",18:"OSC 2",19:"Noise",7:"Amp level",8:"Amp pan",
@@ -21,7 +23,7 @@ const rows = [
     {key:"lfo1",name:"LFO 1",ids:[73,74,75,76,77,78,79,80]},
     {key:"lfo2",name:"LFO 2",ids:[81,82,83,84,85,86,87,88]},
   ].map(p=>({...p,columns:4})),
-  Array.from({length:6},(_,i)=>({key:`patch${i+1}`,name:`PATCH ${i+1}`,ids:[90+i*4,91+i*4,92+i*4,93+i*4],patch:true})),
+  Array.from({length:PATCH_ROUTES},(_,i)=>({key:`patch${i+1}`,name:`PATCH ${i+1}`,ids:Array.from({length:4},(_,n)=>(i<6?90+i*4:155+(i-6)*4)+n),patch:true})),
   [
     {key:"voice",name:"VOICE / PITCH / PORTAMENTO",span:6,columns:6,ids:[62,63,64,65,66,67,68,69,70,53,54,55,56,57,58,59,60,61]},
     {key:"amp",name:"AMPLIFIER",span:3,columns:3,ids:[52,114,115,116,117,118,152]},
@@ -40,7 +42,7 @@ function closePicker(returnFocus=false){
 }
 popup.addEventListener("toggle",event=>{if(event.newState==="closed"&&openPicker){openPicker.button.setAttribute("aria-expanded","false");openPicker=null;}});
 document.addEventListener("pointerdown",event=>{if(openPicker&&!popup.contains(event.target)&&!openPicker.button.contains(event.target))closePicker();});
-export function makePicker({label,options,value,onChange,short,searchable=false,searchLabel='Search programs'}){
+export function makePicker({label,options,value,onChange,short,searchable=false,searchLabel='Search programs',macroTarget}){
   const button=document.createElement("button");button.type="button";button.className="lcd-choice";button.setAttribute("role","combobox");button.setAttribute("aria-label",label);button.setAttribute("aria-haspopup","listbox");button.setAttribute("aria-expanded","false");button.setAttribute("aria-controls",popup.id);
   const text=document.createElement("span"),arrow=document.createElement("span");arrow.className="choice-arrow";arrow.textContent="⌄";arrow.setAttribute("aria-hidden","true");button.append(text,arrow);
   const picker={button,options,value,onChange,render(next,override){picker.value=next;const option=picker.options.find(o=>o.value===next),name=override??option?.label;text.textContent=short?.(name)??name??String(next);button.title=`${label}: ${name??next}`;}};
@@ -62,7 +64,7 @@ export function makePicker({label,options,value,onChange,short,searchable=false,
   button.addEventListener("keydown",event=>{
     if(["ArrowUp","ArrowDown","Home","End"].includes(event.key)){event.preventDefault();const i=picker.options.findIndex(o=>o.value===picker.value),next=event.key==="Home"?0:event.key==="End"?picker.options.length-1:Math.max(0,Math.min(picker.options.length-1,i+(event.key==="ArrowDown"?1:-1)));choose(picker.options[next].value);}
   });
-  picker.render(value);return picker;
+  bindMacroTarget(button,macroTarget);picker.render(value);return picker;
 }
 popup.addEventListener("keydown",event=>{
   if(!openPicker)return;const items=[...popup.querySelectorAll('[role=option]')].filter(item=>!item.hidden),i=items.indexOf(document.activeElement),searching=event.target.matches('input');
@@ -73,23 +75,26 @@ popup.addEventListener("keydown",event=>{
   else if(!searching&&event.key.length===1&&!event.metaKey&&!event.ctrlKey&&!event.altKey){event.preventDefault();clearTimeout(typedChoiceTimer);typedChoice+=event.key.toLowerCase();typedChoiceTimer=setTimeout(()=>{typedChoice="";},650);const match=items.find(item=>item.textContent.toLowerCase().startsWith(typedChoice)||item.textContent.toLowerCase().replace(/^(808 |\d{3} · )/,"").startsWith(typedChoice));match?.focus();}
 
 });
-export function makeDial({label,min,max,defaultValue,read,onChange,format=String,display=v=>v,native=v=>v,step=1,numberStep=1,precision=0}){
+export function makeDial({label,min,max,getMax=()=>max,defaultValue,read,onChange,format=String,display=v=>v,native=v=>v,step=1,numberStep=1,precision=0,macroTarget,choices}){
   const button=document.createElement('button'),number=document.createElement('input');
   button.type='button';button.className='knob';button.setAttribute('role','slider');button.setAttribute('aria-label',`${label} dial`);button.setAttribute('aria-valuemin',min);button.setAttribute('aria-valuemax',max);button.innerHTML='<span class="knob-face"></span>';
   number.type='number';number.className='dial-value';number.min=display(min);number.max=display(max);number.step=numberStep;number.setAttribute('aria-label',label);
-  const set=value=>onChange(Math.max(min,Math.min(max,Math.round(value*10**precision)/10**precision)));
+  const set=value=>onChange(Math.max(min,Math.min(getMax(),Math.round(value*10**precision)/10**precision)));
   number.addEventListener('input',()=>{if(number.value!==''&&number.validity.valid)set(native(Number(number.value)));});
   for(const event of ['change','blur'])number.addEventListener(event,()=>{if(number.value!==''&&number.validity.valid)set(native(Number(number.value)));number.value=display(read());});
   let drag;button.addEventListener('pointerdown',event=>{if(event.button!==0)return;button.setPointerCapture(event.pointerId);drag={y:event.clientY,value:read()};event.preventDefault();});
-  button.addEventListener('pointermove',event=>{if(drag)set(drag.value+(drag.y-event.clientY)*(max-min)/127*(event.shiftKey?.12:.8));});
+  button.addEventListener('pointermove',event=>{if(drag)set(drag.value+(drag.y-event.clientY)*(getMax()-min)/127*(event.shiftKey?.12:.8));});
   for(const event of ['pointerup','pointercancel','lostpointercapture'])button.addEventListener(event,()=>{drag=null;});
   button.addEventListener('wheel',event=>{event.preventDefault();set(read()-Math.sign(event.deltaY)*step);},{passive:false});
-  button.addEventListener('keydown',event=>{const steps={ArrowUp:step,ArrowRight:step,ArrowDown:-step,ArrowLeft:-step,PageUp:10*step,PageDown:-10*step};if(event.key in steps){event.preventDefault();set(read()+steps[event.key]);}else if(['Home','End'].includes(event.key)){event.preventDefault();set(event.key==='Home'?min:max);}});button.addEventListener('dblclick',()=>set(defaultValue));
-  return {button,number,render(value=read()){
-    button.style.setProperty('--angle',`${-135+(value-min)/(max-min)*270}deg`);button.setAttribute('aria-valuenow',value);button.setAttribute('aria-valuetext',format(value));if(document.activeElement!==number)number.value=display(value);number.title=format(value);
+  button.addEventListener('keydown',event=>{const steps={ArrowUp:step,ArrowRight:step,ArrowDown:-step,ArrowLeft:-step,PageUp:10*step,PageDown:-10*step};if(event.key in steps){event.preventDefault();set(read()+steps[event.key]);}else if(['Home','End'].includes(event.key)){event.preventDefault();set(event.key==='Home'?min:getMax());}});button.addEventListener('dblclick',()=>set(defaultValue));
+  const picker=choices?makePicker({label,options:choices,value:read(),onChange:set,macroTarget,searchable:choices.length>24,searchLabel:`Search ${label} values`}):null;
+  if(picker)picker.button.classList.add('dial-choice');
+  bindMacroTarget(button,macroTarget);if(!picker)bindMacroTarget(number,macroTarget);
+  return {button,number:picker?.button??number,setChoices:options=>{if(picker)picker.options=options;},render(value=read()){
+    const upper=getMax();button.style.setProperty('--angle',`${-135+(value-min)/(upper-min||1)*270}deg`);button.setAttribute('aria-valuemax',upper);number.max=display(upper);button.setAttribute('aria-valuenow',value);button.setAttribute('aria-valuetext',format(value));if(picker)picker.render(value);else if(document.activeElement!==number)number.value=display(value);number.title=format(value);
   }};
 }
-export function createPanel({parameters,readValues,setControl,format,disabled,displayValue,nativeValue}){
+export function createPanel({parameters,readValues,setControl,format,disabled,displayValue,nativeValue,macroTarget,maxValue=id=>parameters[id].max}){
   const fields=new Map();
   function field(id){
     const p=parameters[id],wrap=document.createElement("div"),label=document.createElement("label");wrap.className="parameter";wrap.dataset.parameter=id;
@@ -106,10 +111,10 @@ export function createPanel({parameters,readValues,setControl,format,disabled,di
       const picker=makePicker({label:aria,options,value:readValues()[id],onChange:v=>setControl(id,v),short:s=>s?.replace("Waveform","Wave").replace("Ring + Sync","Ring/Sync").replace("WavShape","WS").replace("Timbre","Tmbre").replace("Highest","High").replace("Lowest","Low").replace("SubOSC ","Sub ")});
       picker.button.id=label.htmlFor;wrap.append(picker.button);fields.set(id,{wrap,picker,inputs:[picker.button]});
     }else{
-      const dial=makeDial({label:aria,min:p.min,max:p.max,defaultValue:p.default,read:()=>readValues()[id],onChange:v=>setControl(id,v),format:v=>format(id,v),display:v=>displayValue(p,v),native:v=>nativeValue(p,v),step:id===89?10:1,numberStep:id===89?0.1:1});
+      const dial=makeDial({label:aria,min:p.min,max:p.max,getMax:()=>maxValue(id),defaultValue:p.default,read:()=>readValues()[id],onChange:v=>setControl(id,v),format:v=>format(id,v),display:v=>displayValue(p,v),native:v=>nativeValue(p,v),step:id===89?10:1,numberStep:id===89?0.1:1});
       dial.number.id=label.htmlFor;wrap.classList.add("dial-parameter");wrap.append(dial.button,dial.number);fields.set(id,{wrap,dial,inputs:[dial.button,dial.number]});
     }
-    return wrap;
+    const target=()=>macroTarget?.(id);for(const input of fields.get(id).inputs)bindMacroTarget(input,target);return wrap;
   }
   for(const id of [89,137,138,139,150])document.querySelector("#performance").append(field(id));
   rows.forEach((plans,index)=>{

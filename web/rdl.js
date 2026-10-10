@@ -1,3 +1,4 @@
+import {MAX_TIMBRES} from './limits.js';
 import {emptySequence} from './sequence.js';
 export const MAX_RDL_BYTES=8*1024*1024;
 
@@ -32,7 +33,7 @@ export function validateRdlSource(value){
   if(value.version!==1||!validBytes(value.program)||value.global!=null&&!validBytes(value.global)||value.drum_kit!=null&&!validBytes(value.drum_kit)||
     !Number.isInteger(value.slot)||value.slot<0||value.slot>255||typeof value.file!=='string'||value.file.length>256||typeof value.digest!=='string'||!/^[a-f0-9]{64}$/.test(value.digest)||
     !Array.isArray(value.notices)||value.notices.length>1000||value.notices.some(n=>typeof n!=='string'||n.length>1000)||
-    !Array.isArray(value.unavailable)||value.unavailable.length>20||value.unavailable.some(s=>!Number.isInteger(s.timbre)||s.timbre<0||s.timbre>3||s.drum!=null&&(!Number.isInteger(s.drum)||s.drum<0||s.drum>15)||typeof s.label!=='string'||s.label.length>128||!Number.isInteger(s.selection)||s.selection<0||s.selection>255)){
+    !Array.isArray(value.unavailable)||value.unavailable.length>20||value.unavailable.some(s=>!Number.isInteger(s.timbre)||s.timbre<0||s.timbre>=MAX_TIMBRES||s.drum!=null&&(!Number.isInteger(s.drum)||s.drum<0||s.drum>15)||typeof s.label!=='string'||s.label.length>128||!Number.isInteger(s.selection)||s.selection<0||s.selection>255)){
     throw new Error('Invalid RDL source information.');
   }
   return structuredClone(value);

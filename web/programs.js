@@ -3,32 +3,40 @@ import {emptySamples,validateSamples,migrateSampleAmplifiers} from './sample-sta
 import {defaultCircuit,validateCircuit,validateCircuits} from './circuit.js';
 import {validateRdlSource} from './rdl.js';
 import {validateEffects,validateEffect,defaultEffect,effectsFromRdl} from './effects.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES} from './limits.js';
+import {extendValues} from './parameters.js';
+import {normalizeMacros} from './macros.js';
 // Routing, splits and live performance belong to the program's timbre slot.
 export const SLOT_PARAMETERS=new Set([71,72,119,120,137,138,139,150]);
-const slot=t=>{if(!Number.isInteger(t)||t<0||t>3)throw new Error('Invalid timbre slot.');};
+const slot=t=>{if(!Number.isInteger(t)||t<0||t>=MAX_TIMBRES)throw new Error('Invalid timbre slot.');};
 export function normalizeValues(input,parameters){
-  const v=structuredClone(input);
-  if(Array.isArray(v)&&v.length===153)v.push(v[151]);
-  if(Array.isArray(v)&&v.length===154){const old=v[29];v.push(old===3?0:old===2?1:old>=4?old-2:1);if(old>=2)v[29]=2;}
+  if(!Array.isArray(input))throw new Error('The program contains invalid parameters.');
+  const v=extendValues(input,parameters);
   if(!Array.isArray(v)||v.length!==parameters.length||parameters.some(p=>!Number.isInteger(v[p.id])||v[p.id]<p.min||v[p.id]>p.max||p.values&&!p.values.includes(v[p.id]))||v[0]>=4&&v[10]!==0||v[119]>v[120])throw new Error('The program contains invalid parameters.');
   return v;
 }
 export function normalizeEngine(value,parameters){
-  if(value?.version!==1||value.timbres?.length!==4||value.drums?.length!==16)throw new Error('Choose a Rustias program file.');
+  if(value?.version!==1||!Array.isArray(value.timbres)||value.timbres.length<INITIAL_TIMBRES||value.timbres.length>MAX_TIMBRES||value.drums?.length!==16)throw new Error('Choose a Rustias program file.');
   const engine={version:1,timbres:value.timbres.map(v=>normalizeValues(v,parameters)),drums:value.drums.map(v=>normalizeValues(v,parameters)),effects:validateEffects(value.effects)};
+  while(engine.timbres.length<MAX_TIMBRES){const v=parameters.map(p=>p.scope==='global'?engine.timbres[0][p.id]:p.id===72?engine.timbres.length:p.id===71?0:p.default);engine.timbres.push(v);}
   if(parameters.some(p=>p.scope==='global'&&engine.timbres.some(v=>v[p.id]!==engine.timbres[0][p.id])))throw new Error('Global settings must agree across timbres.');return engine;
 }
 export function timbreInfo(raw){
-  if(raw==null)return Array.from({length:4},()=>({name:'Custom',preset:'custom',savedId:null,modified:false}));
-  if(!Array.isArray(raw)||raw.length!==4)throw new Error('Invalid timbre names.');
-  return raw.map(info=>{if(typeof info?.name!=='string'||info.name.length>64||typeof info.preset!=='string'||info.preset.length>128||info.savedId!=null&&(typeof info.savedId!=='string'||info.savedId.length>128)||typeof info.modified!=='boolean')throw new Error('Invalid timbre name.');return structuredClone(info);});
+  if(raw==null)return Array.from({length:MAX_TIMBRES},()=>({name:'Custom',preset:'custom',savedId:null,modified:false}));
+  if(!Array.isArray(raw)||raw.length<INITIAL_TIMBRES||raw.length>MAX_TIMBRES)throw new Error('Invalid timbre names.');
+  const info=raw.map(info=>{if(typeof info?.name!=='string'||info.name.length>64||typeof info.preset!=='string'||info.preset.length>128||info.savedId!=null&&(typeof info.savedId!=='string'||info.savedId.length>128)||typeof info.modified!=='boolean')throw new Error('Invalid timbre name.');return structuredClone(info);});
+  while(info.length<MAX_TIMBRES)info.push({name:'INIT',preset:'init',savedId:null,modified:false});return info;
 }
 export function normalizeProgram(raw,parameters){
   const wrapped=raw?.version===2;
+  const timbreCount=wrapped?raw.timbreCount??raw.engine?.timbres?.length:raw?.timbres?.length;
+  if(!Number.isInteger(timbreCount)||timbreCount<INITIAL_TIMBRES||timbreCount>MAX_TIMBRES)throw new Error('Invalid timbre count.');
   const samples=validateSamples(wrapped?raw.samples:null,parameters);
   const engine=migrateSampleAmplifiers(normalizeEngine(wrapped?raw.engine:raw,parameters),wrapped?raw.samples:null,samples);
   if(wrapped&&raw.engine?.effects==null&&raw.rdl?.program)engine.effects=effectsFromRdl(raw.rdl.program);
-  const result={kind:'rustias-program',version:2,engine,sequencer:validateSequence(wrapped?raw.sequencer:emptySequence()),samples,circuits:validateCircuits(wrapped?raw.circuits:null,engine.timbres),timbreInfo:timbreInfo(wrapped?raw.timbreInfo:null)};
+  for(const v of engine.timbres.slice(timbreCount))v[71]=0;
+  const sequencer=validateSequence(wrapped?raw.sequencer:emptySequence());for(const track of sequencer.tracks.slice(timbreCount))track.enabled=false;
+  const result={kind:'rustias-program',version:2,timbreCount,engine,sequencer,samples,macros:normalizeMacros(wrapped?raw.macros:null),circuits:validateCircuits(wrapped?raw.circuits:null,engine.timbres),timbreInfo:timbreInfo(wrapped?raw.timbreInfo:null)};
   const rdl=validateRdlSource(wrapped?raw.rdl:null);if(rdl)result.rdl=rdl;
   if(wrapped&&raw.volume!=null){if(!Number.isFinite(raw.volume)||raw.volume<0||raw.volume>100)throw new Error('Invalid program volume.');result.volume=raw.volume;}
   return result;

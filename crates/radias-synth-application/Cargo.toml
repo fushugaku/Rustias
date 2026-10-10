@@ -5,6 +5,7 @@ edition.workspace = true
 
 [features]
 web-modular = ["radias-synth-domain/web-modular"]
+web-expanded = ["radias-synth-domain/web-expanded"]
 
 [dependencies]
 radias-synth-domain = { path = "../radias-synth-domain" }

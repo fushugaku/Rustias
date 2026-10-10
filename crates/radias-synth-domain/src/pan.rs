@@ -3,6 +3,13 @@ use crate::{
     Sample,
     fixed::{multiply_q15, saturate},
 };
+
+// The original four hardware buses are unchanged in every native build.
+pub const TIMBRE_BUSES: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+    8
+} else {
+    4
+};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PanSmoother {
     pub current: i16,
@@ -31,7 +38,7 @@ pub struct StereoFrame {
 pub struct VoiceBus(u8);
 impl VoiceBus {
     pub fn new(index: u8) -> Option<Self> {
-        (index < 4).then_some(Self(index))
+        ((index as usize) < TIMBRE_BUSES).then_some(Self(index))
     }
     pub fn from_offsets(left: u32, right: u32) -> Option<Self> {
         if left <= 12 && left.is_multiple_of(4) && right == left + 2 {

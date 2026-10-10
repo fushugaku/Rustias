@@ -19,7 +19,7 @@ use radias_synth_domain::{
     waveform::WaveformTable,
 };
 
-pub const TIMBRE_COUNT: usize = 4;
+pub const TIMBRE_COUNT: usize = radias_synth_domain::pan::TIMBRE_BUSES;
 
 pub struct ActiveVoice {
     /// SYS008448 sets this for an alternate synthesis body; SYS0083E8 clears it.
@@ -74,7 +74,7 @@ impl ActiveVoice {
 
 pub struct PolyphonicRenderer {
     #[cfg(feature = "web-modular")]
-    circuits: [Option<alloc::boxed::Box<dyn crate::VoiceCircuit>>; 4],
+    circuits: [Option<alloc::boxed::Box<dyn crate::VoiceCircuit>>; TIMBRE_COUNT],
     pub allocator: VoiceAllocator,
     voices: [Option<ActiveVoice>; VOICE_COUNT],
     physical_frames: [Option<radias_synth_domain::voice_frame::VoiceFrameState>; VOICE_COUNT],
@@ -188,7 +188,7 @@ impl Default for PolyphonicRenderer {
             global_lfo_parameters: Default::default(),
             controller_slots: [[Default::default(); 2]; VOICE_COUNT],
             controller_slot_valid: [false; VOICE_COUNT],
-            timbre_modulation_active: [true, false, false, false],
+            timbre_modulation_active: core::array::from_fn(|i| i == 0),
             clock: None,
             filter_tables: None,
             comb_tables: None,
@@ -2609,7 +2609,7 @@ impl PolyphonicRenderer {
         table: &WaveformTable,
         tables: Option<&ControllerTables>,
         mut events: impl FnMut(usize) -> &'a [VoiceControlEvent],
-    ) -> [[StereoFrame; 4]; 2] {
+    ) -> [[StereoFrame; TIMBRE_COUNT]; 2] {
         self.next_buses_with_modulation(table, tables, None, &mut events)
     }
     pub fn next_sample_with_modulation<'a>(
@@ -2634,8 +2634,8 @@ impl PolyphonicRenderer {
         tables: Option<&ControllerTables>,
         modulation_tables: Option<&VoiceModulationTables>,
         mut events: impl FnMut(usize) -> &'a [VoiceControlEvent],
-    ) -> [[StereoFrame; 4]; 2] {
-        let mut buses = [[StereoFrame::default(); 4]; 2];
+    ) -> [[StereoFrame; TIMBRE_COUNT]; 2] {
+        let mut buses = [[StereoFrame::default(); TIMBRE_COUNT]; 2];
         let delivery_clock = self.modulation_frame * 3000;
         self.deliver_amplifier(delivery_clock);
         let mut amplifier_updates = [None; VOICE_COUNT];

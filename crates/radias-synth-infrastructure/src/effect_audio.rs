@@ -1,6 +1,6 @@
 //! Stored-program and immutable-table adapter for audible native effects.
 //! The backend is explicitly unqualified against original FXD03 audio.
-use radias_synth_application::effect_audio::{EFFECT_SLOTS, EffectAudioRack};
+use radias_synth_application::effect_audio::{EFFECT_SLOTS, EffectAudioRack, MASTER_EFFECT_SLOT};
 use radias_synth_domain::{
     delay_time::{DelayClock, DelayTimeState},
     effect_audio::{
@@ -36,7 +36,18 @@ pub struct EffectDefinition {
     pub properties: [EffectProperty; 20],
 }
 pub fn definition(kind: u8, master: bool) -> Option<&'static EffectDefinition> {
-    data::CATALOG[usize::from(master)].get(usize::from(kind))
+    let definition = data::CATALOG[usize::from(master)].get(usize::from(kind))?;
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    if master && kind == 11 {
+        // Original MFX has six reverb types; the insert range has three.
+        static MASTER_REVERB: std::sync::OnceLock<EffectDefinition> = std::sync::OnceLock::new();
+        return Some(MASTER_REVERB.get_or_init(|| {
+            let mut d = *definition;
+            d.properties[1].maximum = 5;
+            d
+        }));
+    }
+    Some(definition)
 }
 pub fn default_program(kind: u8, master: bool) -> Result<EffectAudioProgram, &'static str> {
     let d = definition(kind, master).ok_or("Effect type outside original catalog")?;
@@ -48,7 +59,16 @@ pub fn default_program(kind: u8, master: bool) -> Result<EffectAudioProgram, &'s
     })
 }
 pub fn programs_from_stored(program: &Program) -> [EffectAudioProgram; EFFECT_SLOTS] {
-    radias_synth_domain::effect_audio::stored_effects(program)
+    let native = radias_synth_domain::effect_audio::stored_effects(program);
+    core::array::from_fn(|i| {
+        if i < 8 {
+            native[i]
+        } else if i == MASTER_EFFECT_SLOT {
+            native[8]
+        } else {
+            EffectAudioProgram::default()
+        }
+    })
 }
 pub fn prepare_rack(
     programs: [EffectAudioProgram; EFFECT_SLOTS],
@@ -56,7 +76,7 @@ pub fn prepare_rack(
 ) -> Result<Box<EffectAudioRack>, String> {
     let mut settings = [EffectAudioSettings::default(); EFFECT_SLOTS];
     for (slot, p) in programs.into_iter().enumerate() {
-        if p.master != (slot == 8) {
+        if p.master != (slot == MASTER_EFFECT_SLOT) {
             return Err("Effect bank/slot mismatch".into());
         }
         settings[slot] = compile(p, tempo).map_err(|e| format!("FX {}: {e}", slot + 1))?;
@@ -64,6 +84,26 @@ pub fn prepare_rack(
     let mut rack = Box::new(EffectAudioRack::new(settings));
     rack.set_tempo(tempo);
     Ok(rack)
+}
+/// Browser value labels use these same immutable native control tables.
+pub fn display_tables() -> serde_json::Value {
+    let delay = data::delay_time();
+    serde_json::json!({
+        "eqHz": data::equalizer().frequency.to_vec(),
+        "freeRatio": delay.free_ratio.to_vec(), "syncRatio": delay.sync_ratio.to_vec(),
+        "lcrMs": delay.lcr_milliseconds.to_vec(), "stereoMs": delay.stereo_milliseconds.to_vec(),
+        "modMonoMs": data::MOD_MONO_MS.to_vec(), "modStereoMs": data::MOD_STEREO_MS.to_vec(),
+        "chorusTenthsMs": data::CHORUS_TENTHS_MS.to_vec(),
+        "lfoHz": data::LFO_FREQUENCY.iter().map(|&v| f64::from(v) * 1000.0 / 4_294_967_296.0).collect::<Vec<_>>(),
+        "ringHz": data::RING_FREQUENCY.iter().map(|&v| f64::from(v) * 12000.0 / 4194303.0).collect::<Vec<_>>(),
+        "decimatorHz": data::DECIMATOR_RATE.iter().map(|&v| f64::from(v) * 48_000.0 / 4_194_304.0).collect::<Vec<_>>(),
+        "largeReverb": data::REVERB_LARGE_INDEX.to_vec(), "smallReverb": data::REVERB_SMALL_INDEX.to_vec(),
+        "preDelayMs": data::ER_PRE_DELAY.to_vec(), "earlyMs": data::ER_SIZE.to_vec(),
+        "inverseRatio": data::LIMITER_INVERSE_RATIO.to_vec(),
+        "attackTenthsMs": data::ATTACK_TENTHS_MS.to_vec(), "releaseTenthsMs": data::RELEASE_TENTHS_MS.to_vec(),
+        "masterStereoMs": data::MASTER_STEREO_MS.to_vec(), "masterLcrMs": data::MASTER_LCR_MS.to_vec(),
+        "masterGrainMs": data::MASTER_GRAIN_MS.to_vec(), "masterModStereoMs": data::MASTER_MOD_STEREO_MS.to_vec(), "masterModMonoMs": data::MASTER_MOD_MONO_MS.to_vec()
+    })
 }
 fn peaking(frequency: u8, q: u8, gain: i8) -> Result<BiquadCoefficients, &'static str> {
     let c = data::equalizer()
@@ -372,6 +412,10 @@ mod tests {
         let expected = library.equalizer_tables().unwrap();
         let actual = data::equalizer();
         assert_eq!(expected.frequency, actual.frequency);
+        assert_eq!(
+            library.tremolo_ring_mod_tables().unwrap().fixed_frequency,
+            data::RING_FREQUENCY
+        );
         assert_eq!(expected.pole, actual.pole);
         assert_eq!(expected.q, actual.q);
         assert_eq!(expected.gain, actual.gain);
@@ -384,6 +428,24 @@ mod tests {
         assert_eq!(expected.notes, actual.notes);
         assert_eq!(expected.lcr_milliseconds, actual.lcr_milliseconds);
         assert_eq!(expected.stereo_milliseconds, actual.stereo_milliseconds);
+        for (offset, table) in [
+            (0x9501c, data::ATTACK_TENTHS_MS),
+            (0x9511c, data::RELEASE_TENTHS_MS),
+            (0xac46c, data::MASTER_STEREO_MS),
+            (0xac56c, data::MASTER_LCR_MS),
+            (0xac66c, data::MASTER_GRAIN_MS),
+            (0xac96c, data::MASTER_MOD_STEREO_MS),
+            (0xaca6c, data::MASTER_MOD_MONO_MS),
+        ] {
+            let original: [u16; 128] = core::array::from_fn(|i| {
+                u16::from_be_bytes(
+                    system[offset + 2 * i..offset + 2 * i + 2]
+                        .try_into()
+                        .unwrap(),
+                )
+            });
+            assert_eq!(table, original);
+        }
         assert!(!std::hint::black_box(ORIGINAL_AUDIO_PARITY_QUALIFIED));
     }
     #[test]

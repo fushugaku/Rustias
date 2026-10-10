@@ -1,4 +1,5 @@
 //! Controller clock delivery. Inactive physical slots receive clocks too.
+use crate::polyphony::TIMBRE_COUNT;
 use radias_synth_domain::lfo_tempo::{LfoTempoState, LfoTempoTables, TempoSetting};
 use radias_synth_domain::midi_clock::{
     ClockInputPort, ClockIntervalHistory, ClockIntervalMeasurement, ClockTimerReload,
@@ -17,14 +18,14 @@ pub enum ClockPulse {
 pub struct ControllerClockBank {
     pub voices: [[LfoTempoState; 2]; VOICE_COUNT],
     /// Two synthesis LFOs and two effect LFOs for each timbre.
-    pub timbres: [[LfoTempoState; 4]; 4],
+    pub timbres: [[LfoTempoState; 4]; TIMBRE_COUNT],
     pub global: LfoTempoState,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TempoDivisions {
     pub voices: [[u8; 2]; VOICE_COUNT],
-    pub timbres: [[u8; 4]; 4],
+    pub timbres: [[u8; 4]; TIMBRE_COUNT],
     pub global: u8,
 }
 
@@ -80,7 +81,7 @@ impl Default for ControllerClockBank {
     fn default() -> Self {
         Self {
             voices: [[Default::default(); 2]; VOICE_COUNT],
-            timbres: [[Default::default(); 4]; 4],
+            timbres: [[Default::default(); 4]; TIMBRE_COUNT],
             global: Default::default(),
         }
     }
@@ -89,7 +90,7 @@ impl Default for TempoDivisions {
     fn default() -> Self {
         Self {
             voices: [[0; 2]; VOICE_COUNT],
-            timbres: [[0; 4]; 4],
+            timbres: [[0; 4]; TIMBRE_COUNT],
             global: 0,
         }
     }
@@ -109,7 +110,7 @@ impl InstrumentClock {
             bank: ControllerClockBank::default(),
             divisions: TempoDivisions {
                 voices: [[8; 2]; VOICE_COUNT],
-                timbres: [[8; 4]; 4],
+                timbres: [[8; 4]; TIMBRE_COUNT],
                 global: 8,
             },
             receiver: ExternalClockReceiver {

@@ -12,5 +12,6 @@ cpal = { version = "=0.18.2", optional = true }
 
 [features]
 web-modular = ["radias-synth-application/web-modular", "radias-synth-domain/web-modular"]
+web-expanded = ["radias-synth-application/web-expanded", "radias-synth-domain/web-expanded"]
 default = []
 desktop-io = ["dep:cpal"]
