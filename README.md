@@ -66,6 +66,16 @@ Custom files stay in IndexedDB on this browser and device; they are never upload
 
 The standalone voice profile supplies mathematically generated tables for filters, Comb, envelopes, LFO/tempo, modulation, noise, tuning, pan and voice groups. Waveform interpolation correction remains zero. Effects use the same immutable catalog, control tables and Rust audio processor as the native player. No firmware file is loaded at runtime. Original ROM PCM, live Audio In, vocoder and firmware sequencers are not exposed in this browser profile; the local sampler and polyphonic sequencer are web additions.
 
+### Modulation sequencers
+
+The arrow beside **T1–T8** opens that timbre's **Mod Sequencer**. **+ Mod** adds a line, up to six per timbre. Choose a numeric synthesis/sample parameter or **Macro 1–8**, then set its step offsets with the knobs. Each line has independent **Steps** (1–128), **Bars**, **Resolution**, **Intensity**, **Motion**, **SeqType** and **RunMode**. Bars changes the step count at the selected resolution; changing Resolution keeps that count. The block picker displays sixteen knobs at a time. On mobile, unused steps are hidden.
+
+Following the offset principle of [RADIAS P12](https://cdn.korg.com/us/support/download/files/c9f9bb7725d303cbc977b6e7cc08d464.pdf#page=98), values add to the base parameter: ±63 units, ±24 semitones for Pitch/OSC2 Semitone, or ±100 percentage points for Macro. Intensity scales or reverses this offset. **Step** holds each value; **Slide** joins neighboring values continuously, including the loop boundary. Forward, Reverse, Alt1/Alt2 and Loop/OneShot are available. OneShot holds its final value; later lines take priority when assigned to the same target.
+
+**Play** restarts all note and modulation lines together; their lengths and divisions then run independently. Keyboard/MIDI notes also start a stopped modulation clock. **Stop** or **Pause audio** restores the base sound. Blue markers on affected synth and Macro dials show live modulation while their numeric values retain the saved base. Program Save/copy, JSON and session restore preserve the lines; individual timbre sounds carry their modulation and remap owned targets when loaded into another slot. Macro references address the destination program's macros. RDL modulation data remains in the original source record; imported programs start with empty browser modulation lines.
+
+Timing and Macro composition run in the AudioWorklet before each native block, at both 48 and 44.1 kHz device rates. This browser adapter calls the shared Rust controls; the original desktop engine is unchanged.
+
 ### Macro knobs
 
 Each program has eight **Macro** knobs (0–100%). Right-click a synthesis, sample, FX or added-module parameter to **Assign to macro**; on a phone, press and hold. A macro can have up to twelve targets across different timbres. Each target has its own −100…+100% influence: positive raises the parameter, negative lowers it, scaled to that parameter's range. Contributions from multiple macros add around a saved base value.

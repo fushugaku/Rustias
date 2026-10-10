@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import {ModulationClock,ModulationAutomation,emptyModulation,newModulationLane,validateModulation,modulationKey,modulationStep,modulationPeriod} from '../web/modulation.js';
+import {ModulationHost} from '../web/modulation-host.js';
+import {emptyMacros,targetKey} from '../web/macros.js';
+import {normalizeProgram,captureTimbre,applyTimbre} from '../web/programs.js';
+import {defaultCircuit,audioCircuit} from '../web/circuit.js';
+import {emptyEffects,defaultEffect} from '../web/effects.js';
+import {RecordingTap} from '../web/recording-tap.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,timbreArray} from '../web/limits.js';
+import {validSampleSource,sampleValues} from '../web/sample-state.js';
+import {PatchStore} from '../web/patches.js';
+
+export function verifyModulation({parameters,module,workletSource,sequenceSource}){
+  const target={kind:'synth',timbre:0,parameter:1},key=targetKey(target),config=emptyModulation();
+  const lane=newModulationLane('m1');Object.assign(lane,{target,length:2});lane.values[0]=-63;lane.values[1]=63;config.tracks[0]=[lane];
+  const clock=new ModulationClock();clock.setConfig(config);clock.play();assert.equal(clock.beforeRender(3000).get(key).value,-63);assert.equal(clock.beforeRender(3000).get(key).value,-63);assert.equal(clock.beforeRender(0).get(key).value,63,'Step holds until the next note division');
+  lane.motion='Slide';clock.setConfig(config);clock.play();assert.equal(clock.beforeRender(3000).get(key).value,-63);assert.equal(clock.beforeRender(3000).get(key).value,0,'Slide joins adjacent offsets by a straight line');assert.equal(clock.beforeRender(0).get(key).value,63);clock.setTempo(60);clock.beforeRender(6000);assert.equal(clock.beforeRender(0).get(key).value,0,'Tempo changes retain the current phase');
+  const independent=emptyModulation(),divisions=['1/16','1/8','1/2','1/32','1/48','1/4'];
+  independent.tracks[7]=divisions.map((resolution,i)=>({...newModulationLane('lane'+i),target:{kind:'synth',timbre:7,parameter:1+i},length:128,resolution}));clock.setConfig(independent);clock.setTempo(120);clock.play();clock.beforeRender(24000);clock.beforeRender(0);assert.deepEqual(clock.positions[7],[4,2,0,8,12,1],'Six lanes on timbre eight keep independent note divisions');
+  for(const [direction,expected]of [['Forward',[0,1,2,0,1,2]],['Reverse',[2,1,0,2,1,0]],['Alt1',[0,1,2,1,0,1]],['Alt2',[0,1,2,2,1,0]]]){lane.length=3;lane.direction=direction;lane.runMode='Loop';assert.deepEqual(expected.map((_,i)=>modulationStep(lane,i)),expected);lane.runMode='OneShot';assert.equal(modulationStep(lane,100),direction==='Forward'?2:0,'OneShot holds the final value');}
+  assert.throws(()=>validateModulation({...independent,tracks:independent.tracks.map((v,t)=>t===7?[...v,newModulationLane('seventh')]:v)}),/six/);
+  const pitch=newModulationLane('pitch');pitch.target={kind:'synth',timbre:0,parameter:53};pitch.values[0]=25;assert.throws(()=>validateModulation({...emptyModulation(),tracks:[[pitch],[],[],[]]}));
+  assert.equal(validateModulation({version:1,tracks:[[],[],[],[]]}).tracks.length,8);
+
+  const macros=emptyMacros();macros.knobs[0].value=20;macros.knobs[0].bindings=[{target,amount:-50}];macros.bases=[{target,value:100,label:'Cutoff'}];
+  const spec={target,min:0,max:127,base:87,available:true},values=new Map([[key,87]]),automation=new ModulationAutomation(changes=>{for(const c of changes)values.set(modulationKey(c.target),c.value);});
+  const modMacro=newModulationLane('macro');modMacro.target={kind:'macro',macro:0};modMacro.values.fill(40);
+  const direct=newModulationLane('direct');direct.target=target;direct.values.fill(-10);const mixed=emptyModulation();mixed.tracks[0]=[modMacro,direct];
+  automation.setState({config:mixed,macros,targets:[spec]});automation.clock.play();automation.beforeRender();assert.equal(values.get(key),52,'Macro offsets compose with bipolar bindings and direct modulation before clipping');assert.equal(automation.liveMacros[0],60);assert.equal(macros.knobs[0].value,20,'Playback never overwrites the saved macro position');automation.stop();assert.equal(values.get(key),87,'Stop restores the base sound');
+  const duplicate=newModulationLane('later');duplicate.target=target;duplicate.values.fill(20);mixed.tracks[0]=[direct,duplicate];automation.setState({config:mixed,macros:emptyMacros(),targets:[{...spec,base:80}]});automation.clock.play();automation.beforeRender();assert.equal(values.get(key),100,'A later lane has RADIAS assignment priority');automation.stop();
+  const defaults=parameters.map(p=>p.default),engine={version:1,timbres:Array.from({length:8},(_,t)=>defaults.map((v,id)=>id===72?t:v)),drums:Array.from({length:16},()=>[...defaults]),effects:emptyEffects()};
+  const program=normalizeProgram(engine,parameters);program.modulation=independent;program.macros=macros;const sound=captureTimbre(program,7,parameters),moved=applyTimbre(program,2,sound,parameters);assert.equal(moved.modulation.tracks[2].length,6);assert.ok(moved.modulation.tracks[2].every(l=>l.target.timbre===2));assert.deepEqual(moved.modulation.tracks[7],independent.tracks[7],'Loading a sound retains the other timbre mod sequences');assert.deepEqual(moved.sequencer,program.sequencer);
+  const disk=new Map(),storage={getItem:k=>disk.get(k)??null,setItem:(k,v)=>disk.set(k,v)};const store=new PatchStore(storage),saved=store.save('Mod program',program),copy=store.save('Mod copy',program);assert.notEqual(saved.id,copy.id);assert.deepEqual(new PatchStore(storage).list().find(p=>p.id===copy.id).snapshot.modulation,independent,'Programs and independent copies retain all modulation data');
+
+  for(const sampleRate of [48000,44100]){
+    let Processor;const messages=[];
+    vm.runInNewContext(sequenceSource+'\n'+workletSource.replace(/^import .*;\n/gm,''),{sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,timbreArray,ModulationAutomation,ModulationHost,AudioWorkletProcessor:class{constructor(){this.port={postMessage:data=>messages.push(data)};}},registerProcessor:(_name,p)=>Processor=p});
+    const p=new Processor({processorOptions:{module,gain:.3}}),wasm=p.wasm;
+    for(const [parameter,value]of [[3,0],[4,127],[5,127],[6,8],[1,80]])p.port.onmessage({data:{type:'control',timbre:0,parameter,value}});
+    const length=wasm.rustias_save(),base=JSON.parse(Buffer.from(new Uint8Array(wasm.memory.buffer,wasm.rustias_preset_buffer(),length))),fx=emptyEffects(),circuits=Array.from({length:8},()=>defaultCircuit());
+    const liveLane=newModulationLane('live');liveLane.target=target;liveLane.length=2;liveLane.resolution='1/8';liveLane.values[0]=-40;liveLane.values[1]=40;const liveConfig=emptyModulation();liveConfig.tracks[0]=[liveLane];
+    const state={config:liveConfig,macros:emptyMacros(),targets:[{target,min:0,max:127,base:80,available:true}],engine:base,effects:fx,circuits};
+    p.port.onmessage({data:{type:'modulation',state}});p.port.onmessage({data:{type:'note',timbre:0,note:69,velocity:100}});p.port.onmessage({data:{type:'sequence-play'}});
+    const block=()=>{const l=new Float32Array(128),r=new Float32Array(128);p.process([],[[l,r]]);assert.equal(p.failed,false);assert.ok([...l,...r].every(Number.isFinite));return l;};
+    let peak=0;while(wasm.rustias_frames()<6000)for(const value of block())peak=Math.max(peak,Math.abs(value));assert.equal(wasm.rustias_value(0,1),40,'Real WASM receives the first modulation step');assert.ok(peak>.0001);
+    while(wasm.rustias_frames()<12128)block();assert.equal(wasm.rustias_value(0,1),120,'The slower mod lane advances independently of 1/16 notes');
+    p.port.onmessage({data:{type:'sequence-stop'}});assert.equal(wasm.rustias_value(0,1),80);assert.equal(wasm.rustias_voices(),1,'Stopping modulation leaves a manual note held');
+    state.macros=emptyMacros();state.macros.knobs[0].bindings=[{target,amount:-100}];state.macros.bases=[{target,value:80,label:'Cutoff'}];liveLane.target={kind:'macro',macro:0};liveLane.values.fill(50);state.config=liveConfig;
+    p.port.onmessage({data:{type:'modulation',state}});p.port.onmessage({data:{type:'sequence-play'}});for(let i=0;i<4;i++)block();assert.equal(wasm.rustias_value(0,1),17,'A modulated macro drives its real native parameter');p.port.onmessage({data:{type:'sequence-stop'}});assert.equal(wasm.rustias_value(0,1),80);
+    // FX and added-module bindings share the same audio-thread adapter.
+    const effect=defaultEffect(14);state.effects.slots[0]=effect;state.targets=[{target:{kind:'effect',slot:0,effectKind:14,parameter:0},min:0,max:100,base:30,available:true}];state.macros.knobs[0].bindings=[{target:state.targets[0].target,amount:100}];state.macros.bases=[{target:state.targets[0].target,value:30,label:'Wet'}];p.port.onmessage({data:{type:'effect',slot:0,program:effect}});p.port.onmessage({data:{type:'modulation',state}});p.port.onmessage({data:{type:'sequence-play'}});for(let i=0;i<4;i++)block();assert.equal(p.modulationHost.effects[0].parameters[0],80);p.port.onmessage({data:{type:'sequence-stop'}});assert.equal(p.modulationHost.effects[0].parameters[0],30);p.port.onmessage({data:{type:'stop'}});
+    const graph=audioCircuit(defaultCircuit());graph.enabled=true;graph.nodes.push({id:16,kind:'vca',params:{gain:0}});graph.wires=graph.wires.filter(w=>w.to!==15);graph.wires.push({from:7,to:16,port:'in'},{from:16,to:15,port:'in'});state.circuits[0]=graph;
+    const moduleTarget={kind:'module',timbre:0,node:16,moduleKind:'vca',control:'gain'};state.targets=[{target:moduleTarget,min:-48,max:24,base:0,available:true}];state.macros.knobs[0].bindings=[{target:moduleTarget,amount:-100}];state.macros.bases=[{target:moduleTarget,value:0,label:'Gain'}];p.port.onmessage({data:{type:'circuit',timbre:0,circuit:graph}});p.port.onmessage({data:{type:'modulation',state}});p.port.onmessage({data:{type:'sequence-play'}});for(let i=0;i<4;i++)block();assert.equal(p.modulationHost.circuits[0].nodes.find(n=>n.id===16).params.gain,-36,'Modulated macros update an independent module on the audio thread');p.port.onmessage({data:{type:'sequence-stop'}});assert.equal(p.modulationHost.circuits[0].nodes.find(n=>n.id===16).params.gain,0);
+    const wheel={kind:'synth',timbre:0,parameter:138};state.targets=[{target:wheel,min:0,max:127,base:0,available:true}];state.macros.knobs[0].bindings=[{target:wheel,amount:100}];state.macros.bases=[{target:wheel,value:0,label:'Wheel'}];p.port.onmessage({data:{type:'control',timbre:0,parameter:138,value:0}});p.port.onmessage({data:{type:'modulation',state}});p.port.onmessage({data:{type:'sequence-play'}});for(let i=0;i<4;i++)block();assert.equal(wasm.rustias_value(0,138),64);p.port.onmessage({data:{type:'midi',bytes:[0xb0,1,20]}});assert.equal(messages.filter(m=>m.type==='state').at(-1).program.timbres[0][138],20,'MIDI snapshots contain base values instead of playback offsets');for(let i=0;i<4;i++)block();assert.equal(wasm.rustias_value(0,138),84,'MIDI edits rebase an active modulation mapping');p.port.onmessage({data:{type:'sequence-stop'}});assert.equal(wasm.rustias_value(0,138),20);
+    const pcm=Float32Array.from({length:4800},(_,i)=>.3*Math.sin(i*2*Math.PI*440/48000)),profileValues=sampleValues(defaults);profileValues[1]=100;
+    p.port.onmessage({data:{type:'library-sample',asset:90,request:1,data:pcm}});p.port.onmessage({data:{type:'library-profile',id:90,asset:90,timbre:7,source:'custom:modsample',mode:1,values:profileValues}});
+    const sample={kind:'sample',timbre:7,source:'custom:modsample',parameter:1};liveLane.target=sample;liveLane.values.fill(-63);state.macros=emptyMacros();state.targets=[{target:sample,min:0,max:127,base:100,available:true}];state.config.tracks[0]=[];state.config.tracks[7]=[liveLane];p.port.onmessage({data:{type:'modulation',state}});p.port.onmessage({data:{type:'note',timbre:7,note:'custom:modsample',velocity:100}});p.port.onmessage({data:{type:'sequence-play'}});for(let i=0;i<4;i++)block();assert.equal(wasm.rustias_library_value(90,1),37,'Timbre eight modulates a PCM source through the same Rust filter');p.port.onmessage({data:{type:'sequence-stop'}});assert.equal(wasm.rustias_library_value(90,1),100);p.port.onmessage({data:{type:'stop'}});
+    assert.ok(!messages.some(m=>m.type==='error'));
+  }
+  return 'Mod sequencers: six independent lanes/timbre, note divisions, Step/Slide, directions/OneShot, bipolar offsets, macros/FX, native audio at 48/44.1 kHz, restoration and program/timbre persistence';
+}

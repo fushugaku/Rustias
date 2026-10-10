@@ -1,5 +1,6 @@
 import {PATCH_ROUTES} from './limits.js';
 import {bindMacroTarget} from './macro-gesture.js';
+import {targetKey} from './macros.js';
 // Shared hardware controls for the complete firmware-free instrument.
 const shortLabels = {
   9:"Morph",10:"Mode",11:"CTRL 1",12:"CTRL 2",15:"Semi",16:"Fine",17:"OSC 1",18:"OSC 2",19:"Noise",7:"Amp level",8:"Amp pan",
@@ -78,6 +79,7 @@ popup.addEventListener("keydown",event=>{
 export function makeDial({label,min,max,getMax=()=>max,defaultValue,read,onChange,format=String,display=v=>v,native=v=>v,step=1,numberStep=1,precision=0,macroTarget,choices}){
   const button=document.createElement('button'),number=document.createElement('input');
   button.type='button';button.className='knob';button.setAttribute('role','slider');button.setAttribute('aria-label',`${label} dial`);button.setAttribute('aria-valuemin',min);button.setAttribute('aria-valuemax',max);button.innerHTML='<span class="knob-face"></span>';
+  const indicator=document.createElement('span');indicator.className='knob-modulation';indicator.hidden=true;button.append(indicator);let modulationValue=null;
   number.type='number';number.className='dial-value';number.min=display(min);number.max=display(max);number.step=numberStep;number.setAttribute('aria-label',label);
   const set=value=>onChange(Math.max(min,Math.min(getMax(),Math.round(value*10**precision)/10**precision)));
   number.addEventListener('input',()=>{if(number.value!==''&&number.validity.valid)set(native(Number(number.value)));});
@@ -90,7 +92,7 @@ export function makeDial({label,min,max,getMax=()=>max,defaultValue,read,onChang
   const picker=choices?makePicker({label,options:choices,value:read(),onChange:set,macroTarget,searchable:choices.length>24,searchLabel:`Search ${label} values`}):null;
   if(picker)picker.button.classList.add('dial-choice');
   bindMacroTarget(button,macroTarget);if(!picker)bindMacroTarget(number,macroTarget);
-  return {button,number:picker?.button??number,setChoices:options=>{if(picker)picker.options=options;},render(value=read()){
+  return {button,number:picker?.button??number,setChoices:options=>{if(picker)picker.options=options;},setModulation(value){modulationValue=value;indicator.hidden=value==null;button.classList.toggle('modulating',value!=null);if(value!=null)button.style.setProperty('--mod-angle',`${-135+(value-min)/(getMax()-min||1)*270}deg`);button.title=format(read())+(value!=null?' → '+format(value):'');},render(value=read()){
     const upper=getMax();button.style.setProperty('--angle',`${-135+(value-min)/(upper-min||1)*270}deg`);button.setAttribute('aria-valuemax',upper);number.max=display(upper);button.setAttribute('aria-valuenow',value);button.setAttribute('aria-valuetext',format(value));if(picker)picker.render(value);else if(document.activeElement!==number)number.value=display(value);number.title=format(value);
   }};
 }
@@ -127,7 +129,7 @@ export function createPanel({parameters,readValues,setControl,format,disabled,di
       section.append(head,body);row.append(section);
     }
   });
-  return {render(v,overrides={}){
+  return {setModulations(records){const live=new Map((records??[]).map(c=>[targetKey(c.target),c.value]));for(const [id,field]of fields){const target=macroTarget?.(id);field.dial?.setModulation(target?live.get(targetKey(target)):null);}},render(v,overrides={}){
     for(const [id,f] of fields){const p=parameters[id],value=v[id],inactive=disabled(id,v);f.wrap.classList.toggle("inactive",inactive);for(const input of f.inputs)input.disabled=inactive;
       if(f.output)f.output.value=format(id,value);
       if(f.picker)f.picker.render(value,overrides[id]);

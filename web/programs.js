@@ -6,6 +6,7 @@ import {validateEffects,validateEffect,defaultEffect,effectsFromRdl} from './eff
 import {MAX_TIMBRES,INITIAL_TIMBRES} from './limits.js';
 import {extendValues} from './parameters.js';
 import {normalizeMacros} from './macros.js';
+import {validateModulation,remapModulationLane} from './modulation.js';
 // Routing, splits and live performance belong to the program's timbre slot.
 export const SLOT_PARAMETERS=new Set([71,72,119,120,137,138,139,150]);
 const slot=t=>{if(!Number.isInteger(t)||t<0||t>=MAX_TIMBRES)throw new Error('Invalid timbre slot.');};
@@ -36,7 +37,8 @@ export function normalizeProgram(raw,parameters){
   if(wrapped&&raw.engine?.effects==null&&raw.rdl?.program)engine.effects=effectsFromRdl(raw.rdl.program);
   for(const v of engine.timbres.slice(timbreCount))v[71]=0;
   const sequencer=validateSequence(wrapped?raw.sequencer:emptySequence());for(const track of sequencer.tracks.slice(timbreCount))track.enabled=false;
-  const result={kind:'rustias-program',version:2,timbreCount,engine,sequencer,samples,macros:normalizeMacros(wrapped?raw.macros:null),circuits:validateCircuits(wrapped?raw.circuits:null,engine.timbres),timbreInfo:timbreInfo(wrapped?raw.timbreInfo:null)};
+  const modulation=validateModulation(wrapped?raw.modulation:null);for(const lanes of modulation.tracks.slice(timbreCount))for(const lane of lanes)lane.enabled=false;
+  const result={kind:'rustias-program',version:2,timbreCount,engine,sequencer,modulation,samples,macros:normalizeMacros(wrapped?raw.macros:null),circuits:validateCircuits(wrapped?raw.circuits:null,engine.timbres),timbreInfo:timbreInfo(wrapped?raw.timbreInfo:null)};
   const rdl=validateRdlSource(wrapped?raw.rdl:null);if(rdl)result.rdl=rdl;
   if(wrapped&&raw.volume!=null){if(!Number.isFinite(raw.volume)||raw.volume<0||raw.volume>100)throw new Error('Invalid program volume.');result.volume=raw.volume;}
   return result;
@@ -44,6 +46,7 @@ export function normalizeProgram(raw,parameters){
 export function captureTimbre(raw,t,parameters,{sequence=false}={}){
   slot(t);const program=normalizeProgram(raw,parameters);
   const result={kind:'rustias-timbre',version:1,values:[...program.engine.timbres[t]],effects:structuredClone(program.engine.effects.slots.slice(2*t,2*t+2)),circuit:structuredClone(program.circuits.tracks[t]),library:program.samples.library.filter(p=>p.timbre===t).map(p=>({...structuredClone(p),timbre:0}))};
+  result.modulation=program.modulation.tracks[t].map(lane=>remapModulationLane(lane,t,0));
   if(sequence)result.sequence=structuredClone(program.sequencer.tracks[t]);
   if(program.engine.timbres[0][140]&&program.engine.timbres[0][141]===t){const v=program.engine.timbres[0];result.kit={drums:structuredClone(program.engine.drums),slots:structuredClone(program.samples.slots),gain:program.samples.kitGain,level:v[143],pan:v[144],transpose:v[145],instrument:v[142]};}
   if(program.rdl){result.rdl=structuredClone(program.rdl);result.rdl.unavailable=result.rdl.unavailable.filter(s=>s.timbre===t&&(s.drum==null||result.kit)).map(s=>({...s,timbre:0}));}
@@ -56,6 +59,7 @@ export function normalizeTimbre(raw,parameters){
   if(library.some(p=>p.timbre!==0))throw new Error('Invalid timbre sample ownership.');
   if(raw.effects!=null&&raw.effects.length!==2)throw new Error('Invalid timbre effects.');
   const result={kind:'rustias-timbre',version:1,values,circuit,library,effects:(raw.effects??[defaultEffect(),defaultEffect()]).map(p=>validateEffect(p,false))};
+  const modulation={version:1,tracks:Array.from({length:MAX_TIMBRES},()=>[])};modulation.tracks[0]=raw.modulation??[];result.modulation=validateModulation(modulation).tracks[0];
   if(raw.sequence!=null){const sequence=emptySequence();sequence.tracks[0]=raw.sequence;result.sequence=validateSequence(sequence).tracks[0];}
   if(raw.kit!=null){const kit=raw.kit;if(kit.drums?.length!==16)throw new Error('Invalid timbre drum kit.');
     const samples=validateSamples({...emptySamples(),slots:kit.slots,kitGain:kit.gain},parameters);
@@ -69,6 +73,7 @@ export function applyTimbre(raw,t,saved,parameters){
   slot(t);const program=normalizeProgram(raw,parameters),sound=normalizeTimbre(saved,parameters),destination=program.engine.timbres[t];
   for(const p of parameters)if(p.scope!=='global'&&!p.readonly&&!SLOT_PARAMETERS.has(p.id))destination[p.id]=sound.values[p.id];
   program.circuits.tracks[t]=structuredClone(sound.circuit);
+  program.modulation.tracks[t]=sound.modulation.map(lane=>remapModulationLane(lane,0,t));
   program.engine.effects.slots.splice(2*t,2,...structuredClone(sound.effects));
   if(sound.sequence)program.sequencer.tracks[t]=structuredClone(sound.sequence);
   // Preserve existing pattern sources; saved sound profiles override matching sources only.

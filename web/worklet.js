@@ -1,5 +1,7 @@
 import {SequenceClock,StepAudition} from "./sequence.js";
 import {RecordingTap} from './recording-tap.js';
+import {ModulationAutomation} from './modulation.js';
+import {ModulationHost} from './modulation-host.js';
 class RustiasProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
@@ -18,8 +20,11 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.manualNotes=new Set();this.sequenceNotes=new Map();this.auditionNotes=new Set();
     this.sequencer=new SequenceClock((t,n,v)=>this.ownedNote(t,n,v,true));
     this.audition=new StepAudition((t,n,v)=>this.ownedNote(t,n,v,"audition"));
+    this.modulationHost=new ModulationHost(this);
+    this.modulation=new ModulationAutomation(changes=>this.modulationHost.write(changes));
     this.port.onmessage = ({ data }) => {
       try {
+        if(['control','drum-control','library-control','effect','circuit','gain','drum-gain','midi','load'].includes(data.type))this.modulation.restore();
         if (data.type === 'record-start') this.recording.start(data.id);
         else if (data.type === 'record-stop') this.recording.stop(data.id);
         else if (data.type === "note") this.ownedNote(data.timbre,data.note,data.velocity,false);
@@ -52,7 +57,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
         }
         else if(data.type==='library-control'){this.wasm.rustias_library_control(data.id,data.parameter,data.value);this.wasm.rustias_library_sync();}
         else if (data.type === "drum-control") this.wasm.rustias_drum_control(data.instrument,data.parameter,data.value);
-        else if (data.type === "drum") this.wasm.rustias_drum_pad(data.instrument, data.velocity);
+        else if (data.type === "drum") {if(data.velocity&&!this.modulation.clock.running)this.modulation.clock.play();this.wasm.rustias_drum_pad(data.instrument, data.velocity);}
         else if (data.type === "load") {
           const json = JSON.stringify(data.program);
           if (json.length > this.wasm.rustias_preset_capacity()) throw new Error("Program exceeds the engine buffer.");
@@ -63,6 +68,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
           } else {
             this.wasm.rustias_rdl_mute(data.unavailable?.timbres??0,data.unavailable?.drums??0);
             this.sequencer.stop();this.audition.stop();this.manualNotes.clear();this.sequenceNotes.clear();this.auditionNotes.clear();
+            this.modulation.stop();
             this.sequencer.setTempo(this.wasm.rustias_value(0,89)/10);
             this.nativeIndex = 128; this.phase = 0;
             this.currentLeft = this.currentRight = this.nextLeft = this.nextRight = 0;
@@ -70,15 +76,17 @@ class RustiasProcessor extends AudioWorkletProcessor {
         }
         else if(data.type==='rdl-muted')this.wasm.rustias_rdl_mute(data.timbres,data.drums);
         else if (data.type === "midi") {
+          if((data.bytes[0]&240)===144&&data.bytes[2]&&!this.modulation.clock.running)this.modulation.clock.play();
           this.wasm.rustias_midi(...data.bytes);
           if ((data.bytes[0] & 240) === 176 || (data.bytes[0] & 240) === 224) this.snapshot(data.bytes);
         }
         else if(data.type==="audition")this.audition.play(data.timbre,data.step,this.wasm.rustias_value(0,89)/10,data.resolution);
         else if(data.type==="sequencer")this.sequencer.setConfig(data.config);
-        else if(data.type==="sequence-play")this.sequencer.play();
-        else if(data.type==="sequence-stop")this.sequencer.stop();
-        else if(data.type==="sequence-reset")this.sequencer.reset();
-        else if (data.type === "stop") {this.sequencer.stop();this.audition.stop();this.manualNotes.clear();this.sequenceNotes.clear();this.auditionNotes.clear();this.wasm.rustias_stop();}
+        else if(data.type==='modulation'){this.modulation.setState(data.state);this.modulationHost.setState(data.state);}
+        else if(data.type==="sequence-play"){this.sequencer.play();this.modulation.clock.play();}
+        else if(data.type==="sequence-stop"){this.sequencer.stop();this.modulation.stop();}
+        else if(data.type==="sequence-reset"){this.sequencer.reset();this.modulation.clock.reset();}
+        else if (data.type === "stop") {this.sequencer.stop();this.modulation.stop();this.audition.stop();this.manualNotes.clear();this.sequenceNotes.clear();this.auditionNotes.clear();this.wasm.rustias_stop();}
         else if(data.type==="sample"){
           const frames=data.data.length,pointer=this.wasm.rustias_sample_buffer(data.instrument,frames);
           let ok=false;
@@ -93,6 +101,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.port.postMessage({ type: "ready", sampleRate });
   }
   ownedNote(timbre,note,velocity,sequence){
+    if(velocity&&!this.modulation.clock.running)this.modulation.clock.play();
     const key=`${timbre}:${note}`,before=(this.sequenceNotes.get(key)??0)+(this.manualNotes.has(key)?1:0)+(this.auditionNotes.has(key)?1:0);
     if(sequence==="audition"){if(velocity)this.auditionNotes.add(key);else this.auditionNotes.delete(key);}
     else if(sequence){const count=Math.max(0,(this.sequenceNotes.get(key)??0)+(velocity?1:-1));if(count)this.sequenceNotes.set(key,count);else this.sequenceNotes.delete(key);}
@@ -105,7 +114,13 @@ class RustiasProcessor extends AudioWorkletProcessor {
     const length = this.wasm.rustias_save(), pointer = this.wasm.rustias_preset_buffer();
     const bytes = new Uint8Array(this.wasm.memory.buffer, pointer, length);
     let json = ""; for (let i = 0; i < length; i++) json += String.fromCharCode(bytes[i]);
-    this.port.postMessage({type: "state", program: JSON.parse(json),midi,libraryVolumes:[...this.libraryProfiles.values()].map(p=>({timbre:p.timbre,source:p.source,value:this.wasm.rustias_library_value(p.id,117)}))});
+    const program=JSON.parse(json);
+    if(midi)this.modulation.acceptValues(target=>{
+      if(target.kind==='synth'||target.kind==='global')return program.timbres[target.timbre??0][target.parameter];
+      if(target.kind==='drum')return program.drums[target.instrument][target.parameter];
+      if(target.kind==='sample'){const profile=this.libraryProfiles.get(target.timbre+':'+target.source);if(profile)return this.wasm.rustias_library_value(profile.id,target.parameter);}
+    });
+    this.port.postMessage({type: "state", program,midi,libraryVolumes:[...this.libraryProfiles.values()].map(p=>({timbre:p.timbre,source:p.source,value:this.wasm.rustias_library_value(p.id,117)}))});
   }
   fail(error) {
     this.failed = true;
@@ -115,6 +130,8 @@ class RustiasProcessor extends AudioWorkletProcessor {
   nativeSample() {
     if(this.block&&this.block.buffer!==this.wasm.memory.buffer)this.block=new Float32Array(this.wasm.memory.buffer,this.pointer,256);
     if (this.nativeIndex === 128) {
+      const tempo=this.wasm.rustias_value(0,89)/10;this.modulation.clock.setTempo(tempo);this.modulation.beforeRender(128);
+      const sequenceTempo=this.wasm.rustias_value(0,89)/10;if(sequenceTempo!==this.sequencer.tempo)this.sequencer.setTempo(sequenceTempo);
       this.sequencer.beforeRender(128);this.audition.beforeRender(128);
       const pointer = this.wasm.rustias_render();
       if (this.pointer !== pointer || this.block?.buffer !== this.wasm.memory.buffer) {
@@ -153,7 +170,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
         if (left[i] !== 0 || right[i] !== 0) this.audibleFrames++;
       }
       if (++this.callbacks % 20 === 0) {
-        this.port.postMessage({ type: "stats", voices: this.wasm.rustias_voices(), capacity:this.wasm.rustias_voice_capacity(), frames: this.wasm.rustias_frames(), audibleFrames: this.audibleFrames, peak: this.peak, callbacks: this.callbacks, sequence: this.sequencer.status() });
+        this.port.postMessage({ type: "stats", voices: this.wasm.rustias_voices(), capacity:this.wasm.rustias_voice_capacity(), frames: this.wasm.rustias_frames(), audibleFrames: this.audibleFrames, peak: this.peak, callbacks: this.callbacks, sequence: this.sequencer.status(),modulation:this.modulation.status() });
         this.peak = 0;
       }
     } catch (error) { this.fail(error); }

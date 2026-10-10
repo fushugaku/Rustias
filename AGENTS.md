@@ -16,6 +16,9 @@ four, six and nine even when that feature is enabled on a native test. Never ena
 desktop workspace. Browser sequencing, sample library, circuit UI and storage
 belong to `web/` and `crates/radias-web`, with no dependency from the native app.
 Program macros, their bipolar bindings and added-timbre count are browser data.
+Modulation sequencers also belong to the browser: their audio-clock adapter applies
+temporary offsets through the existing Rust C ABI and restores the base values.
+Never save playback offsets into program values or Macro base positions.
 
 The Pages workflow builds these sources on every push to `main`. Verify the real
 WASM with `node scripts/verify-web.mjs` and check UI changes in a browser, including

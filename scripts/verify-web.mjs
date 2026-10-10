@@ -18,6 +18,9 @@ import {verifyCircuitSwitch} from './verify-circuit-switch.mjs';
 import {readEffectCatalog,verifyEffects} from './verify-effects.mjs';
 import {RecordingTap} from '../web/recording-tap.js';
 import {verifyRecordings} from './verify-recordings.mjs';
+import {ModulationAutomation} from '../web/modulation.js';
+import {ModulationHost} from '../web/modulation-host.js';
+import {verifyModulation} from './verify-modulation.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
@@ -359,11 +362,12 @@ features.push(verifyEffects({api,catalog:effectCatalog,render,rms,control,save,l
 
 const reports = [];
 features.push(verifyRecordings());
+features.push(verifyModulation({parameters:schema,module,workletSource,sequenceSource}));
 for (const sampleRate of [48000, 44100]) {
   let Processor;
   const messages = [];
   vm.runInNewContext(sequenceSource + "\n" + workletSource.replace(/^import .*;\n/gm,""), {
-    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,timbreArray,
+    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,timbreArray,ModulationAutomation,ModulationHost,
     AudioWorkletProcessor: class { constructor() { this.port = { postMessage: message => messages.push(message) }; } },
     registerProcessor: (_name, processor) => { Processor = processor; },
   });
