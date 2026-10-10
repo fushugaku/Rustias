@@ -1,5 +1,8 @@
 //! Browser data port for the same effect rack used by the native player.
-use radias_synth_application::effect_audio::{EFFECT_SLOTS, EffectAudioRack, MASTER_EFFECT_SLOT};
+use radias_synth_application::{
+    effect_audio::{EFFECT_SLOTS, EffectAudioRack, MASTER_EFFECT_SLOT, effect_uses_master},
+    polyphony::TIMBRE_COUNT,
+};
 use radias_synth_domain::effect_audio::EffectAudioProgram;
 use radias_synth_infrastructure::effect_audio::{definition, prepare_rack};
 use serde::{Deserialize, Serialize};
@@ -35,7 +38,14 @@ impl From<Program> for EffectAudioProgram {
 #[serde(try_from = "InputState")]
 pub struct State {
     pub version: u8,
+    #[serde(serialize_with = "serialize_slots")]
     pub slots: [Program; EFFECT_SLOTS],
+}
+fn serialize_slots<S: serde::Serializer>(
+    slots: &[Program; EFFECT_SLOTS],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    slots.as_slice().serialize(serializer)
 }
 #[derive(Deserialize)]
 struct InputState {
@@ -45,11 +55,18 @@ struct InputState {
 impl TryFrom<InputState> for State {
     type Error = &'static str;
     fn try_from(input: InputState) -> Result<Self, Self::Error> {
-        if input.version != 1 || ![9, EFFECT_SLOTS].contains(&input.slots.len()) {
+        if input.version != 1
+            || ![9, 2 * TIMBRE_COUNT + 1, EFFECT_SLOTS].contains(&input.slots.len())
+            || input.slots.len() > EFFECT_SLOTS
+        {
             return Err("Invalid effect rack");
         }
         let mut state = Self::default();
-        let master = input.slots.len() - 1;
+        let master = if input.slots.len() == EFFECT_SLOTS {
+            MASTER_EFFECT_SLOT
+        } else {
+            input.slots.len() - 1
+        };
         for (i, p) in input.slots.into_iter().enumerate() {
             state.slots[if i == master { MASTER_EFFECT_SLOT } else { i }] = p;
         }
@@ -63,7 +80,7 @@ impl Default for State {
             slots: core::array::from_fn(|i| Program {
                 kind: 0,
                 enabled: false,
-                master: i == MASTER_EFFECT_SLOT,
+                master: effect_uses_master(i),
                 parameters: [0; 20],
             }),
         }

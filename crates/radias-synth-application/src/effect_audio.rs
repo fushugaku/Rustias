@@ -13,7 +13,23 @@ use radias_synth_domain::{
 
 use crate::polyphony::TIMBRE_COUNT;
 pub const MASTER_EFFECT_SLOT: usize = 2 * TIMBRE_COUNT;
-pub const EFFECT_SLOTS: usize = MASTER_EFFECT_SLOT + 1;
+// Keep the original insert and Master indices stable for saved browser bindings.
+#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+pub const TIMBRE_EFFECTS: usize = 4;
+#[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+pub const TIMBRE_EFFECTS: usize = 2;
+pub const EXTRA_EFFECT_START: usize = MASTER_EFFECT_SLOT + 1;
+pub const EFFECT_SLOTS: usize = EXTRA_EFFECT_START + TIMBRE_COUNT * (TIMBRE_EFFECTS - 2);
+pub const fn timbre_effect_slot(timbre: usize, role: usize) -> usize {
+    if role < 2 {
+        2 * timbre + role
+    } else {
+        EXTRA_EFFECT_START + 2 * timbre + role - 2
+    }
+}
+pub const fn effect_uses_master(slot: usize) -> bool {
+    slot == MASTER_EFFECT_SLOT || slot >= EXTRA_EFFECT_START && slot < EFFECT_SLOTS
+}
 pub struct EffectAudioRack {
     instances: [EffectAudioProcessor; EFFECT_SLOTS],
     memory: [Box<[f32]>; EFFECT_SLOTS],
@@ -83,8 +99,9 @@ impl EffectAudioRack {
         self.set_controller(timbre, 1, f32::from(velocity) / 127.0);
         self.set_controller(TIMBRE_COUNT, 1, f32::from(velocity) / 127.0);
         if first {
-            self.instances[2 * timbre].note_on();
-            self.instances[2 * timbre + 1].note_on();
+            for role in 0..TIMBRE_EFFECTS {
+                self.instances[timbre_effect_slot(timbre, role)].note_on();
+            }
         }
         if first_master {
             self.instances[MASTER_EFFECT_SLOT].note_on();
@@ -110,13 +127,13 @@ impl EffectAudioRack {
         let mut right = 0i64;
         for (timbre, input) in buses.into_iter().enumerate() {
             let mut sample = input;
-            for role in 0..2 {
+            for role in 0..TIMBRE_EFFECTS {
                 if role == 1
                     && matches!(self.instances[2 * timbre].settings().program.kind, 29 | 30)
                 {
-                    break;
+                    continue;
                 }
-                let slot = 2 * timbre + role;
+                let slot = timbre_effect_slot(timbre, role);
                 sample = self.instances[slot]
                     .process(sample, &mut self.memory[slot], &self.contexts[timbre])
                     .expect("Constructed effect storage and type");

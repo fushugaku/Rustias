@@ -3,7 +3,7 @@ import {emptySamples,validateSamples,migrateSampleAmplifiers} from './sample-sta
 import {defaultCircuit,validateCircuit,validateCircuits} from './circuit.js';
 import {validateRdlSource} from './rdl.js';
 import {validateEffects,validateEffect,defaultEffect,effectsFromRdl} from './effects.js';
-import {MAX_TIMBRES,INITIAL_TIMBRES} from './limits.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,TIMBRE_EFFECTS,timbreEffectSlots} from './limits.js';
 import {extendValues} from './parameters.js';
 import {normalizeMacros} from './macros.js';
 import {validateModulation,remapModulationLane} from './modulation.js';
@@ -56,7 +56,7 @@ export function normalizeProgram(raw,parameters){
 }
 export function captureTimbre(raw,t,parameters,{sequence=false}={}){
   slot(t);const program=normalizeProgram(raw,parameters);
-  const result={kind:'rustias-timbre',version:1,values:[...program.engine.timbres[t]],effects:structuredClone(program.engine.effects.slots.slice(2*t,2*t+2)),circuit:structuredClone(program.circuits.tracks[t]),library:program.samples.library.filter(p=>p.timbre===t).map(p=>({...structuredClone(p),timbre:0}))};
+  const result={kind:'rustias-timbre',version:1,values:[...program.engine.timbres[t]],effects:timbreEffectSlots(t).map(slot=>structuredClone(program.engine.effects.slots[slot])),circuit:structuredClone(program.circuits.tracks[t]),library:program.samples.library.filter(p=>p.timbre===t).map(p=>({...structuredClone(p),timbre:0}))};
   result.modulation=program.modulation.tracks[t].map(lane=>remapModulationLane(lane,t,0));
   if(sequence)result.sequence=structuredClone(program.sequencer.tracks[t]);
   if(program.engine.timbres[0][140]&&program.engine.timbres[0][141]===t){const v=program.engine.timbres[0];result.kit={drums:structuredClone(program.engine.drums),slots:structuredClone(program.samples.slots),gain:program.samples.kitGain,level:v[143],pan:v[144],transpose:v[145],instrument:v[142]};}
@@ -68,8 +68,8 @@ export function normalizeTimbre(raw,parameters){
   const values=normalizeValues(raw.values,parameters),circuit=validateCircuit(raw.circuit??defaultCircuit(values));
   const library=validateSamples({...emptySamples(),library:raw.library??[]},parameters).library;
   if(library.some(p=>p.timbre!==0))throw new Error('Invalid timbre sample ownership.');
-  if(raw.effects!=null&&raw.effects.length!==2)throw new Error('Invalid timbre effects.');
-  const result={kind:'rustias-timbre',version:1,values,circuit,library,effects:(raw.effects??[defaultEffect(),defaultEffect()]).map(p=>validateEffect(p,false))};
+  if(raw.effects!=null&&![2,TIMBRE_EFFECTS].includes(raw.effects.length))throw new Error('Invalid timbre effects.');
+  const result={kind:'rustias-timbre',version:1,values,circuit,library,effects:Array.from({length:TIMBRE_EFFECTS},(_,role)=>validateEffect(raw.effects?.[role]??defaultEffect(0,role>=2),role>=2))};
   const modulation={version:1,tracks:Array.from({length:MAX_TIMBRES},()=>[])};modulation.tracks[0]=raw.modulation??[];result.modulation=validateModulation(modulation).tracks[0];
   if(raw.sequence!=null){const sequence=emptySequence();sequence.tracks[0]=raw.sequence;result.sequence=validateSequence(sequence).tracks[0];}
   if(raw.kit!=null){const kit=raw.kit;if(kit.drums?.length!==16)throw new Error('Invalid timbre drum kit.');
@@ -85,7 +85,7 @@ export function applyTimbre(raw,t,saved,parameters){
   for(const p of parameters)if(p.scope!=='global'&&!p.readonly&&!SLOT_PARAMETERS.has(p.id))destination[p.id]=sound.values[p.id];
   program.circuits.tracks[t]=structuredClone(sound.circuit);
   program.modulation.tracks[t]=sound.modulation.map(lane=>remapModulationLane(lane,0,t));
-  program.engine.effects.slots.splice(2*t,2,...structuredClone(sound.effects));
+  timbreEffectSlots(t).forEach((slot,role)=>program.engine.effects.slots[slot]=structuredClone(sound.effects[role]));
   if(sound.sequence)program.sequencer.tracks[t]=structuredClone(sound.sequence);
   // Preserve existing pattern sources; saved sound profiles override matching sources only.
   const profiles=new Map(program.samples.library.map(p=>[`${p.timbre}:${p.source}`,p]));

@@ -1,4 +1,4 @@
-import {MAX_TIMBRES,INITIAL_TIMBRES} from './limits.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,effectTimbre,effectRole,timbreEffectSlot} from './limits.js';
 import {RESOLUTIONS} from './sequence.js';
 import {macroTarget,targetKey,macroOffset} from './macros.js';
 
@@ -130,6 +130,6 @@ export class ModulationAutomation {
 export function remapModulationLane(lane,from,to){
   const copy=JSON.parse(JSON.stringify(lane)),target=copy.target;
   if(target&&['synth','sample','module'].includes(target.kind)&&target.timbre===from)target.timbre=to;
-  if(target?.kind==='effect'&&Math.floor(target.slot/2)===from)target.slot=2*to+target.slot%2;
+  if(target?.kind==='effect'&&effectTimbre(target.slot)===from)target.slot=timbreEffectSlot(to,effectRole(target.slot));
   return copy;
 }

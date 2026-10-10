@@ -1,4 +1,4 @@
-import {MASTER_EFFECT_SLOT} from './limits.js';
+import {MASTER_EFFECT_SLOT,TIMBRE_EFFECTS,timbreEffectSlot,effectUsesMaster} from './limits.js';
 import {bindMacroTarget} from './macro-gesture.js';
 import {makePicker,makeDial} from './panel.js';
 import {emptyEffects,validateEffects,defaultEffect,effectDefinitions} from './effects.js';
@@ -6,11 +6,11 @@ import {effectChoices,effectValueLabel,effectPropertyLabel,effectFieldState} fro
 export function createEffectsPanel({getSelected,onChange,onError}){
   let config=emptyEffects(),views=[];
   const root=document.querySelector('#effects');
-  const slot=role=>role===2?MASTER_EFFECT_SLOT:getSelected()*2+role;
+  const slot=role=>role===TIMBRE_EFFECTS?MASTER_EFFECT_SLOT:timbreEffectSlot(getSelected(),role);
   function update(i,fn,rebuild=false,parameter){try{fn(config.slots[i]);onChange(i,structuredClone(config.slots[i]),parameter);rebuild?render():refresh();}catch(error){onError(error);}}
   function render(){root.replaceChildren();views=[];
-    for(let role=0;role<3;role++){
-      const i=slot(role),master=role===2,fx=config.slots[i],label=master?'MASTER FX':`INSERT FX ${role+1}`,aria=master?'Master FX':`Timbre ${getSelected()+1} Insert FX ${role+1}`;
+    for(let role=0;role<=TIMBRE_EFFECTS;role++){
+      const i=slot(role),shared=role===TIMBRE_EFFECTS,master=effectUsesMaster(i),fx=config.slots[i],label=shared?'MASTER FX':role<2?`INSERT FX ${role+1}`:`TIMBRE FX ${role+1}`,aria=shared?'Master FX':`Timbre ${getSelected()+1} ${role<2?'Insert ':''}FX ${role+1}`;
       const module=document.createElement('section'),heading=document.createElement('div'),title=document.createElement('h2'),power=document.createElement('button'),controls=document.createElement('div'),type=document.createElement('div'),body=document.createElement('div');
       module.className='module fx-module';module.setAttribute('aria-label',aria);heading.className='module-heading';title.textContent=label;power.type='button';power.className='fx-power';power.setAttribute('aria-label',`${aria} enabled`);power.addEventListener('click',()=>update(i,p=>p.enabled=!p.enabled));heading.append(title,power);
       type.className='fx-type';const definitions=effectDefinitions(master),definition=definitions[fx.kind],picker=makePicker({label:`${aria} type`,value:fx.kind,options:definitions.map(d=>({value:d.kind,label:d.name})),searchable:true,searchLabel:`Search ${aria} effects`,onChange:kind=>update(i,()=>config.slots[i]=defaultEffect(kind,master),true)});type.append(picker.button);body.className='module-controls fx-properties';

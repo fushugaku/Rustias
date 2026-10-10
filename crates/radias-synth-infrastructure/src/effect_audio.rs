@@ -1,6 +1,8 @@
 //! Stored-program and immutable-table adapter for audible native effects.
 //! The backend is explicitly unqualified against original FXD03 audio.
-use radias_synth_application::effect_audio::{EFFECT_SLOTS, EffectAudioRack, MASTER_EFFECT_SLOT};
+use radias_synth_application::effect_audio::{
+    EFFECT_SLOTS, EffectAudioRack, MASTER_EFFECT_SLOT, effect_uses_master,
+};
 use radias_synth_domain::{
     delay_time::{DelayClock, DelayTimeState},
     effect_audio::{
@@ -66,7 +68,10 @@ pub fn programs_from_stored(program: &Program) -> [EffectAudioProgram; EFFECT_SL
         } else if i == MASTER_EFFECT_SLOT {
             native[8]
         } else {
-            EffectAudioProgram::default()
+            EffectAudioProgram {
+                master: effect_uses_master(i),
+                ..Default::default()
+            }
         }
     })
 }
@@ -76,7 +81,7 @@ pub fn prepare_rack(
 ) -> Result<Box<EffectAudioRack>, String> {
     let mut settings = [EffectAudioSettings::default(); EFFECT_SLOTS];
     for (slot, p) in programs.into_iter().enumerate() {
-        if p.master != (slot == MASTER_EFFECT_SLOT) {
+        if p.master != effect_uses_master(slot) {
             return Err("Effect bank/slot mismatch".into());
         }
         settings[slot] = compile(p, tempo).map_err(|e| format!("FX {}: {e}", slot + 1))?;
@@ -390,6 +395,27 @@ mod tests {
         effect_audio::{DELAY_WORDS, EffectAudioContext, EffectAudioProcessor},
         pan::StereoFrame,
     };
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn browser_expansion_preserves_the_native_effect_rack() {
+        use radias_synth_application::{effect_audio::TIMBRE_EFFECTS, polyphony::TIMBRE_COUNT};
+        assert_eq!(
+            (
+                TIMBRE_COUNT,
+                TIMBRE_EFFECTS,
+                MASTER_EFFECT_SLOT,
+                EFFECT_SLOTS
+            ),
+            (4, 2, 8, 9)
+        );
+        let programs = core::array::from_fn(|slot| default_program(0, slot == 8).unwrap());
+        let rack = prepare_rack(programs, 1200).unwrap();
+        assert_eq!(rack.programs(), programs);
+        assert_eq!(
+            rack.delay_storage_bytes(),
+            9 * DELAY_WORDS * core::mem::size_of::<f32>()
+        );
+    }
     #[test]
     fn generated_catalog_and_tables_equal_the_pinned_system() {
         let root = crate::reference_root();

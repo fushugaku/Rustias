@@ -11,10 +11,13 @@ Keep desktop parity intact: the native fixed graph, 24 voices, physical controll
 scheduling, and original reference workflows must remain unchanged. Modular
 routing is guarded by `web-modular`; expanded allocation is guarded by
 `web-polyphony` AND the WASM target. Eight timbres, eight virtual patches and
-seventeen FX slots require `web-expanded` AND the WASM target; native sizes stay
+thirty-three FX slots require `web-expanded` AND the WASM target; native sizes stay
 four, six and nine even when that feature is enabled on a native test. Never enable those features in the original
 desktop workspace. Browser sequencing, sample library, circuit UI and storage
 belong to `web/` and `crates/radias-web`, with no dependency from the native app.
+Browser FX 3/4 use the Master catalog but the owning timbre's context and stereo
+bus, before the shared Master. Original insert indices 0–15 and Master 16 remain
+stable; the added timbre pairs occupy 17–32. Native racks keep two inserts.
 Program macros, their bipolar bindings and added-timbre count are browser data.
 Modulation sequencers also belong to the browser: their audio-clock adapter applies
 temporary offsets through the existing Rust C ABI and restores the base values.

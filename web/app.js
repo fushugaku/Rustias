@@ -1,4 +1,4 @@
-import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray} from './limits.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray,effectUsesMaster,effectTimbre,effectRole,timbreEffectSlots} from './limits.js';
 import {webParameters} from './parameters.js';
 import {createMacrosPanel} from './macros-ui.js';
 import {createModulationEditor} from './modulation-ui.js';
@@ -116,8 +116,8 @@ function parameterTarget(id){
 }
 function resolveMacro(target){
   if(target.kind==='effect'){
-    const fx=fxUI?.getSlot(target.slot),p=effectDefinitions(target.slot===MASTER_EFFECT_SLOT)[target.effectKind]?.properties[target.parameter];
-    if(!p)return null;return {label:`${target.slot===MASTER_EFFECT_SLOT?'Master FX':`T${Math.floor(target.slot/2)+1} · Insert ${target.slot%2+1}`} · ${p.name}`,min:p.min+p.zero,max:p.max+p.zero,read:()=>fx.parameters[target.parameter],available:fx?.kind===target.effectKind&&(target.slot===MASTER_EFFECT_SLOT||Math.floor(target.slot/2)<timbreCount)};
+    const fx=fxUI?.getSlot(target.slot),p=effectDefinitions(effectUsesMaster(target.slot))[target.effectKind]?.properties[target.parameter],owner=effectTimbre(target.slot),role=effectRole(target.slot);
+    if(!p)return null;return {label:`${owner==null?'Master FX':`T${owner+1} · ${role<2?'Insert ': 'FX '}${role+1}`} · ${p.name}`,min:p.min+p.zero,max:p.max+p.zero,read:()=>fx.parameters[target.parameter],available:fx?.kind===target.effectKind&&(owner==null||owner<timbreCount)};
   }
   if(target.kind==='module'){
     const node=circuitUI?.getNode(target.timbre,target.node),def=MODULES[target.moduleKind],control=def?.controls?.[target.control];if(!control)return null;
@@ -145,6 +145,7 @@ function modulationTargets(t){
     add({kind:'drum',instrument,parameter});
   }
   for(const profile of samples?.library??[])if(profile.timbre===t)for(const parameter of ids){if(parameter>=59&&parameter<=72||parameter>=118&&parameter<=120)continue;add({kind:'sample',timbre:t,source:profile.source,parameter});}
+  for(const slot of [...timbreEffectSlots(t),MASTER_EFFECT_SLOT]){const fx=fxUI?.getSlot(slot);if(fx?.kind)effectDefinitions(effectUsesMaster(slot))[fx.kind].properties.forEach((_,parameter)=>add({kind:'effect',slot,effectKind:fx.kind,parameter}));}
   for(let macro=0;macro<8;macro++){const label='Macro '+(macro+1),name=knobs[macro]?.name;result.push({value:'macro:'+macro,label:label+(name&&name!==label?' · '+name:''),target:{kind:'macro',macro}});}
   return result;
 }
@@ -162,7 +163,7 @@ function syncAutomation(){
 function writeMacros(changes){
   const circuits=new Set(),effects=new Set();
   for(const {target,value}of changes){
-    if(target.kind==='effect'){fxUI.setParameter(target.slot,target.parameter,value);effects.add(target.slot);if(target.slot!==MASTER_EFFECT_SLOT)markTimbre(Math.floor(target.slot/2));}
+    if(target.kind==='effect'){fxUI.setParameter(target.slot,target.parameter,value);effects.add(target.slot);const owner=effectTimbre(target.slot);if(owner!=null)markTimbre(owner);}
     else if(target.kind==='module'){circuitUI.setParameter(target.timbre,target.node,target.control,value);circuits.add(target.timbre);markTimbre(target.timbre);}
     else if(target.kind==='kit-gain')sampleUI.setGain(value);
     else if(target.kind==='volume'){$('#volume').value=value;send({type:'gain',value:value/100});}
@@ -497,7 +498,7 @@ sampleUI=createDrumSamples({parameters,getDrumValues:i=>drums[i],getEditingSampl
 }});
 sampleUI.ready.then(()=>{sequenceUI.setSamples(sampleUI.options());updateControls();},()=>{});
 circuitUI=createCircuitEditor({getValues:values,getSelected:()=>selected,onError:showError,onChange:(_config,audio,target)=>{macroUI?.rebase(target);markTimbre();if(audio){$("#error").hidden=true;sendCircuits(selected);}scheduleSession();}});
-fxUI=createEffectsPanel({getSelected:()=>selected,onError:showError,onChange:(slot,program,parameter)=>{if(parameter!=null)macroUI?.rebase({kind:'effect',slot,effectKind:program.kind,parameter});slot===MASTER_EFFECT_SLOT?markProgram():markTimbre(Math.floor(slot/2));send({type:'effect',slot,program});updateControls();scheduleSession();}});
+fxUI=createEffectsPanel({getSelected:()=>selected,onError:showError,onChange:(slot,program,parameter)=>{if(parameter!=null)macroUI?.rebase({kind:'effect',slot,effectKind:program.kind,parameter});const owner=effectTimbre(slot);owner==null?markProgram():markTimbre(owner);send({type:'effect',slot,program});updateControls();scheduleSession();}});
 macroUI=createMacrosPanel({resolve:resolveMacro,write:writeMacros,onError:showError,onChange:()=>{markProgram();updateControls();scheduleSession();}});bindMacroTarget($('#volume'),()=>({kind:'volume'}));
 recorder=createRecorder({ensureAudio:startAudio,getAudio:()=>context,send,onError:showError,getProgram:()=>{const saved=patchStore.list().find(p=>p.id===activeSavedPatch);return {key:saved?`program:${saved.id}`:'unsaved',name:saved?.name??'Unsaved program'};}});
 refreshLibrary();

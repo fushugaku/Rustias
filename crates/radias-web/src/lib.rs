@@ -1,6 +1,6 @@
 //! Firmware-free native synthesizer C ABI for an AudioWorklet.
 use radias_synth_application::{
-    effect_audio::{EFFECT_SLOTS, MASTER_EFFECT_SLOT},
+    effect_audio::{EFFECT_SLOTS, effect_uses_master},
     polyphony::TIMBRE_COUNT,
 };
 use radias_synth_infrastructure::standalone::{PARAMETER_COUNT, StandaloneSynth};
@@ -49,7 +49,7 @@ pub extern "C" fn rustias_effect(slot: u32, length: u32) -> u32 {
         let Ok(p) = serde_json::from_slice::<effects::Program>(&e.preset[..length as usize]) else {
             return 0;
         };
-        if p.master != (slot as usize == MASTER_EFFECT_SLOT) {
+        if p.master != effect_uses_master(slot as usize) {
             return 0;
         }
         let Ok(settings) = radias_synth_infrastructure::effect_audio::compile(

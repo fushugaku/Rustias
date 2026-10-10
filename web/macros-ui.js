@@ -1,3 +1,4 @@
+import {effectTimbre} from './limits.js';
 import {MacroBank,MACRO_COUNT,MACRO_BINDINGS,targetKey} from './macros.js';
 import {makeDial} from './panel.js';
 import {setMacroAssignmentHandler} from './macro-gesture.js';
@@ -27,5 +28,5 @@ export function createMacrosPanel({resolve,write,onChange,onError}){
   $('#macro-close').addEventListener('click',()=>dialog.close());dialog.addEventListener('close',()=>{pending=null;});
   $('#macro-name').addEventListener('input',()=>{const name=$('#macro-name').value.trim();if(name){bank.config.knobs[editing].name=name;refresh();onChange();}});$('#macro-name').addEventListener('blur',()=>{$('#macro-name').value=bank.config.knobs[editing].name;});
   setMacroAssignmentHandler(assign);refresh();
-  return {getConfig:()=>bank.getConfig(),setConfig(raw){bank.setConfig(raw);if(dialog.open)dialog.close();refresh();},setLiveValues:values=>views.forEach((view,i)=>view.dial.setModulation(values?.[i])),rebase:target=>bank.rebase(target),rebaseTimbre(t){for(const base of bank.config.bases)if(base.target.timbre===t||base.target.kind==='effect'&&Math.floor(base.target.slot/2)===t)bank.rebase(base.target);},refresh};
+  return {getConfig:()=>bank.getConfig(),setConfig(raw){bank.setConfig(raw);if(dialog.open)dialog.close();refresh();},setLiveValues:values=>views.forEach((view,i)=>view.dial.setModulation(values?.[i])),rebase:target=>bank.rebase(target),rebaseTimbre(t){for(const base of bank.config.bases)if(base.target.timbre===t||base.target.kind==='effect'&&effectTimbre(base.target.slot)===t)bank.rebase(base.target);},refresh};
 }
