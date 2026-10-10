@@ -21,6 +21,7 @@ import {verifyRecordings} from './verify-recordings.mjs';
 import {ModulationAutomation} from '../web/modulation.js';
 import {ModulationHost} from '../web/modulation-host.js';
 import {verifyModulation} from './verify-modulation.mjs';
+import {verifySequenceView} from './verify-sequence-view.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
@@ -61,6 +62,7 @@ function load(program) {
   return api.rustias_load(data.length);
 }
 const features=[];
+features.push(verifySequenceView());
 features.push(...verifyExpanded({api,parameters:schema,catalog:effectCatalog,control,render,rms,save,load}));
 features.push(verifyCircuitDrag());
 features.push(...verifyRdl(module).features);

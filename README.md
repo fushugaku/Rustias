@@ -8,7 +8,7 @@ The project is under development. Individual algorithms and recorded scenarios a
 
 ## WebAssembly
 
-[Play the synthesizer](https://fushugaku.github.io/Rustias/).
+[Play the synthesizer](https://fushugaku.github.io/Rustias/) · [New interface](https://fushugaku.github.io/Rustias/?interface=new).
 
 The browser instrument runs **without firmware**. The shared Rust generator in `radias-synth-infrastructure::synthesizer` produces audio inside a Web Audio `AudioWorklet`. JavaScript forwards controls and plays the generated samples. The web build does not use the SH3/C55 interpreter or SYS images and does not bundle RDL banks or factory PCM ROM. Users can import their own RDL programs. Browser drum samples are separate local files or the bundled drum libraries.
 
@@ -35,6 +35,18 @@ Click **Start audio** to enable playback. All synthesis sections stay on the sam
 New sample assignments and **808 kit** / **909 kit** start with Filter1 LPF24 (Morph 0) at maximum cutoff. Morph 127 is the near-dry Thru endpoint and is labelled in the filter heading. On previously saved kits, set Morph to 0 for an audible low-pass sweep. Native and PCM allocation share a 128-voice browser limit; oldest voices are stolen when it fills. PCM oscillator, Mono/Unison, portamento and damper controls are inactive. One-shot ignores key release, so EG release controls are inactive until Gate or Loop is selected. LFO/EG modulation needs an active virtual-patch route or filter EG intensity.
 
 Dials support vertical drag, Shift for fine adjustment, wheel, arrow/Page/Home/End keys, direct numeric entry and double-click reset. The full-screen button expands the instrument. Desktop uses a compact full-width rack; additional timbres and effects extend its scrollable content. Smaller screens use larger touch targets.
+
+### New interface
+
+**New interface** opens in a separate browser tab. It uses the same Rust engine, controls, program library, sample profiles and recordings as **Classic**. The shared DSP, AudioWorklet clock and desktop instrument are unchanged.
+
+The header keeps Program, Timbre sound, Save, BPM, Play and Record available. **Files** contains Import, Export and the RDL report; **Controls** contains audio/MIDI and performance controls. Eight macros sit below the header with target summaries and their assignment pencils. **Macros** and **Keyboard** fold these areas; macro visibility is remembered separately for desktop and phone.
+
+The synthesis rack follows signal order, with OSC / Filters / Mod / Patch / Voice / Drums shortcuts. The effects column keeps unused slots compact and offers independent parameter folding; Master is separated from the four timbre stages. **Build** adds Fit, a clickable minimap, readable port labels and highlights the selected module's cables.
+
+Drag the separator above the sequencer to resize it, or focus it and use Up/Down/Home/End. The overview shows all 128 stored steps in eight blocks. **Steps** shows every timbre; **Piano roll** and **Samples** show the selected track. Click a grid cell to toggle an event and audition the resulting chord. The row picker searches the full sample library. Step properties open alongside the grid, allowing sound edits during sequencing; on a phone they appear below it. **Select**, endpoint taps or Shift-click select a range for Copy/Paste, including across timbres. Note divisions produce a musical bar/beat ruler. Opening a Mod Sequence gives its controls the editor area until closed.
+
+Layout preferences stay local and separate from sound programs. Save, Save copy, timbre loading, RDL/JSON imports and recording folders retain their existing behavior in both interfaces.
 
 New programs start with four timbres. **+** beside the timbre tabs adds another sound and sequencer lane, up to eight. Each timbre has its own MIDI channel, module graph, source profiles and four effects. All timbres share the 128-voice pool and Master FX. Older four-timbre programs retain their original sounds; unused new slots stay disabled.
 

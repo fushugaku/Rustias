@@ -1,5 +1,17 @@
 # Rustias browser instrument
 
+## New interface
+
+`?interface=new` is a second presentation of the same controls, not a DSP fork. Classic/New interface navigation opens the other presentation in a separate browser tab. Keep the Classic layout below intact; all new selectors are scoped to `.new-interface`. `new-interface.js` reparents original controls before the circuit editor captures their parents. `sequence-workspace.js` observes the canonical sequencer API; its pure display helpers live in `sequence-view.js`. Playback clocks, program formats and audio processing are shared.
+
+Desktop uses a compact two-row dark header, eight macros with target summaries, an internally scrolling silver synthesis rack, a 320px FX column and a resizable sequencer dock. Program/Save/Timbre remain adjacent; BPM/Play/Record share the transport row. Files and Controls use anchored popovers. Macros and Keyboard fold independently. Rack section shortcuts scroll only the rack. Master has a stronger separator; empty FX slots stay compact and active parameters can fold independently.
+
+Sequence views: Steps keeps all lanes; Piano roll and Samples edit the selected lane. A 128-step overview retains muted events and events outside shortened loops. Grid rows show exact MIDI pitches or kit/direct sample identities, with velocity opacity and gate length; blue selection/editor outlines stay distinct from the red playback underline. Select + endpoints works on touch; Shift-click selects a range on desktop. Step properties use the original dialog nonmodally as a right inspector, so synthesizer controls remain usable. An open Mod Sequence replaces the roll area with its own scrolling controls. The separator supports pointer drag and keyboard Up/Down/Home/End. Layout preferences are separate from programs.
+
+At ≤800px use a sticky three-row header, a timbre dropdown plus Add, and aligned 44px transport controls. Keep page width within the viewport; grid scrolling stays internal. Macros default folded with a separate phone preference, effects can fold, and the inspector stacks below the pattern and scrolls into view below the header. Sound section shortcuts must not scroll the whole page. Build owns a flex viewport with Fit, selected cable emphasis and a minimap inside the canvas workspace, never overlapping its toolbar. Preserve readable native units, dependency states and original dial interaction throughout.
+
+## Classic interface
+
 The silver RADIAS faceplate, dark fluted knobs, blue LCD and red note pads are the signature. All 155 implemented native parameters plus eight controls for browser Patch 7/8 share one full-width rack; only timbre selection changes its editing context. Signal flow: oscillators/mixer/filters/Drive, three envelopes and two LFOs, eight virtual patches, then voice/pitch/amplifier/MIDI/tuning/drums. Up to eight sequencer lanes and the keyboard sit below. No category tabs or decorative cards.
 
 Tokens: plate #cbd0d5, inset #b7bec5, border #a4adb5, ink #262b30, secondary #46515b, toolbar #202327, LCD #c7dfeb with ink #334d61, red pads #d66169, focus #3e6380. Four-pixel spacing unit, three-pixel corners; only knobs/LEDs are circular. Arial/Helvetica for lettering, system monospace for values. Use rules to divide modules, recessed LCD shadows and fluted physical dials.

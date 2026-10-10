@@ -4,9 +4,10 @@ import {copySteps,pasteSteps} from './sequence-edit.js';
 import {makePicker,isChoosing} from './panel.js';
 import {noteName,sequenceLabels} from './sequence-labels.js';
 const $=selector=>document.querySelector(selector);
-export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,onSelectDrum,onAudition,onSample,onEditSample,onCopySamples,onUploadSample,onError}){
+export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,onSelectDrum,onAudition,onSample,onEditSample,onCopySamples,onUploadSample,onError,inline=false}){
   let sequence=emptySequence(),playing=false,editing,octave=4,drumKit=null,drumKey='null',sampleOptions=[],positions=timbreArray(-1),timbreCount=INITIAL_TIMBRES,selection,cursor,clipboard,selecting=false,drag,suppressClick=false,undo,notice='',epoch=0;
-  const tracks=[],dialog=$('#step-editor'),notes=$('#step-notes'),velocity=$('#step-velocity'),gate=$('#step-gate');
+  const tracks=[],listeners=new Set(),dialog=$('#step-editor'),notes=$('#step-notes'),velocity=$('#step-velocity'),gate=$('#step-gate');
+  const publish=type=>listeners.forEach(listener=>listener({type,playing,positions:[...positions]}));
   const kitFor=timbre=>drumKit?.timbre===timbre?drumKit:null;
   const sampleName=source=>sampleOptions.find(o=>o.value===source)?.label??source;
   const labels=(step,timbre)=>[...sequenceLabels(step.notes,kitFor(timbre)),...step.samples.map(sampleName)];
@@ -23,6 +24,13 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
     });
     $('#seq-play').textContent=playing?'Stop':'Play';$('#seq-play').setAttribute('aria-pressed',playing);$('#seq-select').setAttribute('aria-pressed',selecting);$('#seq-copy').disabled=!selection&&!editing;$('#seq-paste').disabled=!clipboard||!destination();$('#step-paste').disabled=!clipboard;$('#seq-undo').disabled=!undo;
     $('#seq-selection').textContent=notice||(selection?`T${selection.timbre+1} · ${Math.min(selection.start,selection.end)+1}–${Math.max(selection.start,selection.end)+1}`:clipboard?`${clipboard.steps.length} copied`:'');
+    publish('change');
+  }
+  function openStep(timbre,step){
+    if(!Number.isInteger(timbre)||timbre<0||timbre>=timbreCount||!Number.isInteger(step)||step<0||step>=STEPS)return;
+    if(inline)onSelectTimbre(timbre);
+    cursor={timbre,step};selection=null;notice='';editing={...cursor};tracks[timbre].bank=Math.floor(step/VIEW_STEPS);renderEditor();
+    if(!dialog.open)inline?dialog.show():dialog.showModal();render();
   }
   function audition(timbre,step){onAudition(timbre,structuredClone(step),sequence.tracks[timbre].resolution);}
   async function addSample(source,target=editing){
@@ -65,7 +73,8 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
   function paste(){const target=destination();if(!target||!clipboard)return;undo=structuredClone(sequence);const result=pasteSteps(sequence,clipboard,target.timbre,target.step);onCopySamples(clipboard.timbre,target.timbre,result.sequence.tracks[target.timbre].steps.slice(target.step,target.step+result.count).flatMap(s=>s.samples));sequence=result.sequence;selection={timbre:target.timbre,start:target.step,end:target.step+result.count-1};notice=`${result.count} pasted${result.truncated?' · end of pattern':''}`;selecting=false;commit();renderEditor();}
   for(let timbre=0;timbre<MAX_TIMBRES;timbre++){
     const group=document.createElement('div'),modPanel=document.createElement('div'),modToggle=document.createElement('button');group.className='sequence-lane';modPanel.className='modulation-panel';modPanel.id='modulation-timbre-'+timbre;modPanel.hidden=true;modPanel.setAttribute('role','region');modPanel.setAttribute('aria-label','Mod sequences timbre '+(timbre+1));
-    modToggle.type='button';modToggle.className='modulation-toggle';modToggle.textContent='▸';modToggle.setAttribute('aria-label','Mod sequences timbre '+(timbre+1));modToggle.setAttribute('aria-expanded','false');modToggle.setAttribute('aria-controls',modPanel.id);modToggle.addEventListener('click',()=>{modPanel.hidden=!modPanel.hidden;modToggle.setAttribute('aria-expanded',!modPanel.hidden);modToggle.textContent=modPanel.hidden?'▸':'▾';if(!modPanel.hidden)onSelectTimbre(timbre);modPanel.dispatchEvent(new Event('modulation-open'));});
+    group.dataset.sequenceTimbre=timbre;
+    modToggle.type='button';modToggle.className='modulation-toggle';modToggle.textContent='▸';modToggle.setAttribute('aria-label','Mod sequences timbre '+(timbre+1));modToggle.setAttribute('aria-expanded','false');modToggle.setAttribute('aria-controls',modPanel.id);modToggle.addEventListener('click',()=>{modPanel.hidden=!modPanel.hidden;modToggle.setAttribute('aria-expanded',!modPanel.hidden);modToggle.textContent=modPanel.hidden?'▸':'▾';if(!modPanel.hidden)onSelectTimbre(timbre);modPanel.dispatchEvent(new Event('modulation-open'));publish('change');});
     const row=document.createElement('div'),head=document.createElement('div'),select=document.createElement('button'),enable=document.createElement('button'),grid=document.createElement('div');row.className='sequence-track';head.className='track-head';grid.className='track-steps';
     select.type='button';select.textContent=`T${timbre+1}`;select.className='track-select';select.setAttribute('aria-label',`Edit timbre ${timbre+1}`);select.addEventListener('click',()=>onSelectTimbre(timbre));
     enable.type='button';enable.className='track-enable';enable.setAttribute('aria-label',`Sequencer timbre ${timbre+1} enabled`);enable.innerHTML='<span class="switch-led"></span>';enable.addEventListener('click',()=>{sequence.tracks[timbre].enabled=!sequence.tracks[timbre].enabled;commit();});
@@ -89,7 +98,7 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
         const index=view.bank*VIEW_STEPS+local;if(suppressClick){suppressClick=false;return;}
         if(event.altKey){sequence.tracks[timbre].steps[index]={notes:[],samples:[],velocity:100,gate:75};commit();return;}
         if(event.shiftKey||selecting){const anchor=selection?.timbre===timbre?selection.start:cursor?.timbre===timbre?cursor.step:index;selecting=true;selectRange(timbre,anchor,index);return;}
-        cursor={timbre,step:index};selection=null;notice='';editing={...cursor};renderEditor();dialog.showModal();render();
+        openStep(timbre,index);
       });grid.append(button);return button;
     });row.append(head,grid);group.append(row,settingsPanel,modPanel);$('#sequence-tracks').append(group);Object.assign(view,{group,row,settingsPanel,modPanel,modToggle,enable,length,resolution,block,steps});tracks.push(view);
   }
@@ -116,6 +125,7 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
   document.addEventListener('keydown',event=>{
     if(textInput(event.target)||isChoosing())return;
     if(event.ctrlKey||event.metaKey){const key=event.key.toLowerCase();if(key==='c'&&(selection||editing)){event.preventDefault();copy();}else if(key==='v'&&clipboard&&destination()){event.preventDefault();paste();}else if(key==='a'&&cursor){event.preventDefault();selecting=true;selectRange(cursor.timbre,0,sequence.tracks[cursor.timbre].length-1);}else if(key==='z'&&undo){event.preventDefault();$('#seq-undo').click();}}
+    else if(event.key==='Escape'&&inline&&dialog.open)dialog.close();
     else if(event.key==='Escape'&&!dialog.open){selection=null;selecting=false;notice='';render();}
   });
   render();
@@ -123,8 +133,22 @@ export function createSequencer({onChange,onPlay,onStop,onReset,onSelectTimbre,o
     modulationPanels:tracks.map(view=>view.modPanel),setModulationCounts:counts=>{tracks.forEach((view,t)=>{view.modToggle.classList.toggle('has-modulation',counts[t]>0);view.modToggle.title='Mod sequences '+counts[t]+' / 6';});},
     setSamples:options=>{sampleOptions=options;sourcePicker.options=options;render();if(editing)renderEditor();},
     setDrumKit:kit=>{const key=JSON.stringify(kit);if(key===drumKey)return;drumKey=key;drumKit=kit;render();if(editing)renderEditor();},
-    setStatus:status=>{playing=status.running;positions=[...status.positions];tracks.forEach((view,t)=>view.steps.forEach((button,local)=>button.classList.toggle('current',status.positions[t]===view.bank*VIEW_STEPS+local)));$('#seq-play').textContent=playing?'Stop':'Play';$('#seq-play').setAttribute('aria-pressed',playing);},
+    setStatus:status=>{playing=status.running;positions=[...status.positions];tracks.forEach((view,t)=>view.steps.forEach((button,local)=>button.classList.toggle('current',status.positions[t]===view.bank*VIEW_STEPS+local)));$('#seq-play').textContent=playing?'Stop':'Play';$('#seq-play').setAttribute('aria-pressed',playing);publish('status');},
     setTimbreCount:count=>{timbreCount=count;render();},
-    setReady:ready=>{$('#seq-play').disabled=!ready;}
+    setReady:ready=>{$('#seq-play').disabled=!ready;},
+    subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener);},
+    getView:()=>({banks:tracks.map(view=>view.bank),editing:editing?{...editing}:null,selection:selection?{...selection}:null,cursor:cursor?{...cursor}:null,selecting,positions:[...positions],timbreCount}),
+    getSamples:()=>sampleOptions.map(option=>({...option})),getDrumKit:()=>drumKit?structuredClone(drumKit):null,
+    openStep,setBank(timbre,bank){if(tracks[timbre]&&Number.isInteger(bank)&&bank>=0&&bank<STEPS/VIEW_STEPS){tracks[timbre].bank=bank;render();}},
+    selectRange,
+    toggleNote(timbre,index,note){
+      if(!Number.isInteger(note)||note<0||note>127)return;openStep(timbre,index);if(!editing||editing.timbre!==timbre||editing.step!==index)return;
+      const step=sequence.tracks[timbre].steps[index],present=step.notes.includes(note);if(!present&&stepEvents(step).length>=MAX_EVENTS)return;
+      step.notes=present?step.notes.filter(n=>n!==note):[...step.notes,note].sort((a,b)=>a-b);
+      const instrument=kitFor(timbre)?.instruments.findIndex(pad=>pad.note===note);if(instrument>=0)onSelectDrum?.(instrument,timbre);commit();renderEditor();audition(timbre,step);
+    },
+    async toggleSample(timbre,index,source){openStep(timbre,index);if(!editing||editing.timbre!==timbre||editing.step!==index)return;const step=sequence.tracks[timbre].steps[index];if(step.samples.includes(source)){step.samples=step.samples.filter(id=>id!==source);commit();renderEditor();audition(timbre,step);}else await addSample(source,{timbre,step:index});},
+    editSample:onEditSample,
+    previewRow(timbre,row){const instrument=kitFor(timbre)?.instruments.findIndex(pad=>pad.note===row.note);if(row.kind==='note'&&instrument>=0)onSelectDrum?.(instrument,timbre);audition(timbre,{notes:row.kind==='note'?[row.note]:[],samples:row.kind==='sample'?[row.source]:[],velocity:100,gate:75});}
   };
 }

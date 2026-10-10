@@ -19,6 +19,8 @@ import {PatchStore,TimbreStore} from "./patches.js";
 import {normalizeEngine as checkEngine,normalizeProgram,captureTimbre,normalizeTimbre,applyTimbre,SLOT_PARAMETERS} from "./programs.js";
 import {MAX_RDL_BYTES,readRdl,rdlPatches,validateRdlSource,rdlMasks} from './rdl.js';
 import {createPanel,makePicker,isChoosing} from "./panel.js";
+import {setupInterfaceNavigation,prepareNewInterface} from './new-interface.js';
+const newInterface=setupInterfaceNavigation();
 const $ = selector => document.querySelector(selector);
 function showError(error) { $("#error").textContent = error.message ?? String(error); $("#error").hidden = false; }
 let parameters;
@@ -43,7 +45,7 @@ const keyNames = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", 
 const computerKeys = ["a", "w", "s", "e", "d", "f", "t", "g", "y", "h", "u", "j", "k", "o", "l", "p"];
 let selected = 0, timbreCount=INITIAL_TIMBRES, octave = 4, context, node, module, midiAccess, audioStarting;
 const held = new Map(), noteCounts = new Map();
-let sampleUI,circuitUI,fxUI,macroUI,modulationUI,recorder,circuitTimer,editingSample=null;
+let sampleUI,circuitUI,fxUI,macroUI,modulationUI,recorder,newUI,circuitTimer,editingSample=null;
 let automationQueued=false;
 let macroCircuitTimer;const macroCircuits=new Set();
 let panel, programPicker, timbrePicker, sequenceUI, activeSavedPatch=null,programState="init",programDirty=false,patchDialogKind="program",patchDialogSlot=0, autosaveTimer, sequenceRequest=0, auditionRequest=0,sequenceConfigRequest=0;
@@ -226,10 +228,12 @@ function updateControls() {
   const sound=timbres[selected],saved=timbreStore.list().find(p=>p.id===sound.savedId);
   timbrePicker?.render(saved?`saved:${sound.savedId}`:factorySounds.some(p=>p.value===sound.preset)?sound.preset:'custom',sound.name+(sound.modified?' *':''));
   modulationUI?.refreshTargets();syncAutomation();
+  newUI?.refreshContext({selected,timbreCount,values:v});
 }
 function displayValue(p, value) { return p.id === 89 ? value / 10 : [72, 148, 141, 142].includes(p.id) ? value + 1 : value - (p.center ?? 0); }
 function nativeValue(p, value) { return p.id === 89 ? value * 10 : [72, 148, 141, 142].includes(p.id) ? value - 1 : value + (p.center ?? 0); }
 panel=createPanel({parameters,readValues:values,setControl,format,disabled,displayValue,nativeValue,macroTarget:parameterTarget,maxValue:id=>id===141?timbreCount-1:parameters[id].max});
+if(newInterface)newUI=prepareNewInterface();
 programPicker=makePicker({label:"Program",options:[{value:"init",label:"New program"},{value:"custom",label:"Unsaved"}],value:"init",onChange:applyProgram,searchable:true,searchLabel:'Search programs'});
 timbrePicker=makePicker({label:"Timbre sound",options:[...factorySounds],value:"init",onChange:applyPreset,searchable:true,searchLabel:'Search timbres'});$('#timbre-preset').append(timbrePicker.button);
 $("#preset").append(programPicker.button);
@@ -283,7 +287,7 @@ function refreshLibrary(){
   programPicker.options=[{value:'init',label:'New program'},{value:'custom',label:'Unsaved'},...patchStore.list().map(p=>({value:`saved:${p.id}`,label:p.snapshot.rdl?`${String(p.snapshot.rdl.slot+1).padStart(3,'0')} · ${p.name}`:p.name}))];
   timbrePicker.options=[...factorySounds,...timbreStore.list().map(p=>({value:`saved:${p.id}`,label:p.name}))];updateControls();
 }
-sequenceUI=createSequencer({onChange:configureSequence,onPlay:playSequence,onStop:stopSequence,onReset:()=>send({type:"sequence-reset"}),onSelectTimbre:t=>{$(`[data-timbre="${t}"]`).click();},onSelectDrum:(instrument,timbre)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();setControl(142,instrument,false);},onAudition:auditionStep,onError:showError,
+sequenceUI=createSequencer({inline:newInterface,onChange:configureSequence,onPlay:playSequence,onStop:stopSequence,onReset:()=>send({type:"sequence-reset"}),onSelectTimbre:t=>{$(`[data-timbre="${t}"]`).click();},onSelectDrum:(instrument,timbre)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();setControl(142,instrument,false);},onAudition:auditionStep,onError:showError,
   onSample:(timbre,source)=>sampleUI.ensureLibrary(timbre,source),onEditSample:(timbre,source)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();sampleUI.editProfile(timbre,source);editingSample={timbre,source};updateControls();scheduleSession();},
   onCopySamples:(from,to,sources)=>sampleUI.copyProfiles(from,to,sources),onUploadSample:(timbre,onReady)=>sampleUI.uploadForSequence(timbre,onReady)});
 sequenceUI.setReady(false);
@@ -501,6 +505,7 @@ circuitUI=createCircuitEditor({getValues:values,getSelected:()=>selected,onError
 fxUI=createEffectsPanel({getSelected:()=>selected,onError:showError,onChange:(slot,program,parameter)=>{if(parameter!=null)macroUI?.rebase({kind:'effect',slot,effectKind:program.kind,parameter});const owner=effectTimbre(slot);owner==null?markProgram():markTimbre(owner);send({type:'effect',slot,program});updateControls();scheduleSession();}});
 macroUI=createMacrosPanel({resolve:resolveMacro,write:writeMacros,onError:showError,onChange:()=>{markProgram();updateControls();scheduleSession();}});bindMacroTarget($('#volume'),()=>({kind:'volume'}));
 recorder=createRecorder({ensureAudio:startAudio,getAudio:()=>context,send,onError:showError,getProgram:()=>{const saved=patchStore.list().find(p=>p.id===activeSavedPatch);return {key:saved?`program:${saved.id}`:'unsaved',name:saved?.name??'Unsaved program'};}});
+newUI?.connect({sequenceUI,fxUI,circuitUI,macroUI,resolveMacro,releaseAll});
 refreshLibrary();
 try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(session.snapshot);activeSavedPatch=session.activeSavedPatch??null;programState=session.programState??"custom";programDirty=session.programDirty??false;if(Number.isInteger(session.selected)&&session.selected>=0&&session.selected<timbreCount)$(`[data-timbre="${session.selected}"]`).click();if(Number.isFinite(session.volume))$("#volume").value=session.volume;}}catch(error){showError(new Error(`Could not restore the saved session: ${error.message}`));}
 updateControls(); updateKeys(); document.body.dataset.parameterCount = parameters.length;
