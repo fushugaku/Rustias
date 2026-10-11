@@ -11,10 +11,14 @@ Keep desktop parity intact: the native fixed graph, 24 voices, physical controll
 scheduling, and original reference workflows must remain unchanged. Modular
 routing is guarded by `web-modular`; expanded allocation is guarded by
 `web-polyphony` AND the WASM target. Eight timbres, eight virtual patches, three synthesis LFOs and
-thirty-three FX slots require `web-expanded` AND the WASM target; native sizes stay
+thirty-three FX slots and OSC 3 require `web-expanded` AND the WASM target; native sizes stay
 four, six, two and nine even when that feature is enabled on a native test. Never enable those features in the original
 desktop workspace. Browser sequencing, sample library, circuit UI and storage
 belong to `web/` and `crates/radias-web`, with no dependency from the native app.
+OSC 3 replaces browser Noise using the shared OSC 1 controller and OSC 2 tuning;
+stored IDs 171–178 and Virtual Patch destinations 43–51 append to the old schema.
+Ring/Sync observes native OSC 1/2 phase/audio taps without altering their states
+or output; the OSC 1→2 source is the current processed OSC 2 result.
 Browser FX 3/4 use the Master catalog but the owning timbre's context and stereo
 bus, before the shared Master. Original insert indices 0–15 and Master 16 remain
 stable; the added timbre pairs occupy 17–32. Native racks keep two inserts.

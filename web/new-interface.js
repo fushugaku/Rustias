@@ -55,9 +55,9 @@ export function prepareNewInterface(){
   const fx=element('aside','nw-fx'),fxHead=element('div','nw-stage-heading'),fxTitle=element('h2','','Effects'),fxFold=button('−','Collapse effects');fxHead.append(fxTitle,fxFold);fx.append(fxHead,$('#effects'));stage.append(sound,fx);instrument.insertBefore(stage,macros.nextSibling);
   fxFold.addEventListener('click',()=>{fx.classList.toggle('folded');fxFold.textContent=fx.classList.contains('folded')?'+':'−';fxFold.setAttribute('aria-label',fx.classList.contains('folded')?'Expand effects':'Collapse effects');fxFold.setAttribute('aria-expanded',!fx.classList.contains('folded'));});
   if(small)fx.classList.add('folded');fxFold.textContent=small?'+':'−';fxFold.setAttribute('aria-expanded',!small);fxFold.setAttribute('aria-label',small?'Expand effects':'Collapse effects');
-  const rack=$('#rack'),groups=[['Sound',['osc1','osc2','mixer','filter1','filter2','drive','amp']],['Modulation',['eg1','eg2','eg3','lfo1','lfo2','lfo3']],['Virtual patch',Array.from({length:8},(_,i)=>'patch'+(i+1))],['Voice & tuning',['voice','midi','scale']],['Drum kit',['drums']]];
+  const rack=$('#rack'),groups=[['Sound',['osc1','osc2','osc3','mixer','filter1','filter2','drive','amp']],['Modulation',['eg1','eg2','eg3','lfo1','lfo2','lfo3']],['Virtual patch',Array.from({length:8},(_,i)=>'patch'+(i+1))],['Voice & tuning',['voice','midi','scale']],['Drum kit',['drums']]];
   groups.forEach(([label,keys],group)=>{const divider=element('h2','nw-rack-divider',label);divider.style.order=group*100;rack.append(divider);keys.forEach((key,index)=>rack.querySelector('.module-'+key).style.order=group*100+index+1);});
-  for(const id of [1,2,3,4,5,6,7,8,11,12,17,18,19,31])rack.querySelector(`[data-parameter="${id}"]`)?.classList.add('nw-primary');
+  for(const id of [1,2,3,4,5,6,7,8,11,12,17,18,19,31,173,174])rack.querySelector(`[data-parameter="${id}"]`)?.classList.add('nw-primary');
 
   const dock=element('section','nw-dock');dock.id='new-sequence-dock';dock.setAttribute('aria-label','Sequencer workspace');
   const grip=element('div','nw-dock-grip');grip.setAttribute('role','separator');grip.setAttribute('aria-label','Resize sequencer');grip.setAttribute('aria-orientation','horizontal');grip.tabIndex=0;
@@ -87,7 +87,7 @@ export function prepareNewInterface(){
   return {
     refreshContext(next){context=next;title.textContent=$('#edit-context').textContent;fxTitle.textContent=`T${next.selected+1} · Effects`;
       timbrePicker.options=Array.from({length:next.timbreCount},(_,i)=>({value:i,label:'T'+(i+1)}));timbrePicker.render(next.selected);
-      const v=next.values,custom=api?.circuitUI.isRouting(next.selected),source=$('#parameter-0').disabled?'Sample':'OSC 1 + OSC 2 + Noise';
+      const v=next.values,custom=api?.circuitUI.isRouting(next.selected),source=$('#parameter-0').disabled?'Sample':'OSC 1 + OSC 2 + OSC 3';
       const filter=['Filter 1','Filters · Serial','Filters · Parallel','Filters · Individual'][v[20]??0],drive=v[29]?'Drive / WS':null;
       const chain=v[30]===0?[source,'Mixer',drive,filter,'Amp']:[source,'Mixer',filter,drive,'Amp'];$('.nw-signal-flow').textContent=custom?'Custom routing':chain.filter(Boolean).join(' → ');
       sequenceWorkspace?.setContext(next.selected,next.timbreCount);refreshEffects();refreshMacros();

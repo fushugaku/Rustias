@@ -1,18 +1,19 @@
-import {PATCH_ROUTES,LFO3_BASE} from './limits.js';
+import {PATCH_ROUTES,LFO3_BASE,OSC3_BASE} from './limits.js';
 import {bindMacroTarget} from './macro-gesture.js';
 import {targetKey} from './macros.js';
 // Shared hardware controls for the complete firmware-free instrument.
 const shortLabels = {
-  9:"Morph",10:"Mode",11:"CTRL 1",12:"CTRL 2",15:"Semi",16:"Fine",17:"OSC 1",18:"OSC 2",19:"Noise",7:"Amp level",8:"Amp pan",
+  9:"Morph",10:"Mode",11:"CTRL 1",12:"CTRL 2",15:"Semi",16:"Fine",17:"OSC 1",18:"OSC 2",19:"OSC 3",7:"Amp level",8:"Amp pan",
   24:"Link",25:"EG1 int",26:"Key track",27:"EG1 int",28:"Key track",31:"Depth",40:"Curve",41:"Vel level",42:"Vel time",43:"Key track",44:"Curve",45:"Vel level",46:"Vel time",47:"Key track",48:"Curve",49:"Vel level",50:"Vel time",51:"Key track",
   52:"Key track",53:"Transpose",54:"Fine",55:"Vibrato",56:"Bend range",57:"Bend RX",58:"Wheel RX",59:"Port time",60:"Port curve",61:"CC65 mode",62:"Voice mode",63:"Retrigger",64:"Priority",65:"Damper",66:"CC64",67:"Unison",68:"Voices",69:"Detune",70:"Spread",71:"Enabled",72:"Channel",
-  170:"Rate offset",
+  172:"Mode",173:"CTRL 1",174:"CTRL 2",175:"Semi",176:"Fine",177:"Ring / Sync",178:"Source",170:"Rate offset",
   76:"Key sync",77:"Phase",78:"Tempo sync",79:"Division",80:"Rate offset",84:"Key sync",85:"Phase",86:"Tempo sync",87:"Division",88:"Rate offset",89:"BPM",114:"Level offset",115:"Source gain",116:"MIDI vol RX",117:"MIDI vol",118:"Gain bank",119:"Key low",120:"Key high",121:"Tune ¢",122:"Scale",123:"Root",124:"Scale shift",137:"Bend",138:"Wheel",139:"CC65",140:"Drum mode",141:"Timbre",142:"Instrument",143:"Kit level",144:"Kit pan",145:"Transpose",146:"Trigger",147:"Excl group",148:"Global ch",149:"Amp RX",150:"Expression",151:"Expr RX 0",152:"Gain source",153:"Expr RX 1",154:"WS Type",
 };
 const rows = [
   [
     {key:"osc1",name:"OSC 1",span:4,columns:2,ids:[0,10,11,12],wave:true},
     {key:"osc2",name:"OSC 2",span:3,columns:2,ids:[13,14,15,16]},
+    {key:"osc3",name:"OSC 3",span:4,columns:4,wave:true,ids:[OSC3_BASE,OSC3_BASE+1,OSC3_BASE+6,OSC3_BASE+7,OSC3_BASE+2,OSC3_BASE+3,OSC3_BASE+4,OSC3_BASE+5]},
     {key:"mixer",name:"MIXER / AMP",span:3,columns:3,ids:[17,18,19,7,8]},
     {key:"filter1",name:"FILTER 1",span:4,columns:3,ids:[9,1,2,25,26]},
     {key:"filter2",name:"FILTER 2 / ROUTING",span:6,columns:4,ids:[20,21,24,22,23,27,28]},
@@ -125,7 +126,7 @@ export function createPanel({parameters,readValues,setControl,format,disabled,di
     const row=document.createElement("div");row.className=`rack-row rack-row-${index}`;document.querySelector("#rack").append(row);
     for(const plan of plans){
       const section=document.createElement("section"),head=document.createElement("div"),title=document.createElement("h2"),body=document.createElement("div");section.className=`module module-${plan.key}`;section.dataset.module=plan.key;section.setAttribute("aria-label",plan.name);section.style.setProperty("--span",plan.span??1);body.style.setProperty("--columns",plan.columns??2);body.className="module-controls";head.className="module-heading";title.textContent=plan.name;head.append(title);
-      if(plan.wave){const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg"),path=document.createElementNS(ns,"path");svg.id="wave-display";svg.setAttribute("viewBox","0 0 240 72");svg.setAttribute("role","img");path.id="wave-path";svg.append(path);head.append(svg);}
+      if(plan.wave){const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg"),path=document.createElementNS(ns,"path");svg.id=plan.key==="osc1"?"wave-display":"wave-display-osc3";svg.setAttribute("viewBox","0 0 240 72");svg.setAttribute("role","img");path.id=plan.key==="osc1"?"wave-path":"wave-path-osc3";svg.append(path);head.append(svg);}
       if(plan.patch){section.classList.add("patch-module");body.classList.add("patch-body");const route=document.createElement("div");route.className="patch-route";route.append(field(plan.ids[0]),field(plan.ids[1]));body.append(route,field(plan.ids[2]),field(plan.ids[3]));}
       else for(const id of plan.ids)body.append(field(id));
       section.append(head,body);row.append(section);

@@ -37,6 +37,8 @@ pub struct ActiveVoice {
     pub mixer: Option<crate::mixer::MixerProgram>,
     pub secondary: Option<crate::secondary::SecondaryProgram>,
     pub primary: Option<crate::primary::PrimaryProgram>,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    pub third: crate::primary::ThirdProgram,
     pub shaper: Option<crate::shaper::ShaperProgram>,
     pub comb_program: Option<crate::comb::CombProgram>,
     pub timbre: u8,
@@ -61,6 +63,8 @@ impl ActiveVoice {
             mixer: self.mixer,
             secondary: self.secondary,
             primary: self.primary,
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            third: self.third,
             shaper: self.shaper,
             comb_program: self.comb_program,
             timbre: self.timbre,
@@ -342,6 +346,10 @@ impl PolyphonicRenderer {
             else {
                 continue;
             };
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            {
+                voice.third = c.third;
+            }
             if before.pitch != c.pitch {
                 voice.drum_pitch = Some(c.pitch);
                 if let Some(pitch_tables) = &self.note_pitch_tables {
@@ -2037,6 +2045,17 @@ impl PolyphonicRenderer {
         }
         self.circuits[timbre] = prototype;
     }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    pub fn edit_third(&mut self, timbre: u8, program: crate::primary::ThirdProgram) {
+        for voice in self
+            .voices
+            .iter_mut()
+            .flatten()
+            .filter(|v| v.timbre == timbre && v.drum_instrument.is_none())
+        {
+            voice.third = program;
+        }
+    }
     pub fn active_count(&self) -> usize {
         self.voices.iter().filter(|v| v.is_some()).count()
     }
@@ -3392,6 +3411,14 @@ impl PolyphonicRenderer {
                         .as_ref()
                         .zip(modulation_tables)
                         .map_or([0; LFO_COUNT], |(m, t)| m.pair.values(&t.lfo));
+                    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                    circuit.oscillator3(
+                        active.third,
+                        active
+                            .modulation
+                            .as_ref()
+                            .map_or(Default::default(), |m| m.patches.targets),
+                    );
                     circuit.controls([
                         if active.held { 1.0 } else { 0.0 },
                         active.velocity as f64 / 127.0,

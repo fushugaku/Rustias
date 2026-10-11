@@ -23,6 +23,7 @@ import {ModulationHost} from '../web/modulation-host.js';
 import {verifyModulation} from './verify-modulation.mjs';
 import {verifySequenceView} from './verify-sequence-view.mjs';
 import {verifyLfo3} from './verify-lfo3.mjs';
+import {verifyOsc3} from './verify-osc3.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
@@ -352,16 +353,17 @@ api.rustias_init();setCircuit(dualPrimary);for(let note=0;note<128;note++)api.ru
 Object.assign(primaryParams,{wave:0,mode:0,ctrl1:0,ctrl2:0});const withoutControlCv=graphNote(primaryGraph,.5),withControlCv=connect(primaryGraph,14,16,'ctrl1');assert.ok(rms(graphNote(withControlCv,.5).map((v,i)=>v-withoutControlCv[i]))>.001,'OSC1 accepts native CTRL1 CV modulation');
 Object.assign(primaryParams,{wave:1,mode:0,ctrl1:64,ctrl2:127});const unmodulatedPulse=graphNote(primaryGraph,.5),withPrimaryLfo=connect(primaryGraph,11,16,'lfo');assert.ok(rms(graphNote(withPrimaryLfo,.5).map((v,i)=>v-unmodulatedPulse[i]))>.001,'OSC1 Waveform CTRL2 applies the connected LFO through native controller words');
 const invalidPrimary=structuredClone(primaryGraph);invalidPrimary.nodes.find(n=>n.id===16).params={...primaryParams,wave:4,mode:3};setCircuit(invalidPrimary,0,0);assert.throws(()=>validateCircuits({version:1,tracks:[invalidPrimary,defaultCircuit(),defaultCircuit(),defaultCircuit()]}));
-const noiseGraph=defaultCircuit();noiseGraph.enabled=true;noiseGraph.wires=[{from:2,to:7,port:'in'},{from:7,to:15,port:'in'}];assert.ok(rms(graphNote(noiseGraph))>.001,'Existing Noise is audible when routed');
-const removedNoise=removeModule(noiseGraph,2);assert.equal(removedNoise.nodes.some(n=>n.kind==='noise'),false);assert.ok(removedNoise.wires.every(w=>w.from!==2&&w.to!==2));assert.ok(rms(graphNote(removedNoise))<.000001,'Removing native Noise also removes its audible route');
-assert.ok(availableModules(removedNoise).includes('noise'),'A removed builtin can be added again');assert.ok(!availableModules(defaultCircuit()).includes('noise'),'Existing native modules are not duplicated');
+const noiseGraph=defaultCircuit();noiseGraph.enabled=true;noiseGraph.wires=[{from:2,to:7,port:'in'},{from:7,to:15,port:'in'}];assert.ok(rms(graphNote(noiseGraph))>.001,'Builtin OSC 3 is audible when routed');
+const removedNoise=removeModule(noiseGraph,2);assert.equal(removedNoise.nodes.some(n=>n.kind==='osc3'),false);assert.ok(removedNoise.wires.every(w=>w.from!==2&&w.to!==2));assert.ok(rms(graphNote(removedNoise))<.000001,'Removing OSC 3 also removes its audible route');
+assert.ok(availableModules(removedNoise).includes('osc3'),'A removed builtin can be added again');assert.ok(!availableModules(defaultCircuit()).includes('osc3'),'Existing native modules are not duplicated');
 assert.throws(()=>removeModule(noiseGraph,15),/Output/,'The required Output stays protected');
 const minimalGraph=defaultCircuit();for(const n of [...minimalGraph.nodes])if(n.kind!=='output')Object.assign(minimalGraph,removeModule(minimalGraph,n.id));assert.equal(minimalGraph.nodes.length,1);assert.ok(rms(graphNote(minimalGraph))<.000001,'An empty graph is valid and silent');
 const primarySnapshot={...modularSnapshot,circuits:{version:1,tracks:[primaryGraph,removedNoise,...Array.from({length:MAX_TIMBRES-2},()=>defaultCircuit())]}};
-const primarySaved=graphStore.save('Independent OSC1 and removed Noise',primarySnapshot);assert.deepEqual(validateCircuits(graphStore.list().find(p=>p.id===primarySaved.id).snapshot.circuits),primarySnapshot.circuits,'Independent OSC1 settings and removed builtins survive program storage');
+const primarySaved=graphStore.save('Independent OSC1 and removed OSC 3',primarySnapshot);assert.deepEqual(validateCircuits(graphStore.list().find(p=>p.id===primarySaved.id).snapshot.circuits),primarySnapshot.circuits,'Independent OSC1 settings and removed builtins survive program storage');
 features.push('Full independent OSC1 modules: all 18 waveform/mode combinations, CTRL1/2, VPM ratio, pitch/cents, audio Cross and CV wiring, isolated states; builtin removal/re-addition and patch persistence');
 features.push(verifyCircuitSwitch({api,setCircuit,graphNote,render,rms,control}));
 features.push(verifyLfo3({api,parameters:schema,control,render,rms,save,load,setCircuit}));
+features.push(verifyOsc3({api,parameters:schema,control,render,rms,save,load,setCircuit}));
 features.push(verifyEffects({api,catalog:effectCatalog,render,rms,control,save,load,parameters:schema,module}));
 
 const reports = [];

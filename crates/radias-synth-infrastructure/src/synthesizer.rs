@@ -313,6 +313,8 @@ pub enum Command {
     MixerScales(Box<radias_synth_domain::controller_mixer::MixerScales>),
     Secondary(u8, SecondaryProgram),
     Primary(u8, radias_synth_application::primary::PrimaryProgram),
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    Third(u8, radias_synth_application::primary::ThirdProgram),
     NoiseTables(Box<radias_synth_application::noise::NoiseTables>),
     PhysicalFrames(Box<[radias_synth_domain::noise::NoiseFrameSeeds; 2]>),
     SecondaryTable(Box<radias_synth_domain::controller_secondary::FineTuneTable>),
@@ -382,6 +384,8 @@ pub(crate) struct Timbre {
     mixer: MixerProgram,
     secondary: SecondaryProgram,
     primary: radias_synth_application::primary::PrimaryProgram,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    third: radias_synth_application::primary::ThirdProgram,
     enabled: bool,
     channel: u8,
     modulation: ModulationProgram,
@@ -436,6 +440,8 @@ impl Synthesizer {
                 mixer: Default::default(),
                 secondary: Default::default(),
                 primary: Default::default(),
+                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                third: Default::default(),
                 enabled: i == 0,
                 channel: i as u8,
                 modulation: ModulationProgram::default(),
@@ -707,6 +713,8 @@ impl Synthesizer {
             mixer: Some(settings.mixer),
             secondary: Some(settings.secondary),
             primary: Some(settings.primary),
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            third: settings.third,
             shaper: Some(settings.shaper),
             comb_program: settings.comb_program,
             timbre,
@@ -805,6 +813,8 @@ impl Synthesizer {
                         mixer: c.mixer,
                         secondary: c.secondary,
                         primary: c.primary(),
+                        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                        third: c.third,
                         enabled: source.enabled,
                         channel: source.channel,
                         modulation: c.modulation,
@@ -1125,6 +1135,11 @@ impl Synthesizer {
             }
             Command::PhysicalFrames(seeds) => self.pool.initialize_physical_frames(*seeds),
             Command::SecondaryTable(table) => self.pool.configure_secondary(*table),
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            Command::Third(timbre, program) => {
+                self.timbres[timbre as usize].third = program;
+                self.pool.edit_third(timbre, program);
+            }
             Command::Modulation(timbre, program) => {
                 self.timbres[timbre as usize].modulation = program;
                 let _ = self.pool.edit_modulation(timbre, program);
@@ -1300,6 +1315,8 @@ impl Synthesizer {
                 mixer: c.mixer,
                 secondary: c.secondary,
                 primary: c.primary(),
+                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                third: c.third,
                 modulation: c.modulation,
                 auxiliary: [c.envelope[0], c.envelope[2]],
                 dynamic_filter: Some(graph.dynamic_filter),

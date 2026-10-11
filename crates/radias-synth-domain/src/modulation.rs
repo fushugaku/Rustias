@@ -1,11 +1,17 @@
 //! Six Virtual Patch routes: original SH3 022300 and 022390..022610.
 pub const MODULATION_DESTINATIONS: usize =
     if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
-        43
+        52
     } else {
         40
     };
 pub const VIRTUAL_PATCHES: usize = 6;
+pub const PITCH_OSCILLATORS: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32"))
+{
+    3
+} else {
+    2
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ControllerSources {
@@ -85,14 +91,14 @@ pub struct ModulationTargets {
 /// side effects are separate from this fixed-point application boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AppliedModulationTargets {
-    pub oscillator_pitch_q16: [i32; 2],
+    pub oscillator_pitch_q16: [i32; PITCH_OSCILLATORS],
     pub controls: [i16; MODULATION_DESTINATIONS - 2],
     pub linked_oscillator_pitch: i16,
 }
 impl Default for AppliedModulationTargets {
     fn default() -> Self {
         Self {
-            oscillator_pitch_q16: [0; 2],
+            oscillator_pitch_q16: [0; PITCH_OSCILLATORS],
             controls: [0; MODULATION_DESTINATIONS - 2],
             linked_oscillator_pitch: 0,
         }
@@ -101,15 +107,14 @@ impl Default for AppliedModulationTargets {
 impl ModulationTargets {
     pub fn applied(&self) -> AppliedModulationTargets {
         AppliedModulationTargets {
-            oscillator_pitch_q16: [
-                self.values[0].wrapping_shl(8),
-                self.values[1].wrapping_shl(8),
-            ],
+            oscillator_pitch_q16: core::array::from_fn(|i| {
+                self.values[if i < 2 { i } else { 43 }].wrapping_shl(8)
+            }),
             controls: core::array::from_fn(|n| {
                 let destination = n + 2;
                 let shift = match destination {
-                    8 | 15 | 16 | 19 | 22..=33 => 7,
-                    17 | 18 | 20 | 21 | 34..=41 => 8,
+                    8 | 15 | 16 | 19 | 22..=33 | 45 => 7,
+                    17 | 18 | 20 | 21 | 34..=41 | 46..=51 => 8,
                     _ => 0,
                 };
                 (self.values[destination].clamp(-32767, 32767) >> shift) as i16
@@ -151,7 +156,7 @@ impl ModulationTables {
         let key = source.selector & 15 == 8;
         let index = (depth as i16 + 64) as usize;
         let (amount, linked_pitch) = match d {
-            0 | 1 => (self.pitch(source.value, depth), 0),
+            0 | 1 | 43 => (self.pitch(source.value, depth), 0),
             7 | 9 if key => (
                 ((self.key_cutoff_depth[index] as i64 * source.value as i64) >> 16) as i32,
                 0,

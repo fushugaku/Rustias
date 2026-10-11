@@ -41,3 +41,27 @@ impl PrimaryProgram {
         }
     }
 }
+
+/// Browser OSC 3 reuses OSC 1 synthesis and OSC 2 tuning controls.
+#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThirdProgram {
+    pub primary: PrimaryProgram,
+    pub pitch: radias_synth_domain::controller_secondary::SecondaryPitch,
+    pub interaction: u8,
+    pub reference: u8,
+}
+#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+impl Default for ThirdProgram {
+    fn default() -> Self {
+        Self {
+            primary: PrimaryProgram {
+                selection: 4,
+                control: Default::default(),
+            },
+            pitch: Default::default(),
+            interaction: 0,
+            reference: 0,
+        }
+    }
+}

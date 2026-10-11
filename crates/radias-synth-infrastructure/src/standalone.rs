@@ -42,7 +42,7 @@ use radias_synth_domain::{
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const NATIVE_PARAMETER_COUNT: usize = 155;
 pub const PARAMETER_COUNT: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
-    171
+    179
 } else {
     NATIVE_PARAMETER_COUNT
 };
@@ -67,12 +67,8 @@ pub fn parameters() -> Vec<Parameter> {
         for i in 0..6 {
             spec[90 + i * 4].max = 16;
             spec[90 + i * 4].values = Some((0..=8).chain(core::iter::once(16)).collect());
-            spec[91 + i * 4].max = 42;
-            spec[91 + i * 4]
-                .values
-                .as_mut()
-                .unwrap()
-                .extend([40, 41, 42]);
+            spec[91 + i * 4].max = 51;
+            spec[91 + i * 4].values.as_mut().unwrap().extend(40..=51);
         }
         for id in NATIVE_PARAMETER_COUNT..163 {
             let mut p = spec[90 + (id - NATIVE_PARAMETER_COUNT) % 4].clone();
@@ -84,6 +80,23 @@ pub fn parameters() -> Vec<Parameter> {
             p.id = 163 + i;
             spec.push(p);
         }
+        for (i, template) in [0, 10, 11, 12, 15, 16].into_iter().enumerate() {
+            let mut p = spec[template].clone();
+            p.id = 171 + i;
+            if i == 0 {
+                p.default = 4;
+            }
+            spec.push(p);
+        }
+        let mut interaction = spec[14].clone();
+        interaction.id = 177;
+        spec.push(interaction);
+        let mut reference = spec[13].clone();
+        reference.id = 178;
+        reference.max = 2;
+        reference.default = 0;
+        reference.values = Some(vec![0, 1, 2]);
+        spec.push(reference);
     }
     spec
 }
@@ -145,6 +158,24 @@ fn controls(v: &Values) -> TimbreControls {
     let selection = v[0] as u8 | ((v[10] as u8) << 4);
     let secondary = v[13] as u8 | ((v[14] as u8) << 4);
     TimbreControls {
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        third: radias_synth_application::primary::ThirdProgram {
+            primary: radias_synth_application::primary::PrimaryProgram {
+                selection: v[171] as u8 | ((v[172] as u8) << 4),
+                control: radias_synth_domain::controller_primary::PrimaryControl {
+                    control1: v[173] as u8,
+                    control2: v[174] as u8,
+                    ..Default::default()
+                },
+            },
+            pitch: SecondaryPitch {
+                semitone: v[175] as u8,
+                fine_tune: v[176] as u8,
+                ..Default::default()
+            },
+            interaction: v[177] as u8,
+            reference: v[178] as u8,
+        },
         voice_mode: VoiceMode {
             polyphonic: v[62] != 0,
             multi_trigger: v[63] != 0,
@@ -351,6 +382,20 @@ impl StandaloneSynth {
             map: tables::control_map(),
             mix: tables::mix(),
         };
+        #[cfg(all(
+            feature = "web-expanded",
+            feature = "web-modular",
+            target_arch = "wasm32"
+        ))]
+        {
+            let prototype = crate::circuit::CircuitVoice::fixed();
+            for t in 0..TIMBRE_COUNT {
+                out.engine.set_circuit(
+                    t,
+                    Some(radias_synth_application::VoiceCircuit::fresh(&prototype)),
+                );
+            }
+        }
         out.global_pitch();
         out.performance();
         for i in 0..TIMBRE_COUNT as u8 {
@@ -418,6 +463,10 @@ impl StandaloneSynth {
                 t,
                 159 | if v[151] != 0 { 64 } else { 0 } | if v[153] != 0 { 32 } else { 0 },
             );
+        }
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        if is(&[171, 172, 173, 174, 175, 176, 177, 178]) {
+            self.engine.apply(Command::Third(t, c.third));
         }
         if is(&[0, 10, 11, 12]) {
             self.engine.apply(Command::Primary(t, c.primary()));
@@ -600,6 +649,10 @@ impl StandaloneSynth {
         if id == 10 && value != 0 && self.value(t, 0) >= 4 {
             return false;
         }
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        if id == 172 && value != 0 && self.value(t, 171) >= 4 {
+            return false;
+        }
         if id == 119 && value > self.settings[t as usize][120]
             || id == 120 && value < self.settings[t as usize][119]
         {
@@ -647,6 +700,10 @@ impl StandaloneSynth {
         if id == 0 && value >= 4 {
             self.settings[t as usize][10] = 0;
         }
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        if id == 171 && value >= 4 {
+            self.settings[t as usize][172] = 0;
+        }
         let channel = self.channel(t);
         if matches!(id, 66 | 137..=139 | 150) {
             for i in 0..TIMBRE_COUNT as u8 {
@@ -689,9 +746,17 @@ impl StandaloneSynth {
         if id == 10 && value != 0 && self.drum_settings[i][0] >= 4 {
             return false;
         }
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        if id == 172 && value != 0 && self.drum_settings[i][171] >= 4 {
+            return false;
+        }
         self.drum_settings[i][id] = value;
         if id == 0 && value >= 4 {
             self.drum_settings[i][10] = 0;
+        }
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        if id == 171 && value >= 4 {
+            self.drum_settings[i][172] = 0;
         }
         if self.settings[0][140] != 0 {
             let program = DrumInstrumentProgram {
@@ -779,7 +844,11 @@ impl StandaloneSynth {
         if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
             let defaults = default_values();
             for v in p.timbres.iter_mut().chain(&mut p.drums) {
-                if v.len() == NATIVE_PARAMETER_COUNT || v.len() == 163 {
+                if v.len() == NATIVE_PARAMETER_COUNT
+                    || v.len() == 163
+                    || v.len() == 171
+                    || v.len() == 177
+                {
                     v.extend_from_slice(&defaults[v.len()..]);
                 }
             }
@@ -802,6 +871,10 @@ impl StandaloneSynth {
         let spec = parameters();
         for v in p.timbres.iter().chain(&p.drums) {
             if v.len() != PARAMETER_COUNT || v[0] >= 4 && v[10] != 0 || v[119] > v[120] {
+                return None;
+            }
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            if v[171] >= 4 && v[172] != 0 {
                 return None;
             }
             for s in &spec {

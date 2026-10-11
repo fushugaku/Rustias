@@ -16,6 +16,24 @@ use crate::{
 /// Optional host routing. Native voices keep the recovered fixed graph by default.
 #[cfg(feature = "web-modular")]
 pub trait SignalProcessor: Send {
+    /// A browser source extension can retain the recovered fixed filter graph.
+    fn fixed_graph(&self) -> bool {
+        false
+    }
+    fn prepare_sources(
+        &mut self,
+        sources: [Sample; 3],
+        _parameters: VoiceParameters,
+        _table: &WaveformTable,
+    ) -> [Sample; 3] {
+        sources
+    }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    fn needs_oscillator_taps(&self) -> bool {
+        false
+    }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    fn oscillator_taps(&mut self, _taps: OscillatorTaps) {}
     fn process(
         &mut self,
         sources: [Sample; 3],
@@ -23,6 +41,14 @@ pub trait SignalProcessor: Send {
         level: i16,
         table: &WaveformTable,
     ) -> Sample;
+}
+
+/// Browser source interactions observe the native generators without editing them.
+#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[derive(Clone, Copy, Default)]
+pub struct OscillatorTaps {
+    pub phases: [Phase; 2],
+    pub secondary_before_ring: Sample,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,6 +155,28 @@ impl Voice {
         }
         self.previous_primary = current;
         self.secondary.set_sync_window(p.secondary_modulation.sync);
+        #[cfg(all(
+            feature = "web-expanded",
+            feature = "web-modular",
+            target_arch = "wasm32"
+        ))]
+        let secondary_before_ring = if p.secondary_modulation.ring
+            && processor
+                .as_ref()
+                .is_some_and(|c| c.needs_oscillator_taps())
+        {
+            let mut tapped = self.secondary;
+            tapped.set_gain(32767);
+            Some(tapped.next_with_edge(table, p.secondary_modulation.sync.then_some(current)))
+        } else {
+            None
+        };
+        #[cfg(all(
+            feature = "web-expanded",
+            feature = "web-modular",
+            target_arch = "wasm32"
+        ))]
+        let secondary_phase = self.secondary.phase();
         self.secondary.set_gain(if p.secondary_modulation.ring {
             (primary.0 >> 16) as i16
         } else {
@@ -143,23 +191,38 @@ impl Voice {
             },
         );
         self.previous_secondary = secondary;
-        let noise = self.mixer_noise.next_word(inputs.excitation_bias);
+        #[allow(unused_mut)]
+        let mut noise = self.mixer_noise.next_word(inputs.excitation_bias);
         #[cfg(feature = "web-modular")]
         if let Some(processor) = processor {
-            let level = self.envelope.step(p.envelope_target, p.envelope_rate);
-            let amplified = processor.process(
-                [primary, secondary, Sample((noise as i32) << 16)],
-                p,
-                level,
-                table,
-            );
-            return VoiceOutput {
-                mixed: primary,
-                filtered: amplified,
-                level,
-                amplified,
-                stereo: pan::route(amplified, p.pan_position, existing),
-            };
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            processor.oscillator_taps(OscillatorTaps {
+                phases: [current, secondary_phase],
+                secondary_before_ring: secondary_before_ring.unwrap_or(secondary),
+            });
+            if processor.fixed_graph() {
+                let sources = processor.prepare_sources(
+                    [primary, secondary, Sample((noise as i32) << 16)],
+                    p,
+                    table,
+                );
+                noise = (sources[2].0 >> 16) as i16;
+            } else {
+                let level = self.envelope.step(p.envelope_target, p.envelope_rate);
+                let amplified = processor.process(
+                    [primary, secondary, Sample((noise as i32) << 16)],
+                    p,
+                    level,
+                    table,
+                );
+                return VoiceOutput {
+                    mixed: primary,
+                    filtered: amplified,
+                    level,
+                    amplified,
+                    stereo: pan::route(amplified, p.pan_position, existing),
+                };
+            }
         }
         let mixed = if p
             .routing

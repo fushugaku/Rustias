@@ -53,3 +53,6 @@
   .new-interface #rack .module-lfo1{grid-column:1/span 6!important}
   .new-interface #rack .module:is(.module-lfo2,.module-patch2,.module-patch4,.module-patch6,.module-patch8){border-left:1px solid #93a2ad}
 }
+
+.new-interface #rack .module:is(.module-osc1,.module-osc2,.module-osc3){align-self:stretch}
+@media(max-width:800px){.new-interface #rack .module.module-osc3{grid-column:1/-1!important}}

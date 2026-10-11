@@ -1,7 +1,7 @@
 import {MAX_TIMBRES,INITIAL_TIMBRES} from './limits.js';
 // The modular schema is browser-only. Native controls still feed the shared Rust kernels.
 export const MODULES={
-  osc1:{name:'OSC 1',panel:'osc1',out:'audio'},osc2:{name:'OSC 2',panel:'osc2',out:'audio'},noise:{name:'NOISE',out:'audio'},
+  osc1:{name:'OSC 1',panel:'osc1',out:'audio'},osc2:{name:'OSC 2',panel:'osc2',out:'audio'},osc3:{name:'OSC 3',panel:'osc3',out:'audio',inputs:{mod:'audio',ctrl1:'cv',ctrl2:'cv',pitch:'cv',lfo:'cv'}},
   mixer:{name:'MIXER / AMP',panel:'mixer',out:'audio',inputs:{a:'audio',b:'audio',c:'audio'}},
   filter1:{name:'FILTER 1',panel:'filter1',out:'audio',inputs:{in:'audio',cutoff:'cv'}},filter2:{name:'FILTER 2',panel:'filter2',out:'audio',inputs:{in:'audio',cutoff:'cv'}},
   drive:{name:'DRIVE / WS',panel:'drive',out:'audio',inputs:{in:'audio'}},amp:{name:'AMPLIFIER',panel:'amp',out:'audio',inputs:{in:'audio',gain:'cv'}},
@@ -19,7 +19,7 @@ export const MODULES={
 };
 export const EXTRA_MODULES=['oscillator1','oscillator','filter','shaper','vca','sum','lfo','envelope','switch'];
 export const outputPorts=kind=>MODULES[kind].outputs??(MODULES[kind].out?{out:MODULES[kind].out}:{});
-const BUILTINS=['osc1','osc2','noise','mixer','filter1','filter2','drive','amp','eg1','eg2','eg3','lfo1','lfo2','gate','velocity','output'];
+const BUILTINS=['osc1','osc2','osc3','mixer','filter1','filter2','drive','amp','eg1','eg2','eg3','lfo1','lfo2','gate','velocity','output'];
 export const availableModules=circuit=>[...EXTRA_MODULES,...[...BUILTINS,'lfo3'].filter(kind=>kind!=='output'&&!circuit.nodes.some(n=>n.kind===kind))];
 export function removeModule(circuit,id){
   const node=circuit.nodes.find(n=>n.id===id);if(!node)throw new Error('Module is missing.');if(node.kind==='output')throw new Error('Keep one Output module.');
@@ -37,6 +37,7 @@ export function defaultCircuit(v=[]){
 export const emptyCircuits=values=>({version:1,tracks:Array.from({length:MAX_TIMBRES},(_,i)=>defaultCircuit(values?.[i]))});
 export function validateCircuit(raw){
   const c=structuredClone(raw);
+  for(const node of c?.nodes??[])if(node.kind==='noise')node.kind='osc3';
   if(!c||typeof c.enabled!=='boolean'||!Array.isArray(c.nodes)||!c.nodes.length||c.nodes.length>64||!Array.isArray(c.wires)||c.wires.length>256)throw new Error('Invalid modular patch.');
   const ids=new Map();let outputs=0;
   for(const n of c.nodes){const def=Object.hasOwn(MODULES,n.kind)?MODULES[n.kind]:null;if(!def||!Number.isInteger(n.id)||n.id<0||n.id>=64||ids.has(n.id))throw new Error('Invalid module.');ids.set(n.id,n);if(n.kind==='output')outputs++;

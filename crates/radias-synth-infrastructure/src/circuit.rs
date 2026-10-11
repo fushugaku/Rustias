@@ -18,6 +18,8 @@ use radias_synth_domain::{
 };
 use serde::Deserialize;
 use std::{collections::BTreeMap, sync::Arc};
+#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+mod osc3;
 mod primary;
 const LIMIT: usize = 64;
 #[derive(Clone, Deserialize)]
@@ -49,6 +51,9 @@ fn default_output() -> String {
 enum Kind {
     Osc1,
     Osc2,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    Osc3,
+    #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
     Noise,
     Mix,
     Filter1,
@@ -79,7 +84,18 @@ fn kind(name: &str) -> Option<Kind> {
     Some(match name {
         "osc1" => Kind::Osc1,
         "osc2" => Kind::Osc2,
-        "noise" => Kind::Noise,
+        "noise" => {
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            {
+                Kind::Osc3
+            }
+            #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+            {
+                Kind::Noise
+            }
+        }
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        "osc3" => Kind::Osc3,
         "mixer" => Kind::Mix,
         "filter1" => Kind::Filter1,
         "filter2" => Kind::Filter2,
@@ -135,6 +151,17 @@ fn output_port(k: Kind, name: &str) -> Option<(usize, bool)> {
     }
 }
 fn port(k: Kind, name: &str) -> Option<(usize, bool)> {
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    if k == Kind::Osc3 {
+        return match name {
+            "mod" => Some((0, false)),
+            "ctrl1" => Some((1, true)),
+            "ctrl2" => Some((2, true)),
+            "pitch" => Some((3, true)),
+            "lfo" => Some((4, true)),
+            _ => None,
+        };
+    }
     match (k, name) {
         (Kind::Mix | Kind::Sum, "a") => Some((0, false)),
         (Kind::Mix | Kind::Sum, "b") => Some((1, false)),
@@ -179,6 +206,9 @@ struct Node {
     program: radias_synth_application::drum_program::DrumInstrumentProgram,
 }
 struct Plan {
+    fixed: bool,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    fine: radias_synth_domain::controller_secondary::FineTuneTable,
     nodes: Vec<Node>,
     order: Vec<usize>,
     output: usize,
@@ -192,6 +222,18 @@ pub struct CircuitVoice {
     controls: [f64; 8],
     frames: u64,
     release_frames: u32,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    third: State,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    third_program: radias_synth_application::primary::ThirdProgram,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    third_targets: radias_synth_domain::modulation::AppliedModulationTargets,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    source_taps: radias_synth_domain::voice::OscillatorTaps,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    previous_phases: Option<[radias_synth_domain::Phase; 2]>,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    source_wraps: [bool; 2],
 }
 struct State {
     osc: PrimaryOscillator,
@@ -206,6 +248,8 @@ struct State {
     env_gate: bool,
     phase: f64,
     switch_mix: Option<f64>,
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    third_pitch: Option<osc3::Pitch>,
 }
 impl Default for State {
     fn default() -> Self {
@@ -222,10 +266,25 @@ impl Default for State {
             env_gate: false,
             phase: 0.0,
             switch_mix: None,
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            third_pitch: None,
         }
     }
 }
 impl CircuitVoice {
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    pub fn fixed() -> Self {
+        Self::new(Arc::new(Plan {
+            fixed: true,
+            fine: crate::standalone_tables::fine(),
+            nodes: Vec::new(),
+            order: Vec::new(),
+            output: 0,
+            controllers: Box::new(crate::standalone_tables::controllers()),
+            has_amp: true,
+            primary_tables: Some(Box::new(primary::Tables::new())),
+        }))
+    }
     pub fn compile(
         circuit: &Circuit,
         synth: &StandaloneSynth,
@@ -400,16 +459,26 @@ impl CircuitVoice {
             }
         }
         if !circuit.enabled {
-            return Ok(None);
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            {
+                return Ok(Some(Self::fixed()));
+            }
+            #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+            {
+                return Ok(None);
+            }
         }
         let has_amp = order
             .iter()
             .any(|i| matches!(nodes[*i].kind, Kind::Amp | Kind::Eg2));
         let primary_tables = nodes
             .iter()
-            .any(|n| n.kind == Kind::Primary)
+            .any(|n| n.kind == Kind::Primary || kind("osc3").is_some_and(|k| n.kind == k))
             .then(|| Box::new(primary::Tables::new()));
         Ok(Some(Self::new(Arc::new(Plan {
+            fixed: false,
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            fine: crate::standalone_tables::fine(),
             nodes,
             order,
             output,
@@ -419,9 +488,13 @@ impl CircuitVoice {
         }))))
     }
     fn new(plan: Arc<Plan>) -> Self {
-        let mut states: Vec<State> = (0..LIMIT).map(|_| State::default()).collect();
+        let mut states: Vec<State> = if plan.fixed {
+            Vec::new()
+        } else {
+            (0..LIMIT).map(|_| State::default()).collect()
+        };
         for n in &plan.nodes {
-            if n.kind == Kind::Primary {
+            if n.kind == Kind::Primary || kind("osc3").is_some_and(|k| n.kind == k) {
                 states[n.id].primary = Some(Box::default());
             }
             if n.kind == Kind::Filter2 {
@@ -437,7 +510,32 @@ impl CircuitVoice {
             controls: [1.0, 1.0, 60.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             frames: 0,
             release_frames: 0,
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            third: State {
+                primary: Some(Box::default()),
+                ..Default::default()
+            },
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            third_program: Default::default(),
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            third_targets: Default::default(),
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            source_taps: Default::default(),
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            previous_phases: None,
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            source_wraps: [false; 2],
         }
+    }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    fn third_reference(&self, sources: [Sample; 3]) -> (Sample, bool) {
+        let (_, reference) = osc3::interaction(self.third_program, self.third_targets);
+        let sample = match reference {
+            0 => sources[0],
+            1 if self.previous_phases.is_some() => self.source_taps.secondary_before_ring,
+            _ => sources[1],
+        };
+        (sample, self.source_wraps[reference.min(1)])
     }
 }
 impl VoiceCircuit for CircuitVoice {
@@ -449,7 +547,31 @@ impl VoiceCircuit for CircuitVoice {
     }
     fn reconfigure(&mut self, prototype: &dyn VoiceCircuit) {
         if let Some(next) = prototype.as_any().downcast_ref::<Self>() {
+            let from_fixed = self.plan.fixed;
+            if next.plan.fixed {
+                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                if !from_fixed
+                    && let Some(n) = self.plan.nodes.iter().find(|n| n.kind == Kind::Osc3)
+                {
+                    self.third = std::mem::take(&mut self.states[n.id]);
+                }
+                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                if self.third.primary.is_none() {
+                    self.third.primary = Some(Box::default());
+                }
+                self.states.clear();
+                self.plan = next.plan.clone();
+                return;
+            }
+            if from_fixed {
+                self.states.resize_with(LIMIT, State::default);
+            }
             for n in &next.plan.nodes {
+                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                if from_fixed && n.kind == Kind::Osc3 && self.third.primary.is_some() {
+                    self.states[n.id] = std::mem::take(&mut self.third);
+                    continue;
+                }
                 if !self
                     .plan
                     .nodes
@@ -457,7 +579,7 @@ impl VoiceCircuit for CircuitVoice {
                     .any(|old| old.id == n.id && old.kind == n.kind)
                 {
                     self.states[n.id] = State::default();
-                    if n.kind == Kind::Primary {
+                    if n.kind == Kind::Primary || kind("osc3").is_some_and(|k| n.kind == k) {
                         self.states[n.id].primary = Some(Box::default());
                     }
                 }
@@ -476,7 +598,19 @@ impl VoiceCircuit for CircuitVoice {
     fn controls(&mut self, v: [f64; 8]) {
         self.controls = v;
     }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    fn oscillator3(
+        &mut self,
+        program: radias_synth_application::primary::ThirdProgram,
+        targets: radias_synth_domain::modulation::AppliedModulationTargets,
+    ) {
+        self.third_program = program;
+        self.third_targets = targets;
+    }
     fn tail_active(&self) -> bool {
+        if self.plan.fixed {
+            return false;
+        }
         self.controls[0] == 0.0
             && ((!self.plan.has_amp && self.release_frames < 2400)
                 || self
@@ -490,6 +624,62 @@ impl VoiceCircuit for CircuitVoice {
     }
 }
 impl SignalProcessor for CircuitVoice {
+    fn fixed_graph(&self) -> bool {
+        self.plan.fixed
+    }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    fn needs_oscillator_taps(&self) -> bool {
+        let (mode, reference) = osc3::interaction(self.third_program, self.third_targets);
+        mode.ring
+            && reference == 1
+            && (self.plan.fixed
+                || self
+                    .plan
+                    .order
+                    .iter()
+                    .any(|i| self.plan.nodes[*i].kind == Kind::Osc3))
+    }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    fn oscillator_taps(&mut self, taps: radias_synth_domain::voice::OscillatorTaps) {
+        let sync = radias_synth_domain::secondary_control::SecondaryModulation {
+            ring: false,
+            sync: true,
+        };
+        self.source_wraps = core::array::from_fn(|i| {
+            self.previous_phases
+                .is_some_and(|previous| sync.wraps(taps.phases[i], previous[i]))
+        });
+        self.previous_phases = Some(taps.phases);
+        self.source_taps = taps;
+    }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    fn prepare_sources(
+        &mut self,
+        mut sources: [Sample; 3],
+        p: VoiceParameters,
+        table: &WaveformTable,
+    ) -> [Sample; 3] {
+        let (reference, wrap) = self.third_reference(sources);
+        sources[2] = osc3::next(
+            &mut self.third.osc,
+            self.third.primary.as_mut().unwrap(),
+            &mut self.third.third_pitch,
+            self.third_program,
+            self.third_targets,
+            p,
+            [0.0, 0.0, 0.0, 0.0, self.controls[5]],
+            sources[1],
+            reference,
+            wrap,
+            self.plan.primary_tables.as_ref().unwrap(),
+            &self.plan.fine,
+            table,
+            self.frames,
+            2,
+        );
+        self.frames = self.frames.wrapping_add(1);
+        sources
+    }
     fn process(
         &mut self,
         sources: [Sample; 3],
@@ -497,6 +687,8 @@ impl SignalProcessor for CircuitVoice {
         level: i16,
         table: &WaveformTable,
     ) -> Sample {
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        let (reference, wrap) = self.third_reference(sources);
         let mut out = [[0.0; 2]; LIMIT];
         let gate = self.controls[0] > 0.0;
         if !gate {
@@ -513,6 +705,37 @@ impl SignalProcessor for CircuitVoice {
             let result = match n.kind {
                 Kind::Osc1 => sources[0].0 as f64 / 2147483647.0,
                 Kind::Osc2 => sources[1].0 as f64 / 2147483647.0,
+                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                Kind::Osc3 => {
+                    let mut cv = input;
+                    if n.inputs[4].is_none() {
+                        cv[4] = self.controls[5];
+                    }
+                    osc3::next(
+                        &mut state.osc,
+                        state.primary.as_mut().unwrap(),
+                        &mut state.third_pitch,
+                        self.third_program,
+                        self.third_targets,
+                        p,
+                        cv,
+                        if n.inputs[0].is_some() {
+                            audio
+                        } else {
+                            sources[1]
+                        },
+                        reference,
+                        wrap,
+                        self.plan.primary_tables.as_ref().unwrap(),
+                        &self.plan.fine,
+                        table,
+                        self.frames,
+                        n.id,
+                    )
+                    .0 as f64
+                        / 2147483647.0
+                }
+                #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
                 Kind::Noise => sources[2].0 as f64 / 2147483647.0,
                 Kind::Mix => {
                     input[0] * p.mix.primary_gain as f64 / 32768.0

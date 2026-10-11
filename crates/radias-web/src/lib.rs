@@ -238,8 +238,13 @@ pub extern "C" fn rustias_circuit(timbre: u32, length: u32) -> u32 {
             return 0;
         };
         use radias_synth_application::VoiceCircuit;
-        e.sampler
-            .set_circuit(timbre as usize, processor.as_ref().map(|p| p.fresh()));
+        e.sampler.set_circuit(
+            timbre as usize,
+            processor
+                .as_ref()
+                .filter(|p| !radias_synth_domain::voice::SignalProcessor::fixed_graph(*p))
+                .map(|p| p.fresh()),
+        );
         e.synth.engine.set_circuit(
             timbre as usize,
             processor.map(|p| Box::new(p) as Box<dyn VoiceCircuit>),

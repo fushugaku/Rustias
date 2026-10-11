@@ -48,6 +48,26 @@ impl Controller {
     pub fn next(
         &mut self,
         oscillator: &mut PrimaryOscillator,
+        program: PrimaryProgram,
+        increment: PhaseIncrement,
+        code: PitchCode,
+        lfo: i16,
+        modulation: [i16; 2],
+        modulator: Sample,
+        tables: &Tables,
+        waveform: &WaveformTable,
+        frame: u64,
+        id: usize,
+    ) -> Sample {
+        self.next_with_sync(
+            oscillator, program, increment, code, lfo, modulation, modulator, tables, waveform,
+            frame, id, false,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn next_with_sync(
+        &mut self,
+        oscillator: &mut PrimaryOscillator,
         mut program: PrimaryProgram,
         increment: PhaseIncrement,
         code: PitchCode,
@@ -58,6 +78,7 @@ impl Controller {
         waveform: &WaveformTable,
         frame: u64,
         id: usize,
+        sync: bool,
     ) -> Sample {
         let fresh = self.selection != program.selection;
         if fresh {
@@ -93,6 +114,9 @@ impl Controller {
             }
             if frame & 3 == 3 {
                 noise.advance(weights);
+            }
+            if sync {
+                oscillator.phase = radias_synth_domain::Phase(0);
             }
             return oscillator.next_with_modulator_and_bias(
                 waveform,
@@ -150,6 +174,20 @@ impl Controller {
                 }
                 self.phase_code = Some(code);
             }
+        }
+        if sync {
+            // Shift the whole Unison bank together; preserve its phase spread.
+            let base = oscillator.unison.phases[0].0;
+            for phase in &mut oscillator.unison.phases {
+                phase.0 = phase.0.wrapping_sub(base);
+            }
+            oscillator.phase = radias_synth_domain::Phase(0);
+            oscillator.modulated_phase = radias_synth_domain::Phase(if program.selection == 3 {
+                0xc000_0000
+            } else {
+                0
+            });
+            oscillator.control_feedback = 0;
         }
         oscillator.next_with_modulator(waveform, parameters, modulator)
     }

@@ -1,4 +1,4 @@
-import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray,effectUsesMaster,effectTimbre,effectRole,timbreEffectSlots,LFO3_BASE} from './limits.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray,effectUsesMaster,effectTimbre,effectRole,timbreEffectSlots,LFO3_BASE,OSC3_BASE} from './limits.js';
 import {webParameters} from './parameters.js';
 import {createMacrosPanel} from './macros-ui.js';
 import {createModulationEditor} from './modulation-ui.js';
@@ -86,11 +86,12 @@ function format(id, value) {
   return String(value);
 }
 function disabled(id, v) {
-  if(isSample()&&[0,10,11,12,13,14,15,16,17,18,19].includes(id))return true;
+  if(isSample()&&([0,10,11,12,13,14,15,16,17,18,19].includes(id)||id>=OSC3_BASE))return true;
   if(isSample()&&[59,60,61,62,63,64,65,66,67,68,69,70,139].includes(id))return true;
   if(isSample()&&[6,35,39].includes(id)&&(sampleProfile()?.mode??sampleUI.getConfig().slots[global(142)].mode)===0)return true;
   if(unavailableSource()&&[10,11,12].includes(id))return true;
   if (id === 10) return v[0] >= 4;
+  if (id === OSC3_BASE+1) return v[OSC3_BASE] >= 4;
   if (id === 154) return v[29] !== 2;
   if ([21, 22, 23, 24, 27, 28].includes(id)) return v[20] === 0;
   if ([64, 63].includes(id)) return v[62] === 1;
@@ -135,6 +136,7 @@ function resolveMacro(target){
   else if(target.kind==='drum'){v=drums[target.instrument];label=`Drum ${target.instrument+1} · ${p.group} · ${p.label}`;}
   else if(target.kind==='sample'){v=sampleUI?.findProfile(target.timbre,target.source)?.values;label=`T${target.timbre+1} · ${sampleUI?.sampleName(target.source)??target.source} · ${p.group} · ${p.label}`;available=target.timbre<timbreCount;}
   if(!v)return null;if(p.id===10&&v[0]>=4)available=false;
+  if(p.id===OSC3_BASE+1&&v[OSC3_BASE]>=4)available=false;
   return {label,min:p.min,max:p.max,values:p.values,read:()=>v[p.id],available};
 }
 function modulationTargets(t){
@@ -171,10 +173,10 @@ function writeMacros(changes){
     else if(target.kind==='volume'){$('#volume').value=value;send({type:'gain',value:value/100});}
     else{
       const id=target.parameter;let v=target.kind==='global'?timbres[0].values:target.kind==='synth'?timbres[target.timbre].values:target.kind==='drum'?drums[target.instrument]:sampleUI.findProfile(target.timbre,target.source).values;
-      const next=id===10&&v[0]>=4?0:value;
+      const next=(id===10&&v[0]>=4||id===OSC3_BASE+1&&v[OSC3_BASE]>=4)?0:value;
       if(target.kind==='global'){for(const timbre of timbres)timbre.values[id]=next;send({type:'control',timbre:0,parameter:id,value:next});for(let t=0;t<timbreCount;t++)circuits.add(t);}
       else if(target.kind==='sample'){sampleUI.controlLibrary(target.timbre,target.source,id,next);markTimbre(target.timbre);}
-      else{v[id]=next;if(id===0&&next>=4)v[10]=0;
+      else{v[id]=next;if(id===0&&next>=4)v[10]=0;if(id===OSC3_BASE&&next>=4)v[OSC3_BASE+1]=0;
         if(target.kind==='drum'){send({type:'drum-control',instrument:target.instrument,parameter:id,value:next});circuits.add(global(141));}
         else{if([66,137,138,139,150].includes(id)){const channel=v[72]===16?global(148):v[72];for(const t of timbres)if((t.values[72]===16?global(148):t.values[72])===channel)t.values[id]=next;}send({type:'control',timbre:target.timbre,parameter:id,value:next});circuits.add(target.timbre);markTimbre(target.timbre);}
       }
@@ -196,6 +198,7 @@ function setControl(id, value, fromUser = true) {
   else if(editingSample&&instrumentParameter(id))sampleUI.controlLibrary(selected,editingSample.source,id,value);
   else (isDrum() && instrumentParameter(id) ? drums[global(142)] : timbres[selected].values)[id] = value;
   if (id === 0 && value >= 4) (isDrum() ? drums[global(142)] : timbres[selected].values)[10] = 0;
+  if (id === OSC3_BASE && value >= 4) (isDrum() ? drums[global(142)] : timbres[selected].values)[OSC3_BASE+1] = 0;
   if ([66,137,138,139,150].includes(id)) {
     const channel = timbres[selected].values[72] === 16 ? global(148) : timbres[selected].values[72];
     for (const t of timbres) if ((t.values[72] === 16 ? global(148) : t.values[72]) === channel) t.values[id] = value;
@@ -219,6 +222,7 @@ function updateControls() {
   $("#wave-display").setAttribute("aria-label", `${names[v[0]]} waveform`);
   const paths = ["M0 60 L60 12 L60 60 L120 12 L120 60 L180 12 L180 60 L240 12", "M0 60 V12 H30 V60 H60 V12 H90 V60 H120 V12 H150 V60 H180 V12 H210 V60 H240", "M0 36 L30 12 L60 36 L90 60 L120 36 L150 12 L180 36 L210 60 L240 36", `M${Array.from({length: 121}, (_, i) => `${i * 2} ${36 - 24 * Math.sin(i / 120 * 4 * Math.PI)}`).join(" L")}`, `M${Array.from({length: 61}, (_, i) => `${i * 4} ${12 + (i * 17 % 49)}`).join(" L")}`, `M${Array.from({length: 121}, (_, i) => `${i * 2} ${36 - 24 * Math.sin(i / 120 * 10 * Math.PI) * Math.sin(i / 120 * 2 * Math.PI)}`).join(" L")}`];
   $("#wave-path").setAttribute("d", paths[v[0]]);
+  $("#wave-display-osc3").toggleAttribute("hidden",pcm);$("#wave-display-osc3").setAttribute("aria-label",`${names[v[OSC3_BASE]]} waveform`);$("#wave-path-osc3").setAttribute("d",paths[v[OSC3_BASE]]);
   $("#edit-context").textContent = editingSample ? `T${selected+1} · ${sampleUI.sampleName(editingSample.source)}` : isDrum() ? `Drum ${String(global(142) + 1).padStart(2, "0")} · Timbre ${String(selected + 1).padStart(2, "0")}` : `Timbre ${String(selected + 1).padStart(2, "0")}`;
   $("#edit-context").title=$("#edit-context").textContent;
   const programLabel=patchStore.list().find(p=>p.id===activeSavedPatch)?.name??(programState==='init'?'INIT':'Unsaved');

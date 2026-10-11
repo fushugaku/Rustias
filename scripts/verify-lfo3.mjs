@@ -10,7 +10,7 @@ import {newModulationLane,ModulationAutomation} from '../web/modulation.js';
 export function verifyLfo3({api,parameters,control,render,rms,save,load,setCircuit}){
   const b=LFO3_BASE;
   assert.equal(parameters.length,PARAMETER_COUNT);
-  assert.deepEqual(parameters.slice(b).map(p=>[p.min,p.max,p.default]),parameters.slice(73,81).map(p=>[p.min,p.max,p.default]));
+  assert.deepEqual(parameters.slice(b,b+8).map(p=>[p.min,p.max,p.default]),parameters.slice(73,81).map(p=>[p.min,p.max,p.default]));
   assert.deepEqual(extendValues(parameters.slice(0,155).map(p=>p.default),parameters),parameters.map(p=>p.default));
   const energyDifference=(a,c)=>rms(a.map((v,i)=>v-c[i]));
   function voice({t=0,wave=0,rate=86,phase=0,sync=0,division=8,key=2,route=true,offset=0,feedback=false}={}){
