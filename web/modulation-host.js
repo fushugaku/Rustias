@@ -1,4 +1,5 @@
 import {modulationKey} from './modulation.js';
+import {OSC3_BASE} from './limits.js';
 // Browser adapter only: every sound parameter still goes through the shared Rust API.
 const copy=value=>JSON.parse(JSON.stringify(value));
 export class ModulationHost {
@@ -13,21 +14,24 @@ export class ModulationHost {
   write(changes){
     const wasm=this.processor.wasm,applied=[],effects=new Map(),circuits=new Map();let library=false;
     // Wave changes precede Mode so Noise/Formant keep the native Waveform constraint.
-    changes.sort((a,b)=>(a.target.parameter===0?-1:0)-(b.target.parameter===0?-1:0));
+    const waveFirst=c=>c.target.parameter===0||c.target.parameter===OSC3_BASE?-1:0;
+    changes.sort((a,b)=>waveFirst(a)-waveFirst(b));
     for(const change of changes){
       const {target}=change;let value=change.value,ok=false;
       if(target.kind==='synth'||target.kind==='global'){
         const t=target.timbre??0;
-        if(target.parameter===10&&wasm.rustias_value(t,0)>=4)value=change.value=0;
+        const wave=target.parameter===10?0:target.parameter===OSC3_BASE+1?OSC3_BASE:null;
+        if(wave!=null&&wasm.rustias_value(t,wave)>=4)value=change.value=0;
         ok=!!wasm.rustias_control(t,target.parameter,value);
       }else if(target.kind==='drum'){
         const values=this.engine?.drums[target.instrument];
-        if(target.parameter===10&&values?.[0]>=4)value=change.value=0;
+        const wave=target.parameter===10?0:target.parameter===OSC3_BASE+1?OSC3_BASE:null;
+        if(wave!=null&&values?.[wave]>=4)value=change.value=0;
         ok=!!wasm.rustias_drum_control(target.instrument,target.parameter,value);
-        if(ok&&values){values[target.parameter]=value;if(target.parameter===0&&value>=4)values[10]=0;}
+        if(ok&&values){values[target.parameter]=value;if(target.parameter===0&&value>=4)values[10]=0;if(target.parameter===OSC3_BASE&&value>=4)values[OSC3_BASE+1]=0;}
       }else if(target.kind==='sample'){
         const profile=this.processor.libraryProfiles.get(target.timbre+':'+target.source);
-        if(profile){if(target.parameter===10&&wasm.rustias_library_value(profile.id,0)>=4)value=change.value=0;ok=!!wasm.rustias_library_control(profile.id,target.parameter,value);library=library||ok;}
+        if(profile){const wave=target.parameter===10?0:target.parameter===OSC3_BASE+1?OSC3_BASE:null;if(wave!=null&&wasm.rustias_library_value(profile.id,wave)>=4)value=change.value=0;ok=!!wasm.rustias_library_control(profile.id,target.parameter,value);library=library||ok;}
       }else if(target.kind==='effect'){
         const program=this.effects[target.slot];
         if(program?.kind===target.effectKind){program.parameters[target.parameter]=value;if(!effects.has(target.slot))effects.set(target.slot,[]);effects.get(target.slot).push(modulationKey(target));}

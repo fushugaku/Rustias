@@ -24,6 +24,8 @@ import {verifyModulation} from './verify-modulation.mjs';
 import {verifySequenceView} from './verify-sequence-view.mjs';
 import {verifyLfo3} from './verify-lfo3.mjs';
 import {verifyOsc3} from './verify-osc3.mjs';
+import {verifyOsc3Worklet} from './verify-osc3-worklet.mjs';
+import {verifyWebAssets} from './verify-web-assets.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
@@ -64,6 +66,7 @@ function load(program) {
   return api.rustias_load(data.length);
 }
 const features=[];
+features.push(verifyWebAssets());
 features.push(verifySequenceView());
 features.push(...verifyExpanded({api,parameters:schema,catalog:effectCatalog,control,render,rms,save,load}));
 features.push(verifyCircuitDrag());
@@ -369,6 +372,7 @@ features.push(verifyEffects({api,catalog:effectCatalog,render,rms,control,save,l
 const reports = [];
 features.push(verifyRecordings());
 features.push(verifyModulation({parameters:schema,module,workletSource,sequenceSource}));
+const osc3Worklet=verifyOsc3Worklet({parameters:schema,module,workletSource,sequenceSource});features.push(osc3Worklet.features);
 features.push(verifyRdlPlayback({parameters:schema,module,workletSource,sequenceSource}));
 for (const sampleRate of [48000, 44100]) {
   let Processor;
@@ -439,4 +443,4 @@ for (const sampleRate of [48000, 44100]) {
   reports.push({ sampleRate, outputFrames: frames, nativeFrames, measuredA4Hz: Number(hz.toFixed(2)), peak: workletPeak });
 }
 features.push(verifyPrograms(schema,module));
-console.log(JSON.stringify({ passed: true, wasmBytes: fs.statSync(path).size, runtimeImports: [], nativePeak: peak, parameters: schema.length, features, audioWorklet: reports }, null, 2));
+console.log(JSON.stringify({ passed: true, wasmBytes: fs.statSync(path).size, runtimeImports: [], nativePeak: peak, parameters: schema.length, features, osc3Worklet:osc3Worklet.reports, audioWorklet: reports }, null, 2));

@@ -12,6 +12,8 @@ The project is under development. Individual algorithms and recorded scenarios a
 
 The browser instrument runs **without firmware**. The shared Rust generator in `radias-synth-infrastructure::synthesizer` produces audio inside a Web Audio `AudioWorklet`. JavaScript forwards controls and plays the generated samples. The web build does not use the SH3/C55 interpreter or SYS images and does not bundle RDL banks or factory PCM ROM. Users can import their own RDL programs. Browser drum samples are separate local files or the bundled drum libraries.
 
+Each build gives the interface modules, workers, parameter/effect tables and WASM one asset revision, so a page reload updates them together. Audio regressions run on WASM/AudioWorklet buffers without opening an audio device, including live OSC 3 edits at 48/44.1 kHz.
+
 All 155 implemented native parameters are arranged on one silver instrument panel, with a full-screen button and a compact desktop layout. The browser adds Patch 7/8, LFO 3 and OSC 3, for 179 parameters in total. Definitions extend the same [schema](crates/radias-synth-infrastructure/src/parameters.json) that Rust uses to validate controls.
 
 | Section | Available controls |

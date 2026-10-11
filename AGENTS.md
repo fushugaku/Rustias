@@ -31,3 +31,7 @@ The Pages workflow builds these sources on every push to `main`. Verify the real
 WASM with `node scripts/verify-web.mjs` and check UI changes in a browser, including
 mobile. Do not commit firmware, local reference captures, backup directories or
 browser QA data.
+Run audio checks offline against WASM/AudioWorklet buffers. Do not start audible
+browser playback or recording during QA; the user explicitly requires quiet tests.
+Browser checks cover controls/layout with audio stopped. Build assets share one
+revision; keep module imports, worker URLs, JSON tables and WASM on that revision.

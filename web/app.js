@@ -515,5 +515,7 @@ try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(sessio
 updateControls(); updateKeys(); document.body.dataset.parameterCount = parameters.length;
 try {
   const response = await fetch(new URL("./rustias.wasm", import.meta.url)); if (!response.ok) throw new Error(`Could not load the Rust engine (${response.status}).`);
-  module = await WebAssembly.compile(await response.arrayBuffer()); sequenceUI.setReady(true);recorder.setReady(true); $("#power").disabled = false;$('#load-program').disabled=false;updatePower(); document.body.dataset.engine = "ready";
+  const compiled=await WebAssembly.compile(await response.arrayBuffer());
+  if(new WebAssembly.Instance(compiled,{}).exports.rustias_parameter_count()!==parameters.length)throw new Error('The instrument needs to reload after an update. Reload this page.');
+  module=compiled;sequenceUI.setReady(true);recorder.setReady(true); $("#power").disabled = false;$('#load-program').disabled=false;updatePower(); document.body.dataset.engine = "ready";
 } catch (error) { $("#status").textContent = "Engine unavailable"; showError(error); }
