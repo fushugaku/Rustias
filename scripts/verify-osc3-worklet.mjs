@@ -5,12 +5,19 @@ import {ModulationAutomation,emptyModulation} from '../web/modulation.js';
 import {ModulationHost} from '../web/modulation-host.js';
 import {emptyMacros} from '../web/macros.js';
 import {audioCircuit,defaultCircuit} from '../web/circuit.js';
-import {MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,timbreArray} from '../web/limits.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray} from '../web/limits.js';
 import {validSampleSource} from '../web/sample-state.js';
 
 // Render the actual browser message path into arrays. No audio device is opened.
 export function verifyOsc3Worklet({module,parameters,workletSource,sequenceSource}){
   const b=OSC3_BASE,reports=[];
+  const api=new WebAssembly.Instance(module,{}).exports;api.rustias_init();
+  assert.equal(api.rustias_osc3_control(0,8,1),0,'OSC 3 rejects a control outside its own eight fields');
+  assert.equal(api.rustias_osc3_control(MAX_TIMBRES,4,76),0,'OSC 3 rejects an unknown timbre');
+  assert.equal(api.rustias_osc3_control(0,4,74),1);assert.equal(api.rustias_value(0,b+4),74);
+  assert.equal(api.rustias_value(0,15),64,'OSC 3 Semi does not write OSC 2 Semi');
+  assert.equal(api.rustias_osc3_control(0,5,100),1);assert.equal(api.rustias_value(0,b+5),100);
+  assert.equal(api.rustias_value(0,16),64,'OSC 3 Fine does not write OSC 2 Fine');
   const rms=a=>Math.sqrt(a.reduce((sum,x)=>sum+x*x,0)/a.length);
   const difference=(a,c)=>rms(a.map((x,i)=>x-c[i]));
   const frequency=(audio,rate)=>{let crossings=0;for(let i=2001;i<audio.length;i++)if(audio[i]>=0&&audio[i-1]<0)crossings++;return crossings*rate/(audio.length-2000);};
@@ -20,7 +27,7 @@ export function verifyOsc3Worklet({module,parameters,workletSource,sequenceSourc
       if(!processors[slot]){
         let Processor;const messages=[];
         vm.runInNewContext(sequenceSource+'\n'+workletSource.replace(/^import .*;\n/gm,''),{
-          sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,timbreArray,ModulationAutomation,ModulationHost,
+          sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,
           AudioWorkletProcessor:class{constructor(){this.port={postMessage:data=>messages.push(data)};}},registerProcessor:(_name,p)=>Processor=p,
         });
         processors[slot]={p:new Processor({processorOptions:{module,gain:1}}),messages};
@@ -38,7 +45,7 @@ export function verifyOsc3Worklet({module,parameters,workletSource,sequenceSourc
       const state={config:emptyModulation(),macros:emptyMacros(),targets:[],engine:save(),effects:save().effects,circuits};
       send({type:'modulation',state});
       const render=(frames=24000)=>{const audio=[];for(let i=0;i<frames;i+=128){const left=new Float32Array(128),right=new Float32Array(128);p.process([],[[left,right]]);assert.equal(p.failed,false);assert.ok([...left,...right].every(Number.isFinite));audio.push(...left);}return audio;};
-      const control=(id,value)=>{send({type:'control',timbre:0,parameter:id,value});assert.equal(wasm.rustias_value(0,id),value);state.engine=save();send({type:'modulation',state});};
+      const control=(id,value)=>{send(id>=b?{type:'osc3-control',timbre:0,control:id-b,value}:{type:'control',timbre:0,parameter:id,value});assert.equal(wasm.rustias_value(0,id),value);state.engine=save();send({type:'modulation',state});};
       send({type:'note',timbre:0,note:69,velocity:100});render(4096);
       return {p,wasm,send,save,state,control,render,messages};
     }
@@ -46,6 +53,20 @@ export function verifyOsc3Worklet({module,parameters,workletSource,sequenceSourc
     tone.control(b+4,76);const octave=tone.render();assert.ok(Math.abs(frequency(octave,sampleRate)-880)<6,'UI control messages retune a held OSC 3 by twelve semitones');
     tone.control(b+4,64);tone.control(b+5,127);const fine=tone.render();assert.ok(Math.abs(frequency(fine,sampleRate)-466.16)<6,'UI Fine messages reach the actual device-rate output');
     assert.equal(tone.wasm.rustias_voices(),1,'Manual edits keep the existing held voice');
+    for(const context of [
+      {name:'Waveform',values:{}},
+      {name:'Unison',values:{[b]:1,[b+1]:2,[b+2]:80,[b+3]:90}},
+      {name:'VPM',values:{[b]:3,[b+1]:3,[b+2]:80,[b+3]:90}},
+      {name:'Mono',values:{62:0}},
+      {name:'Voice Unison',values:{67:1,68:4}},
+      {name:'Serial filters',values:{20:1}},
+      {name:'Parallel filters',values:{20:2}},
+      {name:'Individual filters',values:{20:3}},
+      {name:'Pitch patch offset',values:{101:-63}},
+    ])for(const test of [{name:'OSC 2 Semitone',id:15,value:74},{name:'OSC 2 Fine',id:16,value:127},{name:'OSC 2 Waveform',id:13,value:1}]){
+      const dry=fixture(context),wet=fixture(context,1);wet.control(test.id,test.value);
+      const a=dry.render(),c=wet.render();assert.equal(difference(a,c),0,`${test.name} must not alter an isolated OSC 3 in Normal mode (${context.name})`);
+    }
     const pairs=[
       {name:'Waveform',values:{[b]:3},id:b,value:1},
       {name:'CTRL 1',values:{[b]:0},id:b+2,value:100},
@@ -82,5 +103,5 @@ export function verifyOsc3Worklet({module,parameters,workletSource,sequenceSourc
     assert.ok(!ordered.messages.some(m=>m.type==='error'||m.type==='warning'));
     reports.push({sampleRate,a4:Math.round(frequency(base,sampleRate)),semitone12:Math.round(frequency(octave,sampleRate)),fine63:Number(frequency(fine,sampleRate).toFixed(1))});
   }
-  return {features:'OSC 3 browser control messages: held Semi/Fine, Mode, CTRL1/2, Sync, Pitch CV, Routing On/Off, old-program loading and simultaneous Wave/Mode modulation; silent buffer verification',reports};
+  return {features:'Dedicated OSC 3 control channel: held Semi/Fine, Mode, CTRL1/2, Sync, Pitch CV, OSC 2 independence, Mono/Unison/filter routes, old programs and simultaneous Wave/Mode modulation; silent buffer verification',reports};
 }

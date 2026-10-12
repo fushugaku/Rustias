@@ -55,7 +55,9 @@ const INCLUDE_TIMBRE_SEQUENCE=false;
 const factorySounds=[{value:"init",label:"INIT"},{value:"pad",label:"Warm pad"},{value:"pulse",label:"Pulse bass"},{value:"pluck",label:"Soft pluck"},{value:"custom",label:"Custom"}];
 function markProgram(){programDirty=true;if(!activeSavedPatch)programState="custom";}
 function markTimbre(t=selected){timbres[t].modified=true;markProgram();}
-const send = message => node?.port.postMessage(message);
+const send = message => node?.port.postMessage(message.type==='control'&&message.parameter>=OSC3_BASE
+  ? {type:'osc3-control',timbre:message.timbre,control:message.parameter-OSC3_BASE,value:message.value}
+  : message);
 const global = id => timbres[0].values[id];
 const isDrum = () => global(140) !== 0 && global(141) === selected;
 const isSample = () => !!editingSample || isDrum() && sampleUI?.assigned(global(142));
@@ -516,6 +518,7 @@ updateControls(); updateKeys(); document.body.dataset.parameterCount = parameter
 try {
   const response = await fetch(new URL("./rustias.wasm", import.meta.url)); if (!response.ok) throw new Error(`Could not load the Rust engine (${response.status}).`);
   const compiled=await WebAssembly.compile(await response.arrayBuffer());
-  if(new WebAssembly.Instance(compiled,{}).exports.rustias_parameter_count()!==parameters.length)throw new Error('The instrument needs to reload after an update. Reload this page.');
+  const api=new WebAssembly.Instance(compiled,{}).exports;
+  if(api.rustias_parameter_count()!==parameters.length||typeof api.rustias_osc3_control!=='function')throw new Error('The instrument needs to reload after an update. Reload this page.');
   module=compiled;sequenceUI.setReady(true);recorder.setReady(true); $("#power").disabled = false;$('#load-program').disabled=false;updatePower(); document.body.dataset.engine = "ready";
 } catch (error) { $("#status").textContent = "Engine unavailable"; showError(error); }

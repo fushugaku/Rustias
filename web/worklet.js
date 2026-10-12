@@ -2,11 +2,12 @@ import {SequenceClock,StepAudition} from "./sequence.js";
 import {RecordingTap} from './recording-tap.js';
 import {ModulationAutomation} from './modulation.js';
 import {ModulationHost} from './modulation-host.js';
-import {MAX_TIMBRES} from './limits.js';
+import {MAX_TIMBRES,OSC3_BASE,PARAMETER_COUNT} from './limits.js';
 class RustiasProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
     this.wasm = new WebAssembly.Instance(options.processorOptions.module, {}).exports;
+    if(this.wasm.rustias_parameter_count()!==PARAMETER_COUNT||typeof this.wasm.rustias_osc3_control!=='function')throw new Error('The audio engine and controls need to reload together.');
     this.wasm.rustias_init();
     this.gain = options.processorOptions.gain ?? 0.3;
     this.nativeIndex = 128;
@@ -25,12 +26,19 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.modulation=new ModulationAutomation(changes=>this.modulationHost.write(changes));
     this.port.onmessage = ({ data }) => {
       try {
-        if(['control','drum-control','library-control','effect','circuit','gain','drum-gain','midi','load'].includes(data.type))this.modulation.restore();
+        if(['control','osc3-control','drum-control','library-control','effect','circuit','gain','drum-gain','midi','load'].includes(data.type))this.modulation.restore();
         if (data.type === 'record-start') this.recording.start(data.id);
         else if (data.type === 'record-stop') this.recording.stop(data.id);
         else if (data.type === "note") this.ownedNote(data.timbre,data.note,data.velocity,false);
+        else if (data.type === 'osc3-control') {
+          if(!this.wasm.rustias_osc3_control(data.timbre,data.control,data.value)){
+            this.snapshot();this.port.postMessage({type:'warning',message:'OSC 3 could not apply this setting. Reload the instrument.'});
+          }
+        }
         else if (data.type === "control") {
-          if (!this.wasm.rustias_control(data.timbre, data.parameter, data.value)) this.snapshot();
+          // Legacy generic messages still address OSC 3 through the dedicated API.
+          const accepted=data.parameter>=OSC3_BASE?this.wasm.rustias_osc3_control(data.timbre,data.parameter-OSC3_BASE,data.value):this.wasm.rustias_control(data.timbre,data.parameter,data.value);
+          if (!accepted) this.snapshot();
           if(data.parameter===89)this.sequencer.setTempo(this.wasm.rustias_value(0,89)/10);
         }
         else if(data.type==='circuit'){

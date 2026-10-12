@@ -7,7 +7,7 @@ import {normalizeProgram,captureTimbre,applyTimbre} from '../web/programs.js';
 import {defaultCircuit,audioCircuit} from '../web/circuit.js';
 import {emptyEffects,defaultEffect} from '../web/effects.js';
 import {RecordingTap} from '../web/recording-tap.js';
-import {MAX_TIMBRES,INITIAL_TIMBRES,timbreArray,timbreEffectSlot} from '../web/limits.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,timbreEffectSlot} from '../web/limits.js';
 import {validSampleSource,sampleValues} from '../web/sample-state.js';
 import {PatchStore} from '../web/patches.js';
 
@@ -35,7 +35,7 @@ export function verifyModulation({parameters,module,workletSource,sequenceSource
 
   for(const sampleRate of [48000,44100]){
     let Processor;const messages=[];
-    vm.runInNewContext(sequenceSource+'\n'+workletSource.replace(/^import .*;\n/gm,''),{sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,timbreArray,ModulationAutomation,ModulationHost,AudioWorkletProcessor:class{constructor(){this.port={postMessage:data=>messages.push(data)};}},registerProcessor:(_name,p)=>Processor=p});
+    vm.runInNewContext(sequenceSource+'\n'+workletSource.replace(/^import .*;\n/gm,''),{sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,AudioWorkletProcessor:class{constructor(){this.port={postMessage:data=>messages.push(data)};}},registerProcessor:(_name,p)=>Processor=p});
     const p=new Processor({processorOptions:{module,gain:.3}}),wasm=p.wasm;
     for(const [parameter,value]of [[3,0],[4,127],[5,127],[6,8],[1,80]])p.port.onmessage({data:{type:'control',timbre:0,parameter,value}});
     const length=wasm.rustias_save(),base=JSON.parse(Buffer.from(new Uint8Array(wasm.memory.buffer,wasm.rustias_preset_buffer(),length))),fx=emptyEffects(),circuits=Array.from({length:8},()=>defaultCircuit());

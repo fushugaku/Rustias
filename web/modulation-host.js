@@ -22,7 +22,7 @@ export class ModulationHost {
         const t=target.timbre??0;
         const wave=target.parameter===10?0:target.parameter===OSC3_BASE+1?OSC3_BASE:null;
         if(wave!=null&&wasm.rustias_value(t,wave)>=4)value=change.value=0;
-        ok=!!wasm.rustias_control(t,target.parameter,value);
+        ok=!!(target.parameter>=OSC3_BASE?wasm.rustias_osc3_control(t,target.parameter-OSC3_BASE,value):wasm.rustias_control(t,target.parameter,value));
       }else if(target.kind==='drum'){
         const values=this.engine?.drums[target.instrument];
         const wave=target.parameter===10?0:target.parameter===OSC3_BASE+1?OSC3_BASE:null;

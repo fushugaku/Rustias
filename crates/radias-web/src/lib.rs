@@ -91,6 +91,14 @@ pub extern "C" fn rustias_timbre_capacity() -> u32 {
 pub extern "C" fn rustias_parameter_count() -> u32 {
     PARAMETER_COUNT as u32
 }
+/// Browser OSC 3 has its own control address space; OSC 2's 13–16 never enter it.
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_osc3_control(timbre: u32, control: u32, value: i32) -> u32 {
+    if control >= 8 || PARAMETER_COUNT < 179 {
+        return 0;
+    }
+    rustias_control(timbre, 171 + control, value)
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_control(timbre: u32, parameter: u32, value: i32) -> u32 {
     if timbre as usize >= TIMBRE_COUNT {

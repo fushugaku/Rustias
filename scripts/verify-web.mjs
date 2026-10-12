@@ -1,4 +1,4 @@
-import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray} from '../web/limits.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,MASTER_EFFECT_SLOT,timbreArray} from '../web/limits.js';
 import {webParameters} from '../web/parameters.js';
 import {verifyExpanded} from './verify-expanded.mjs';
 import fs from "node:fs";
@@ -378,7 +378,7 @@ for (const sampleRate of [48000, 44100]) {
   let Processor;
   const messages = [];
   vm.runInNewContext(sequenceSource + "\n" + workletSource.replace(/^import .*;\n/gm,""), {
-    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,timbreArray,ModulationAutomation,ModulationHost,
+    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,
     AudioWorkletProcessor: class { constructor() { this.port = { postMessage: message => messages.push(message) }; } },
     registerProcessor: (_name, processor) => { Processor = processor; },
   });
