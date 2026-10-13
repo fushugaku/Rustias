@@ -138,6 +138,24 @@ Node.js 22 or newer is required to export the Rust effect catalog during the bui
 
 Three native reference tests require local firmware/captures and are excluded from the firmware-free Pages job. To run all native library tests against an existing reference checkout: `RADIAS_REFERENCE_ROOT=/path/to/radias-emulator cargo test --locked -p radias-synth-infrastructure --lib`. Reference files remain outside the repository and web build.
 
+### Android
+
+`android/` packages the **same web app and Rust/WASM build** in an offline Android application, opening New interface by default. It includes all 224 drum samples, effects, sequencers, macros and Build mode. There is no Android copy of the synthesis engine. Rebuilding the APK includes changes to the shared crates and `web/`; the installed APK updates when you install a new build.
+
+Requires Android 8.0 or newer and a current **Android System WebView**. The assets load through [WebViewAssetLoader](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content) at a local HTTPS origin, which supports WASM, modules and AudioWorklet without a network connection. JSON/RDL and sample imports use Android's file picker. JSON, WAV and MP3 exports use the system Save dialog, with recording bytes transferred in ordered 128 KiB chunks rather than a single large JavaScript message.
+
+Programs/timbres use localStorage; samples and recording folders use IndexedDB inside the application. Updates with the same signing certificate keep that data. Browser storage and app storage are separate: export/import JSON to move programs, and import custom audio files on the destination device. Uninstalling the app removes its local data. Audio starts only after a user action; backgrounding pauses audio and finishes an active recording. Turning the phone/tablet preserves the live interface. The full-screen button toggles Android system bars; Back closes a dialog/popover first.
+
+Build a test APK with JDK 17, Android SDK 36 / Build Tools 35.0.0, Node.js 22+ and the Rust WASM target:
+
+```sh
+rustup target add wasm32-unknown-unknown
+sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+bash scripts/build-android.sh
+```
+
+The output is `output/android/Rustias-debug.apk`. Set `JAVA_HOME` and `ANDROID_HOME` for your toolchain if needed; Gradle 8.13 downloads through the pinned wrapper. Android Studio can open `android/`; its Gradle build also builds the shared web assets. The [Android workflow](.github/workflows/android.yml) produces an APK artifact and runs quiet engine/export checks on relevant pushes to `main`. CI test builds share a cached debug certificate; local builds use your local debug certificate. Publishing to Google Play requires a release signing key and a store build. USB/Bluetooth MIDI integration and background playback are not included in this first Android shell. Real-device audio latency/performance still needs device testing.
+
 ### Modular browser mode
 
 **Build** opens a patch canvas for the selected timbre. Drag a module heading, or focus it and use the arrow keys, to change its position. **Rack** returns to the complete native control panel. Each timbre retains its own layout and cables.

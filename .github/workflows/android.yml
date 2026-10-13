@@ -1,0 +1,51 @@
+name: Build Android APK
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'web/**'
+      - 'crates/**'
+      - 'scripts/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-apk
+  cancel-in-progress: false
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      # Keep one test certificate between CI builds so an APK update retains app data.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: rustias-android-debug-key-v1
+      - name: Build APK and verify native file exports
+        run: bash scripts/build-android.sh --no-daemon
+      - name: Verify the shared WASM engine quietly
+        run: node scripts/verify-web.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rustias-Android-debug
+          path: output/android/Rustias-debug.apk
+          retention-days: 30

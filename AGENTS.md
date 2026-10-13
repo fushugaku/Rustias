@@ -38,3 +38,8 @@ revision and fingerprinted filenames; keep module imports, worker URLs, JSON
 tables and WASM on that revision. OSC 3 edits use `osc3-control` messages and
 `rustias_osc3_control` fields 0–7; its stored IDs remain 171–178. Preserve OSC 2
 IDs 13–16 and verify its Wave/Semi/Fine cannot retune isolated Wave/Normal OSC 3.
+
+`android/` embeds the same `dist/` using WebViewAssetLoader. Keep synthesis and
+instrument UI in the shared crates/web; Android-specific file dialogs, lifecycle
+and fullscreen live in the shell. `bash scripts/build-android.sh` builds the web
+assets, APK, export unit tests and Android lint. Do not start audible device tests.

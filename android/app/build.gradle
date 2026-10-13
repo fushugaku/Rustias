@@ -1,0 +1,52 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'io.github.fushugaku.rustias'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'io.github.fushugaku.rustias'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures {
+        buildConfig true
+    }
+    sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/rustiasAssets')
+    androidResources.noCompress += ['wasm', 'wav', 'WAV']
+}
+
+def repositoryRoot = rootProject.projectDir.parentFile
+def buildWeb = tasks.register('buildRustiasWeb', Exec) {
+    workingDir repositoryRoot
+    commandLine 'bash', 'scripts/build-web.sh'
+    inputs.files(fileTree(new File(repositoryRoot, 'web')))
+    inputs.files(fileTree(new File(repositoryRoot, 'crates')))
+    inputs.files(new File(repositoryRoot, 'Cargo.toml'), new File(repositoryRoot, 'Cargo.lock'))
+    inputs.files(fileTree(new File(repositoryRoot, 'scripts')) { include '*web*', 'export-effect-catalog.mjs' })
+    outputs.dir new File(repositoryRoot, 'dist')
+}
+def prepareAssets = tasks.register('prepareRustiasAssets', Exec) {
+    dependsOn buildWeb
+    workingDir repositoryRoot
+    commandLine 'node', 'scripts/prepare-android.mjs', 'dist', layout.buildDirectory.dir('generated/rustiasAssets/public').get().asFile
+    inputs.dir new File(repositoryRoot, 'dist')
+    inputs.file new File(repositoryRoot, 'scripts/prepare-android.mjs')
+    inputs.file rootProject.file('web/native-bridge.js')
+    outputs.dir layout.buildDirectory.dir('generated/rustiasAssets')
+}
+tasks.named('preBuild').configure { dependsOn prepareAssets }
+
+dependencies {
+    implementation 'androidx.activity:activity:1.13.0'
+    implementation 'androidx.webkit:webkit:1.17.1'
+    testImplementation 'junit:junit:4.13.2'
+}

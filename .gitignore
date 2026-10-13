@@ -18,6 +18,16 @@
 .env
 .env.*
 
+# Android toolchain and generated application assets
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+
 # Bundled licensed drum libraries are part of the browser build.
 !web/samples/*.wav
 !web/samples/tr-909/*.WAV
