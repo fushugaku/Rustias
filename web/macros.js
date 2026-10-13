@@ -12,6 +12,7 @@ export function macroTarget(raw){
     case 'drum':if(integer(raw.instrument,0,15)&&parameter())return {kind:raw.kind,instrument:raw.instrument,parameter:p};break;
     case 'sample':if(timbre()&&parameter()&&validSampleSource(raw.source))return {kind:raw.kind,timbre:t,source:raw.source,parameter:p};break;
     case 'effect':if(integer(raw.slot,0,EFFECT_SLOTS-1)&&integer(raw.effectKind,1,30)&&integer(p,0,19))return {kind:raw.kind,slot:raw.slot,effectKind:raw.effectKind,parameter:p};break;
+    case 'chain-effect':if(timbre()&&typeof raw.id==='string'&&/^[a-zA-Z0-9-]{1,64}$/.test(raw.id)&&integer(raw.effectKind,1,30)&&integer(p,0,19))return {kind:raw.kind,timbre:t,id:raw.id,effectKind:raw.effectKind,parameter:p};break;
     case 'module':if(timbre()&&integer(raw.node,0,63)&&typeof raw.moduleKind==='string'&&/^[a-z][a-z0-9]*$/.test(raw.moduleKind)&&typeof raw.control==='string'&&/^[a-z][a-z0-9]*$/.test(raw.control))return {kind:raw.kind,timbre:t,node:raw.node,moduleKind:raw.moduleKind,control:raw.control};break;
     case 'kit-gain':case 'volume':return {kind:raw.kind};
   }

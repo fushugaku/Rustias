@@ -19,6 +19,24 @@ impl Default for MixerProgram {
     }
 }
 impl MixerProgram {
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    pub fn compile_with_third(
+        self,
+        tables: &MixerScales,
+        modulation: [i16; 3],
+        selection: u8,
+    ) -> OscillatorMix {
+        let mut mix = self.compile(tables, modulation);
+        // OSC 3 has OSC 1's generator; the former Noise scale attenuated it by ~8 dB.
+        mix.noise_gain = MixerLevel {
+            level: self.levels[2],
+            manual_offset: self.manual_offsets[2],
+            modulation: modulation[2],
+            scale: tables.primary(selection),
+        }
+        .gain();
+        mix
+    }
     pub fn compile(self, tables: &MixerScales, modulation: [i16; 3]) -> OscillatorMix {
         let scales = [
             tables.primary(self.selections[0]),

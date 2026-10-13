@@ -11,14 +11,18 @@ const integer=(value,min,max)=>Number.isInteger(value)&&value>=min&&value<=max;
 export const emptyModulation=()=>({version:1,tracks:Array.from({length:MAX_TIMBRES},()=>[])});
 export function modulationTarget(raw){
   if(raw==null)return null;
+  if(raw.kind==='sequence-gate'){
+    if(!integer(raw.timbre,0,MAX_TIMBRES-1))throw new Error('Invalid sequencer Gate target.');
+    return {kind:raw.kind,timbre:raw.timbre};
+  }
   if(raw.kind==='macro'){
     if(!integer(raw.macro,0,7))throw new Error('Invalid modulation macro.');
     return {kind:'macro',macro:raw.macro};
   }
   return macroTarget(raw);
 }
-export const modulationKey=target=>target?.kind==='macro'?'macro:'+target.macro:targetKey(target);
-export const modulationRange=target=>target?.kind==='macro'?100:['synth','drum','sample'].includes(target?.kind)&&[53,15].includes(target.parameter)?24:63;
+export const modulationKey=target=>target?.kind==='macro'?'macro:'+target.macro:target?.kind==='sequence-gate'?'sequence-gate:'+target.timbre:targetKey(target);
+export const modulationRange=target=>['macro','sequence-gate'].includes(target?.kind)?100:['synth','drum','sample'].includes(target?.kind)&&[53,15].includes(target.parameter)?24:63;
 export function newModulationLane(id){
   return {id,enabled:true,target:null,amount:100,length:16,resolution:'1/16',motion:'Step',direction:'Forward',runMode:'Loop',values:Array(MOD_STEPS).fill(0)};
 }
@@ -129,7 +133,7 @@ export class ModulationAutomation {
 
 export function remapModulationLane(lane,from,to){
   const copy=JSON.parse(JSON.stringify(lane)),target=copy.target;
-  if(target&&['synth','sample','module'].includes(target.kind)&&target.timbre===from)target.timbre=to;
+  if(target&&['synth','sample','module','chain-effect','sequence-gate'].includes(target.kind)&&target.timbre===from)target.timbre=to;
   if(target?.kind==='effect'&&effectTimbre(target.slot)===from)target.slot=timbreEffectSlot(to,effectRole(target.slot));
   return copy;
 }

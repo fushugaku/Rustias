@@ -40,6 +40,32 @@ pub struct State {
     pub version: u8,
     #[serde(serialize_with = "serialize_slots")]
     pub slots: [Program; EFFECT_SLOTS],
+    pub chains: Vec<Vec<ChainProgram>>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ChainProgram {
+    pub id: String,
+    #[serde(flatten)]
+    pub program: Program,
+}
+pub fn validate_chain(chain: &[ChainProgram], tempo: u16) -> Result<(), String> {
+    let mut ids = std::collections::HashSet::new();
+    for fx in chain {
+        if fx.id.is_empty()
+            || fx.id.len() > 64
+            || !fx
+                .id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+            || !ids.insert(&fx.id)
+            || !fx.program.master
+        {
+            return Err("Invalid timbre effect identity or bank".into());
+        }
+        radias_synth_infrastructure::effect_audio::compile(fx.program.into(), tempo)
+            .map_err(String::from)?;
+    }
+    Ok(())
 }
 fn serialize_slots<S: serde::Serializer>(
     slots: &[Program; EFFECT_SLOTS],
@@ -51,6 +77,8 @@ fn serialize_slots<S: serde::Serializer>(
 struct InputState {
     version: u8,
     slots: Vec<Program>,
+    #[serde(default)]
+    chains: Vec<Vec<ChainProgram>>,
 }
 impl TryFrom<InputState> for State {
     type Error = &'static str;
@@ -70,6 +98,12 @@ impl TryFrom<InputState> for State {
         for (i, p) in input.slots.into_iter().enumerate() {
             state.slots[if i == master { MASTER_EFFECT_SLOT } else { i }] = p;
         }
+        if input.chains.len() > TIMBRE_COUNT {
+            return Err("Invalid timbre effect chains");
+        }
+        for (t, chain) in input.chains.into_iter().enumerate() {
+            state.chains[t] = chain;
+        }
         Ok(state)
     }
 }
@@ -83,6 +117,7 @@ impl Default for State {
                 master: effect_uses_master(i),
                 parameters: [0; 20],
             }),
+            chains: vec![Vec::new(); TIMBRE_COUNT],
         }
     }
 }
@@ -91,7 +126,35 @@ impl State {
         if self.version != 1 {
             return Err("Invalid effect program version".into());
         }
-        prepare_rack(self.slots.map(Into::into), tempo)
+        let mut rack = prepare_rack(self.slots.map(Into::into), tempo)?;
+        for (t, chain) in self.chains.iter().enumerate() {
+            validate_chain(chain, tempo)?;
+            #[cfg(target_arch = "wasm32")]
+            {
+                let settings = chain
+                    .iter()
+                    .map(|fx| {
+                        Ok((
+                            fx.id.clone(),
+                            radias_synth_infrastructure::effect_audio::compile(
+                                fx.program.into(),
+                                tempo,
+                            )
+                            .map_err(String::from)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                rack.configure_chain(t, settings).map_err(String::from)?;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let _ = t;
+                if !chain.is_empty() {
+                    return Err("Additional effect chains are browser-only".into());
+                }
+            }
+        }
+        Ok(rack)
     }
     pub fn from_stored(
         p: &radias_synth_domain::program::Program,
@@ -101,6 +164,7 @@ impl State {
             version: 1,
             slots: radias_synth_infrastructure::effect_audio::programs_from_stored(p)
                 .map(Into::into),
+            chains: vec![Vec::new(); TIMBRE_COUNT],
         };
         for (slot, fx) in state.slots.iter_mut().enumerate() {
             let Some(def) = definition(fx.kind, fx.master) else {

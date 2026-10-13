@@ -54,7 +54,7 @@ export function createModulationEditor({panels,getTargets,onChange,onError,onCou
       const block=makePicker({label:aria+' block',options:[],value:0,onChange:value=>{view.bank=value;paint(view);}}),blockWrap=field('Steps',block.button,'mod-block');tools.append(blockWrap,remove);Object.assign(view,{block,blockWrap});
       for(let i=0;i<16;i++){
         const step=document.createElement('div'),label=document.createElement('label'),range=modulationRange(lane.target);step.className='mod-step';
-        const dial=makeDial({label:aria+' step '+(i+1),min:-range,max:range,defaultValue:0,read:()=>lane.values[view.bank*16+i],onChange:value=>{lane.values[view.bank*16+i]=value;dial.render();notify(t);},format:v=>(v>0?'+':'')+v+(lane.target?.kind==='macro'?'%':range===24?' st':'')});
+        const dial=makeDial({label:aria+' step '+(i+1),min:-range,max:range,defaultValue:0,read:()=>lane.values[view.bank*16+i],onChange:value=>{lane.values[view.bank*16+i]=value;dial.render();notify(t);},format:v=>(v>0?'+':'')+v+(['macro','sequence-gate'].includes(lane.target?.kind)?'%':range===24?' st':'')});
         step.append(label,dial.button,dial.number);grid.append(step);view.knobs.push({root:step,label,dial});
       }
       root.append(tools,grid);panel.append(root);views[t].records.push(view);paint(view);

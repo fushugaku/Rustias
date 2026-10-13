@@ -61,6 +61,67 @@ pub extern "C" fn rustias_effect(slot: u32, length: u32) -> u32 {
         e.effects.configure(slot as usize, settings).is_ok() as u32
     })
 }
+#[cfg(target_arch = "wasm32")]
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_effect_chain(timbre: u32, length: u32) -> u32 {
+    ENGINE.with(|state| {
+        let mut state = state.borrow_mut();
+        let Some(e) = state.as_mut() else {
+            return 0;
+        };
+        let Some(bytes) = e.preset.get(..length as usize) else {
+            return 0;
+        };
+        let Ok(chain) = serde_json::from_slice::<Vec<effects::ChainProgram>>(bytes) else {
+            return 0;
+        };
+        let tempo = e.synth.settings[0][89] as u16;
+        if timbre as usize >= TIMBRE_COUNT || effects::validate_chain(&chain, tempo).is_err() {
+            return 0;
+        }
+        let settings = chain
+            .into_iter()
+            .map(|fx| {
+                Ok((
+                    fx.id,
+                    radias_synth_infrastructure::effect_audio::compile(fx.program.into(), tempo)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, &'static str>>();
+        let Ok(settings) = settings else {
+            return 0;
+        };
+        e.effects.configure_chain(timbre as usize, settings).is_ok() as u32
+    })
+}
+#[cfg(target_arch = "wasm32")]
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_chain_effect(timbre: u32, length: u32) -> u32 {
+    ENGINE.with(|state| {
+        let mut state = state.borrow_mut();
+        let Some(e) = state.as_mut() else {
+            return 0;
+        };
+        let Some(bytes) = e.preset.get(..length as usize) else {
+            return 0;
+        };
+        let Ok(fx) = serde_json::from_slice::<effects::ChainProgram>(bytes) else {
+            return 0;
+        };
+        if !fx.program.master {
+            return 0;
+        }
+        let Ok(settings) = radias_synth_infrastructure::effect_audio::compile(
+            fx.program.into(),
+            e.synth.settings[0][89] as u16,
+        ) else {
+            return 0;
+        };
+        e.effects
+            .configure_chain_effect(timbre as usize, &fx.id, settings)
+            .is_ok() as u32
+    })
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_init() {
     ENGINE.with(|state| {
@@ -273,7 +334,29 @@ pub extern "C" fn rustias_preset_buffer() -> *mut u8 {
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_preset_capacity() -> u32 {
-    PRESET_CAPACITY as u32
+    ENGINE.with(|state| {
+        state
+            .borrow()
+            .as_ref()
+            .map_or(PRESET_CAPACITY as u32, |e| e.preset.len() as u32)
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_preset_reserve(length: u32) -> u32 {
+    ENGINE.with(|state| {
+        let mut state = state.borrow_mut();
+        let Some(e) = state.as_mut() else {
+            return 0;
+        };
+        let needed = length as usize;
+        if needed > e.preset.len() {
+            if e.preset.try_reserve_exact(needed - e.preset.len()).is_err() {
+                return 0;
+            }
+            e.preset.resize(needed, 0);
+        }
+        1
+    })
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_save() -> u32 {
@@ -285,8 +368,14 @@ pub extern "C" fn rustias_save() -> u32 {
         let mut program: serde_json::Value = serde_json::from_slice(&e.synth.save()).unwrap();
         program["effects"] = serde_json::to_value(e.effect_state()).unwrap();
         let bytes = serde_json::to_vec(&program).unwrap();
-        if bytes.len() > PRESET_CAPACITY {
-            return 0;
+        if bytes.len() > e.preset.len() {
+            if e.preset
+                .try_reserve_exact(bytes.len() - e.preset.len())
+                .is_err()
+            {
+                return 0;
+            }
+            e.preset.resize(bytes.len(), 0);
         }
         e.preset[..bytes.len()].copy_from_slice(&bytes);
         bytes.len() as u32
@@ -294,14 +383,14 @@ pub extern "C" fn rustias_save() -> u32 {
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_load(length: u32) -> u32 {
-    if length as usize > PRESET_CAPACITY {
-        return 0;
-    }
     ENGINE.with(|state| {
         let mut state = state.borrow_mut();
         let Some(e) = state.as_mut() else {
             return 0;
         };
+        if length as usize > e.preset.len() {
+            return 0;
+        }
         let Some(synth) = StandaloneSynth::load(&e.preset[..length as usize]) else {
             return 0;
         };
@@ -370,11 +459,7 @@ pub extern "C" fn rustias_render() -> *const f32 {
         };
         e.peak = 0.0;
         e.update_effect_controllers();
-        let fx_active = e
-            .effects
-            .programs()
-            .iter()
-            .any(|p| p.kind != 0 && p.enabled);
+        let fx_active = e.effects.active();
         for frame in e.output.chunks_exact_mut(2) {
             if fx_active {
                 let mut buses = e.synth.engine.sample_buses()[0];
@@ -431,9 +516,27 @@ pub extern "C" fn rustias_peak() -> f32 {
 
 impl WebEngine {
     fn effect_state(&self) -> effects::State {
+        #[cfg(target_arch = "wasm32")]
+        let chains = self
+            .effects
+            .chain_programs()
+            .into_iter()
+            .map(|chain| {
+                chain
+                    .into_iter()
+                    .map(|(id, program)| effects::ChainProgram {
+                        id,
+                        program: program.into(),
+                    })
+                    .collect()
+            })
+            .collect();
+        #[cfg(not(target_arch = "wasm32"))]
+        let chains = vec![Vec::new(); TIMBRE_COUNT];
         effects::State {
             version: 1,
             slots: self.effects.programs().map(Into::into),
+            chains,
         }
     }
     fn effect_note(&mut self, t: usize, n: u8, v: u8) {
@@ -451,6 +554,16 @@ impl WebEngine {
             }
         }
         self.effects.set_tempo(tempo);
+        #[cfg(target_arch = "wasm32")]
+        for (t, chain) in self.effects.chain_programs().into_iter().enumerate() {
+            for (id, program) in chain {
+                if let Ok(settings) =
+                    radias_synth_infrastructure::effect_audio::compile(program, tempo)
+                {
+                    let _ = self.effects.configure_chain_effect(t, &id, settings);
+                }
+            }
+        }
     }
     fn update_effect_controllers(&mut self) {
         for t in 0..TIMBRE_COUNT {

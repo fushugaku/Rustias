@@ -12,6 +12,25 @@ use radias_synth_domain::{
 };
 
 use crate::polyphony::TIMBRE_COUNT;
+#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+use alloc::{string::String, vec::Vec};
+#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+struct ChainEffect {
+    id: String,
+    processor: EffectAudioProcessor,
+    memory: Box<[f32]>,
+}
+#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+fn chain_memory(kind: u8) -> Result<Box<[f32]>, &'static str> {
+    let mut memory = Vec::new();
+    if kind != 0 {
+        memory
+            .try_reserve_exact(DELAY_WORDS)
+            .map_err(|_| "Not enough memory for this effect")?;
+        memory.resize(DELAY_WORDS, 0.0);
+    }
+    Ok(memory.into_boxed_slice())
+}
 pub const MASTER_EFFECT_SLOT: usize = 2 * TIMBRE_COUNT;
 // Keep the original insert and Master indices stable for saved browser bindings.
 #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
@@ -35,6 +54,8 @@ pub struct EffectAudioRack {
     memory: [Box<[f32]>; EFFECT_SLOTS],
     contexts: [EffectAudioContext; TIMBRE_COUNT + 1],
     held: [[u8; 128]; TIMBRE_COUNT],
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    chains: [Vec<ChainEffect>; TIMBRE_COUNT],
 }
 impl EffectAudioRack {
     /// All delay allocation occurs on the caller's control thread.
@@ -44,10 +65,107 @@ impl EffectAudioRack {
             memory: core::array::from_fn(|_| vec![0.0; DELAY_WORDS].into_boxed_slice()),
             contexts: [Default::default(); TIMBRE_COUNT + 1],
             held: [[0; 128]; TIMBRE_COUNT],
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            chains: core::array::from_fn(|_| Vec::new()),
         }
     }
     pub fn programs(&self) -> [EffectAudioProgram; EFFECT_SLOTS] {
         core::array::from_fn(|i| self.instances[i].settings().program)
+    }
+    pub fn active(&self) -> bool {
+        let active = self
+            .instances
+            .iter()
+            .any(|fx| fx.settings().program.kind != 0 && fx.settings().program.enabled);
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        let active = active
+            || self.chains.iter().flatten().any(|fx| {
+                fx.processor.settings().program.kind != 0 && fx.processor.settings().program.enabled
+            });
+        active
+    }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    pub fn chain_programs(&self) -> [Vec<(String, EffectAudioProgram)>; TIMBRE_COUNT] {
+        core::array::from_fn(|t| {
+            self.chains[t]
+                .iter()
+                .map(|fx| (fx.id.clone(), fx.processor.settings().program))
+                .collect()
+        })
+    }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    pub fn configure_chain(
+        &mut self,
+        timbre: usize,
+        settings: Vec<(String, EffectAudioSettings)>,
+    ) -> Result<(), &'static str> {
+        let chain = self.chains.get_mut(timbre).ok_or("Invalid effect timbre")?;
+        // Allocate before changing the live rack. Stable IDs preserve tails on reorder.
+        let mut memory = Vec::new();
+        memory
+            .try_reserve_exact(settings.len())
+            .map_err(|_| "Not enough memory for this effect chain")?;
+        for (id, setting) in &settings {
+            let needed = chain
+                .iter()
+                .find(|fx| fx.id == *id)
+                .is_none_or(|fx| fx.memory.is_empty() && setting.program.kind != 0);
+            memory.push(if needed {
+                Some(chain_memory(setting.program.kind)?)
+            } else {
+                None
+            });
+        }
+        let mut next = Vec::new();
+        next.try_reserve_exact(settings.len())
+            .map_err(|_| "Not enough memory for this effect chain")?;
+        let mut old = core::mem::take(chain);
+        for ((id, setting), storage) in settings.into_iter().zip(memory) {
+            let mut fx = if let Some(index) = old.iter().position(|fx| fx.id == id) {
+                old.swap_remove(index)
+            } else {
+                ChainEffect {
+                    id,
+                    processor: EffectAudioProcessor::new(setting),
+                    memory: Vec::new().into_boxed_slice(),
+                }
+            };
+            if let Some(storage) = storage {
+                fx.memory = storage;
+            }
+            if fx.processor.configure(setting) {
+                fx.memory.fill(0.0);
+            }
+            if setting.program.kind == 0 {
+                fx.memory = Vec::new().into_boxed_slice();
+            }
+            next.push(fx);
+        }
+        *chain = next;
+        Ok(())
+    }
+    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    pub fn configure_chain_effect(
+        &mut self,
+        timbre: usize,
+        id: &str,
+        setting: EffectAudioSettings,
+    ) -> Result<(), &'static str> {
+        let fx = self
+            .chains
+            .get_mut(timbre)
+            .and_then(|chain| chain.iter_mut().find(|fx| fx.id == id))
+            .ok_or("Unknown timbre effect")?;
+        if fx.memory.is_empty() && setting.program.kind != 0 {
+            fx.memory = chain_memory(setting.program.kind)?;
+        }
+        if fx.processor.configure(setting) {
+            fx.memory.fill(0.0);
+        }
+        if setting.program.kind == 0 {
+            fx.memory = Vec::new().into_boxed_slice();
+        }
+        Ok(())
     }
     pub fn configure(
         &mut self,
@@ -102,6 +220,10 @@ impl EffectAudioRack {
             for role in 0..TIMBRE_EFFECTS {
                 self.instances[timbre_effect_slot(timbre, role)].note_on();
             }
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            for fx in &mut self.chains[timbre] {
+                fx.processor.note_on();
+            }
         }
         if first_master {
             self.instances[MASTER_EFFECT_SLOT].note_on();
@@ -138,6 +260,15 @@ impl EffectAudioRack {
                     .process(sample, &mut self.memory[slot], &self.contexts[timbre])
                     .expect("Constructed effect storage and type");
             }
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            for fx in &mut self.chains[timbre] {
+                if fx.processor.settings().program.kind != 0 {
+                    sample = fx
+                        .processor
+                        .process(sample, &mut fx.memory, &self.contexts[timbre])
+                        .expect("Constructed timbre effect storage");
+                }
+            }
             left += i64::from(sample.left.0);
             right += i64::from(sample.right.0);
         }
@@ -154,7 +285,16 @@ impl EffectAudioRack {
             .expect("Constructed Master effect storage and type")
     }
     pub fn delay_storage_bytes(&self) -> usize {
-        EFFECT_SLOTS * DELAY_WORDS * core::mem::size_of::<f32>()
+        let bytes = EFFECT_SLOTS * DELAY_WORDS * core::mem::size_of::<f32>();
+        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        let bytes = bytes
+            + self
+                .chains
+                .iter()
+                .flatten()
+                .map(|fx| fx.memory.len() * core::mem::size_of::<f32>())
+                .sum::<usize>();
+        bytes
     }
 }
 fn crate_saturate(value: i64) -> i32 {

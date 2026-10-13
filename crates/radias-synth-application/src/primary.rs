@@ -52,6 +52,22 @@ pub struct ThirdProgram {
     pub reference: u8,
 }
 #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+impl ThirdProgram {
+    pub fn selection(
+        self,
+        targets: radias_synth_domain::modulation::AppliedModulationTargets,
+    ) -> u8 {
+        let wave =
+            ((self.primary.selection & 15) as i32 + targets.controls[44] as i32).clamp(0, 5) as u8;
+        let mode = if wave >= 4 {
+            0
+        } else {
+            ((self.primary.selection >> 4) as i32 + targets.controls[45] as i32).clamp(0, 3) as u8
+        };
+        wave | (mode << 4)
+    }
+}
+#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
 impl Default for ThirdProgram {
     fn default() -> Self {
         Self {

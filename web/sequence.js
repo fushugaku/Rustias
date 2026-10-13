@@ -44,9 +44,13 @@ export function validateSequence(value) {
   return result;
 }
 export class SequenceClock {
-  constructor(emit){this.emit=emit;this.config=emptySequence();this.frame=0;this.nextSteps=timbreArray();this.ticks=timbreArray();this.positions=timbreArray(-1);this.running=false;this.tempo=120;this.releases=[];this.held=Array.from({length:MAX_TIMBRES},()=>new Map());this.active=timbreArray(false);this.triggerNotes=timbreArray(null);this.forced=false;}
+  constructor(emit){this.emit=emit;this.config=emptySequence();this.frame=0;this.nextSteps=timbreArray();this.ticks=timbreArray();this.positions=timbreArray(-1);this.running=false;this.tempo=120;this.releases=[];this.held=Array.from({length:MAX_TIMBRES},()=>new Map());this.active=timbreArray(false);this.triggerNotes=timbreArray(null);this.forced=false;this.gateMod=timbreArray();}
+  setGateOffset(timbre,value){
+    this.gateMod[timbre]=Math.max(-100,Math.min(100,value));
+    for(const release of this.releases)if(release.timbre===timbre&&!release.tie&&Number.isFinite(release.period))release.frame=release.start+release.period*Math.max(0,Math.min(100,release.gate+this.gateMod[timbre]))/100;
+  }
   periodFor(t){return stepFrames(this.tempo,this.config.tracks[t].resolution);}
-  rescale(t,ratio){this.nextSteps[t]=this.frame+Math.max(0,this.nextSteps[t]-this.frame)*ratio;for(const release of this.releases)if(release.timbre===t)release.frame=this.frame+Math.max(0,release.frame-this.frame)*ratio;}
+  rescale(t,ratio){this.nextSteps[t]=this.frame+Math.max(0,this.nextSteps[t]-this.frame)*ratio;for(const release of this.releases)if(release.timbre===t){release.frame=this.frame+Math.max(0,release.frame-this.frame)*ratio;if(Number.isFinite(release.period)){release.start=this.frame+(release.start-this.frame)*ratio;release.period*=ratio;}}}
   setTempo(bpm){const before=this.tempo;this.tempo=Math.max(10,Math.min(300,bpm));if(this.running)for(let t=0;t<MAX_TIMBRES;t++)this.rescale(t,before/this.tempo);}
   setConfig(config){const next=validateSequence(config);for(let t=0;t<MAX_TIMBRES;t++){
     if(!next.tracks[t].enabled)this.releaseTrack(t);
@@ -78,8 +82,9 @@ export class SequenceClock {
     const tied=this.releases.filter(r=>r.timbre===timbre&&r.tie),keep=new Set(tied.filter(r=>notes.includes(r.note)).map(r=>r.note));
     for(const release of tied)if(!keep.has(release.note))this.emit(timbre,release.note,0);
     this.releases=this.releases.filter(r=>r.timbre!==timbre||!r.tie);
-    const velocity=step.velocityMode==='Key'?(trigger?.velocity??100):step.velocity,gate=Math.max(1,Math.min(100,step.gate+(track.gateOffset??0)));
-    for(const note of notes){if(!keep.has(note))this.emit(timbre,note,velocity);this.releases.push({timbre,note,tie:!!step.tie,frame:step.tie?Infinity:Math.max(this.frame+frames,this.nextSteps[timbre]+period*gate/100)});}
+    const velocity=step.velocityMode==='Key'?(trigger?.velocity??100):step.velocity,baseGate=Math.max(1,Math.min(100,step.gate+(track.gateOffset??0))),gate=Math.max(0,Math.min(100,baseGate+this.gateMod[timbre]));
+    const start=Number.isFinite(period)?this.nextSteps[timbre]:this.frame;
+    for(const note of notes){if(gate===0&&!step.tie){if(keep.has(note))this.emit(timbre,note,0);continue;}if(!keep.has(note))this.emit(timbre,note,velocity);this.releases.push({timbre,note,tie:!!step.tie,start,period,gate:baseGate,frame:step.tie?Infinity:Math.max(this.frame+frames,start+period*gate/100)});}
   }
   // Native 128-frame boundaries: each lane retains its own fractional timing,
   // while Play starts all four at exactly the same boundary.

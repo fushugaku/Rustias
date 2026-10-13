@@ -53,14 +53,7 @@ pub(super) fn next(
     frame: u64,
     id: usize,
 ) -> Sample {
-    let wave =
-        ((program.primary.selection & 15) as i32 + targets.controls[44] as i32).clamp(0, 5) as u8;
-    let mode = if wave >= 4 {
-        0
-    } else {
-        ((program.primary.selection >> 4) as i32 + targets.controls[45] as i32).clamp(0, 3) as u8
-    };
-    program.primary.selection = wave | (mode << 4);
+    program.primary.selection = program.selection(targets);
     program.pitch.semitone =
         (program.pitch.semitone as i32 + targets.controls[46] as i32).clamp(0, 127) as u8;
     program.pitch.fine_tune =

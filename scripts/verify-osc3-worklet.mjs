@@ -1,3 +1,4 @@
+import {writeWasmJson} from '../web/wasm-json.js';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {RecordingTap} from '../web/recording-tap.js';
@@ -27,7 +28,7 @@ export function verifyOsc3Worklet({module,parameters,workletSource,sequenceSourc
       if(!processors[slot]){
         let Processor;const messages=[];
         vm.runInNewContext(sequenceSource+'\n'+workletSource.replace(/^import .*;\n/gm,''),{
-          sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,
+          sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,writeWasmJson,
           AudioWorkletProcessor:class{constructor(){this.port={postMessage:data=>messages.push(data)};}},registerProcessor:(_name,p)=>Processor=p,
         });
         processors[slot]={p:new Processor({processorOptions:{module,gain:1}}),messages};

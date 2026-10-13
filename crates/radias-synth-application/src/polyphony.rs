@@ -1987,9 +1987,11 @@ impl PolyphonicRenderer {
             voice.renderer.select_secondary(secondary);
         }
         if let (Some(scales), Some(mixer)) = (&self.mixer_scales, voice.mixer) {
-            voice
-                .renderer
-                .initialize_mixer(mixer.compile(scales, [0; 3]));
+            #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+            let mix = mixer.compile(scales, [0; 3]);
+            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            let mix = mixer.compile_with_third(scales, [0; 3], voice.third.primary.selection);
+            voice.renderer.initialize_mixer(mix);
             voice.renderer.mixer_slew_phase(3);
         }
         if let (Some((tables, weights)), Some(mut pan)) = (&self.pan_tables, voice.pan) {
@@ -3180,7 +3182,19 @@ impl PolyphonicRenderer {
                         m.patches.targets.controls[3],
                     ]
                 });
+                #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
                 let target = mixer.compile(scales, values);
+                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                let target = mixer.compile_with_third(
+                    scales,
+                    values,
+                    active.third.selection(
+                        active
+                            .modulation
+                            .as_ref()
+                            .map_or(Default::default(), |m| m.patches.targets),
+                    ),
+                );
                 if self.amplifier_transport.pitch_enabled() {
                     let values = [
                         target.primary_gain,

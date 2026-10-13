@@ -120,6 +120,11 @@ function parameterTarget(id){
   return {kind:'synth',timbre:selected,parameter:id};
 }
 function resolveMacro(target){
+  if(target.kind==='sequence-gate')return {label:`T${target.timbre+1} · Sequencer · Gate`,min:-100,max:100,read:()=>0,available:target.timbre<timbreCount};
+  if(target.kind==='chain-effect'){
+    const fx=fxUI?.getChainEffect(target.timbre,target.id),p=effectDefinitions(true)[target.effectKind]?.properties[target.parameter],index=fxUI?.getChain(target.timbre).findIndex(f=>f.id===target.id);if(!p)return null;
+    return {label:`T${target.timbre+1} · FX ${index>=0?index+5:'removed'} · ${p.name}`,min:p.min+p.zero,max:p.max+p.zero,read:()=>fx?.parameters[target.parameter]??p.default,available:fx?.kind===target.effectKind&&target.timbre<timbreCount};
+  }
   if(target.kind==='effect'){
     const fx=fxUI?.getSlot(target.slot),p=effectDefinitions(effectUsesMaster(target.slot))[target.effectKind]?.properties[target.parameter],owner=effectTimbre(target.slot),role=effectRole(target.slot);
     if(!p)return null;return {label:`${owner==null?'Master FX':`T${owner+1} · ${role<2?'Insert ': 'FX '}${role+1}`} · ${p.name}`,min:p.min+p.zero,max:p.max+p.zero,read:()=>fx.parameters[target.parameter],available:fx?.kind===target.effectKind&&(owner==null||owner<timbreCount)};
@@ -145,6 +150,7 @@ function modulationTargets(t){
   const result=[],samples=sampleUI?.getConfig(),knobs=macroUI?.getConfig().knobs??[];
   const ids=parameters.filter(p=>p.scope!=='global'&&!p.readonly&&!p.options&&!macroExcluded.has(p.id)&&![66,137,138,139,146,147,150].includes(p.id)).map(p=>p.id);
   const add=(target,prefix='')=>{const spec=resolveMacro(target);if(spec&&spec.available!==false)result.push({value:modulationKey(target),label:prefix+spec.label,target});};
+  add({kind:'sequence-gate',timbre:t});
   for(const parameter of ids)add({kind:'synth',timbre:t,parameter});
   if(global(140)&&global(141)===t)for(let instrument=0;instrument<16;instrument++)for(const parameter of ids){
     if(parameter>=59&&parameter<=72||parameter>=114&&parameter<=120&&!(parameter<=117&&samples?.slots[instrument].source!=='synth'))continue;
@@ -152,6 +158,7 @@ function modulationTargets(t){
   }
   for(const profile of samples?.library??[])if(profile.timbre===t)for(const parameter of ids){if(parameter>=59&&parameter<=72||parameter>=118&&parameter<=120)continue;add({kind:'sample',timbre:t,source:profile.source,parameter});}
   for(const slot of [...timbreEffectSlots(t),MASTER_EFFECT_SLOT]){const fx=fxUI?.getSlot(slot);if(fx?.kind)effectDefinitions(effectUsesMaster(slot))[fx.kind].properties.forEach((_,parameter)=>add({kind:'effect',slot,effectKind:fx.kind,parameter}));}
+  for(const fx of fxUI?.getChain(t)??[])if(fx.kind)effectDefinitions(true)[fx.kind].properties.forEach((_,parameter)=>add({kind:'chain-effect',timbre:t,id:fx.id,effectKind:fx.kind,parameter}));
   for(let macro=0;macro<8;macro++){const label='Macro '+(macro+1),name=knobs[macro]?.name;result.push({value:'macro:'+macro,label:label+(name&&name!==label?' · '+name:''),target:{kind:'macro',macro}});}
   return result;
 }
@@ -160,16 +167,17 @@ function syncAutomation(){
   queueMicrotask(()=>{
     automationQueued=false;if(!node||!modulationUI||!macroUI)return;
     const config=modulationUI.getConfig(),macros=macroUI.getConfig(),targets=new Map();
-    for(const lane of config.tracks.flat())if(lane.target&&lane.target.kind!=='macro')targets.set(targetKey(lane.target),lane.target);
+    for(const lane of config.tracks.flat())if(lane.target&&lane.target.kind!=='macro')targets.set(modulationKey(lane.target),lane.target);
     for(const knob of macros.knobs)for(const binding of knob.bindings)targets.set(targetKey(binding.target),binding.target);
     const specs=[];for(const target of targets.values()){const spec=resolveMacro(target);if(spec)specs.push({target,min:spec.min,max:spec.max,step:spec.step,values:spec.values,base:spec.read(),available:spec.available!==false});}
     send({type:'modulation',state:{config,macros,targets:specs,engine:state(),effects:fxUI.getConfig(),circuits:circuitUI.getConfig().tracks.map(audioCircuit)}});
   });
 }
 function writeMacros(changes){
-  const circuits=new Set(),effects=new Set();
+  const circuits=new Set(),effects=new Set(),chainEffects=new Map();
   for(const {target,value}of changes){
     if(target.kind==='effect'){fxUI.setParameter(target.slot,target.parameter,value);effects.add(target.slot);const owner=effectTimbre(target.slot);if(owner!=null)markTimbre(owner);}
+    else if(target.kind==='chain-effect'){fxUI.setChainParameter(target.timbre,target.id,target.parameter,value);chainEffects.set(target.timbre+':'+target.id,target);markTimbre(target.timbre);}
     else if(target.kind==='module'){circuitUI.setParameter(target.timbre,target.node,target.control,value);circuits.add(target.timbre);markTimbre(target.timbre);}
     else if(target.kind==='kit-gain')sampleUI.setGain(value);
     else if(target.kind==='volume'){$('#volume').value=value;send({type:'gain',value:value/100});}
@@ -185,6 +193,7 @@ function writeMacros(changes){
     }
   }
   for(const slot of effects)send({type:'effect',slot,program:fxUI.getSlot(slot)});
+  for(const target of chainEffects.values())send({type:'chain-effect',timbre:target.timbre,program:fxUI.getChainEffect(target.timbre,target.id)});
   for(const t of circuits)if(circuitUI.getConfig().tracks[t].enabled)macroCircuits.add(t);
   if(macroCircuits.size&&!macroCircuitTimer)macroCircuitTimer=setTimeout(()=>{macroCircuitTimer=null;for(const t of macroCircuits)sendCircuits(t);macroCircuits.clear();},30);
   fxUI?.refresh();circuitUI?.refresh();updateControls();updateKeys();
@@ -508,7 +517,7 @@ sampleUI=createDrumSamples({parameters,getDrumValues:i=>drums[i],getEditingSampl
 }});
 sampleUI.ready.then(()=>{sequenceUI.setSamples(sampleUI.options());updateControls();},()=>{});
 circuitUI=createCircuitEditor({getValues:values,getSelected:()=>selected,onError:showError,onChange:(_config,audio,target)=>{macroUI?.rebase(target);markTimbre();if(audio){$("#error").hidden=true;sendCircuits(selected);}scheduleSession();}});
-fxUI=createEffectsPanel({getSelected:()=>selected,onError:showError,onChange:(slot,program,parameter)=>{if(parameter!=null)macroUI?.rebase({kind:'effect',slot,effectKind:program.kind,parameter});const owner=effectTimbre(slot);owner==null?markProgram():markTimbre(owner);send({type:'effect',slot,program});updateControls();scheduleSession();}});
+fxUI=createEffectsPanel({getSelected:()=>selected,onError:showError,onChange:(slot,program,parameter)=>{if(parameter!=null)macroUI?.rebase({kind:'effect',slot,effectKind:program.kind,parameter});const owner=effectTimbre(slot);owner==null?markProgram():markTimbre(owner);send({type:'effect',slot,program});updateControls();scheduleSession();},onChainChange:(timbre,chain)=>{markTimbre(timbre);send({type:'effect-chain',timbre,chain});updateControls();scheduleSession();},onChainEffectChange:(timbre,program,parameter)=>{if(parameter!=null)macroUI?.rebase({kind:'chain-effect',timbre,id:program.id,effectKind:program.kind,parameter});markTimbre(timbre);send({type:'chain-effect',timbre,program});updateControls();scheduleSession();}});
 macroUI=createMacrosPanel({resolve:resolveMacro,write:writeMacros,onError:showError,onChange:()=>{markProgram();updateControls();scheduleSession();}});bindMacroTarget($('#volume'),()=>({kind:'volume'}));
 recorder=createRecorder({ensureAudio:startAudio,getAudio:()=>context,send,onError:showError,getProgram:()=>{const saved=patchStore.list().find(p=>p.id===activeSavedPatch);return {key:saved?`program:${saved.id}`:'unsaved',name:saved?.name??'Unsaved program'};}});
 newUI?.connect({sequenceUI,fxUI,circuitUI,macroUI,resolveMacro,releaseAll});
@@ -519,6 +528,6 @@ try {
   const response = await fetch(new URL("./rustias.wasm", import.meta.url)); if (!response.ok) throw new Error(`Could not load the Rust engine (${response.status}).`);
   const compiled=await WebAssembly.compile(await response.arrayBuffer());
   const api=new WebAssembly.Instance(compiled,{}).exports;
-  if(api.rustias_parameter_count()!==parameters.length||typeof api.rustias_osc3_control!=='function')throw new Error('The instrument needs to reload after an update. Reload this page.');
+  if(api.rustias_parameter_count()!==parameters.length||typeof api.rustias_osc3_control!=='function'||typeof api.rustias_effect_chain!=='function'||typeof api.rustias_preset_reserve!=='function')throw new Error('The instrument needs to reload after an update. Reload this page.');
   module=compiled;sequenceUI.setReady(true);recorder.setReady(true); $("#power").disabled = false;$('#load-program').disabled=false;updatePower(); document.body.dataset.engine = "ready";
 } catch (error) { $("#status").textContent = "Engine unavailable"; showError(error); }

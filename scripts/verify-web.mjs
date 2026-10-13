@@ -1,3 +1,4 @@
+import {writeWasmJson} from '../web/wasm-json.js';
 import {MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,MASTER_EFFECT_SLOT,timbreArray} from '../web/limits.js';
 import {webParameters} from '../web/parameters.js';
 import {verifyExpanded} from './verify-expanded.mjs';
@@ -26,6 +27,7 @@ import {verifyLfo3} from './verify-lfo3.mjs';
 import {verifyOsc3} from './verify-osc3.mjs';
 import {verifyOsc3Worklet} from './verify-osc3-worklet.mjs';
 import {verifyWebAssets} from './verify-web-assets.mjs';
+import {verifyBrowserExtensions} from './verify-browser-extensions.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
@@ -372,13 +374,14 @@ features.push(verifyEffects({api,catalog:effectCatalog,render,rms,control,save,l
 const reports = [];
 features.push(verifyRecordings());
 features.push(verifyModulation({parameters:schema,module,workletSource,sequenceSource}));
+features.push(verifyBrowserExtensions({parameters:schema,module,workletSource,sequenceSource}));
 const osc3Worklet=verifyOsc3Worklet({parameters:schema,module,workletSource,sequenceSource});features.push(osc3Worklet.features);
 features.push(verifyRdlPlayback({parameters:schema,module,workletSource,sequenceSource}));
 for (const sampleRate of [48000, 44100]) {
   let Processor;
   const messages = [];
   vm.runInNewContext(sequenceSource + "\n" + workletSource.replace(/^import .*;\n/gm,""), {
-    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,
+    sampleRate, WebAssembly, Float32Array, Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,writeWasmJson,
     AudioWorkletProcessor: class { constructor() { this.port = { postMessage: message => messages.push(message) }; } },
     registerProcessor: (_name, processor) => { Processor = processor; },
   });

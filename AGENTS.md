@@ -22,6 +22,13 @@ or output; the OSC 1→2 source is the current processed OSC 2 result.
 Browser FX 3/4 use the Master catalog but the owning timbre's context and stereo
 bus, before the shared Master. Original insert indices 0–15 and Master 16 remain
 stable; the added timbre pairs occupy 17–32. Native racks keep two inserts.
+Additional browser timbre FX live in `effects.chains[timbre]` with stable string
+IDs, after the four fixed stages and before Master. No fixed chain count cap;
+reuse shared EffectAudioProcessor state by ID on reorder. Keep the active-FX fast
+path aware of chains, and grow the browser JSON buffer before obtaining its view.
+OSC 3 uses OSC 1's selection-dependent mixer scale in WASM; native Noise remains
+unchanged. Sequencer Gate modulation is a temporary percentage-point offset,
+including current note releases, and never overwrites the saved step Gate.
 Program macros, their bipolar bindings and added-timbre count are browser data.
 Modulation sequencers also belong to the browser: their audio-clock adapter applies
 temporary offsets through the existing Rust C ABI and restores the base values.

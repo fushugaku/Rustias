@@ -3,11 +3,12 @@ import {RecordingTap} from './recording-tap.js';
 import {ModulationAutomation} from './modulation.js';
 import {ModulationHost} from './modulation-host.js';
 import {MAX_TIMBRES,OSC3_BASE,PARAMETER_COUNT} from './limits.js';
+import {writeWasmJson} from './wasm-json.js';
 class RustiasProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
     this.wasm = new WebAssembly.Instance(options.processorOptions.module, {}).exports;
-    if(this.wasm.rustias_parameter_count()!==PARAMETER_COUNT||typeof this.wasm.rustias_osc3_control!=='function')throw new Error('The audio engine and controls need to reload together.');
+    if(this.wasm.rustias_parameter_count()!==PARAMETER_COUNT||typeof this.wasm.rustias_osc3_control!=='function'||typeof this.wasm.rustias_effect_chain!=='function')throw new Error('The audio engine and controls need to reload together.');
     this.wasm.rustias_init();
     this.gain = options.processorOptions.gain ?? 0.3;
     this.nativeIndex = 128;
@@ -26,7 +27,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.modulation=new ModulationAutomation(changes=>this.modulationHost.write(changes));
     this.port.onmessage = ({ data }) => {
       try {
-        if(['control','osc3-control','drum-control','library-control','effect','circuit','gain','drum-gain','midi','load'].includes(data.type))this.modulation.restore();
+        if(['control','osc3-control','drum-control','library-control','effect','effect-chain','chain-effect','circuit','gain','drum-gain','midi','load'].includes(data.type))this.modulation.restore();
         if (data.type === 'record-start') this.recording.start(data.id);
         else if (data.type === 'record-stop') this.recording.stop(data.id);
         else if (data.type === "note") this.ownedNote(data.timbre,data.note,data.velocity,false);
@@ -53,6 +54,11 @@ class RustiasProcessor extends AudioWorkletProcessor {
           new Uint8Array(this.wasm.memory.buffer,this.wasm.rustias_preset_buffer(),bytes.length).set(bytes);
           if(!this.wasm.rustias_effect(data.slot,bytes.length))this.port.postMessage({type:'warning',message:'The engine rejected these effect settings.'});
         }
+        else if(data.type==='effect-chain'||data.type==='chain-effect'){
+          const length=writeWasmJson(this.wasm,data.type==='effect-chain'?data.chain:data.program);
+          const method=data.type==='effect-chain'?'rustias_effect_chain':'rustias_chain_effect';
+          if(!this.wasm[method](data.timbre,length))this.port.postMessage({type:'warning',message:'The engine rejected this timbre effect chain.'});
+        }
         else if(data.type==='library-reset'){this.wasm.rustias_library_reset();this.libraryProfiles.clear();}
         else if(data.type==='library-sample'){
           const frames=data.data.length,pointer=this.wasm.rustias_library_sample_buffer(data.asset,frames);let ok=false;
@@ -68,11 +74,8 @@ class RustiasProcessor extends AudioWorkletProcessor {
         else if (data.type === "drum-control") this.wasm.rustias_drum_control(data.instrument,data.parameter,data.value);
         else if (data.type === "drum") {if(data.velocity&&!this.modulation.clock.running)this.modulation.clock.play();this.wasm.rustias_drum_pad(data.instrument, data.velocity);}
         else if (data.type === "load") {
-          const json = JSON.stringify(data.program);
-          if (json.length > this.wasm.rustias_preset_capacity()) throw new Error("Program exceeds the engine buffer.");
-          const bytes = new Uint8Array(this.wasm.memory.buffer, this.wasm.rustias_preset_buffer(), json.length);
-          for (let i = 0; i < json.length; i++) bytes[i] = json.charCodeAt(i);
-          if (!this.wasm.rustias_load(json.length)) {
+          const length = writeWasmJson(this.wasm,data.program);
+          if (!this.wasm.rustias_load(length)) {
             this.port.postMessage({type: "warning", message: "The Rust engine rejected this program."}); this.snapshot();
           } else {
             this.wasm.rustias_rdl_mute(data.unavailable?.timbres??0,data.unavailable?.drums??0);

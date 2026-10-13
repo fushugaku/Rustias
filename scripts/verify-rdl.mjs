@@ -1,3 +1,4 @@
+import {writeWasmJson} from '../web/wasm-json.js';
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
@@ -104,7 +105,7 @@ function storage(limit=Infinity){
 export function verifyRdlPlayback({module,parameters,sequenceSource,workletSource}){
   for(const sampleRate of [48000,44100]){
     let Processor;const messages=[];
-    vm.runInNewContext(sequenceSource+'\n'+workletSource.replace(/^import .*;\n/gm,''),{sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,AudioWorkletProcessor:class{constructor(){this.port={postMessage:data=>messages.push(data)};}},registerProcessor:(_name,p)=>Processor=p});
+    vm.runInNewContext(sequenceSource+'\n'+workletSource.replace(/^import .*;\n/gm,''),{sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,writeWasmJson,AudioWorkletProcessor:class{constructor(){this.port={postMessage:data=>messages.push(data)};}},registerProcessor:(_name,p)=>Processor=p});
     const p=new Processor({processorOptions:{module,gain:.3}}),fixture=sequencedRdl(),patch=rdlPatches(parseRdl(p.wasm,fixture.bytes),'Playback.rdl','a'.repeat(64))[0],program=normalizeProgram(patch.snapshot,parameters);
     for(const v of program.engine.timbres)for(const [id,value]of [[0,0],[10,0],[1,100],[2,0],[9,0],[3,0],[4,127],[5,127],[6,8],[7,100],[17,127],[18,0],[19,0]])v[id]=value;
     const state={config:program.modulation,macros:emptyMacros(),targets:program.modulation.tracks.flatMap(lanes=>lanes.filter(l=>l.target).map(l=>{const spec=parameters[l.target.parameter];return {target:l.target,min:spec.min,max:spec.max,base:program.engine.timbres[l.target.timbre][spec.id],available:true};})),engine:program.engine,effects:program.engine.effects,circuits:program.circuits.tracks};
