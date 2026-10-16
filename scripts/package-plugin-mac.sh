@@ -20,8 +20,15 @@ chmod +x "$rustias_package/Install.command"
 mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
 ditto "$rustias_plugin_build/Rustias.component" "$HOME/Library/Audio/Plug-Ins/Components/Rustias.component"
 touch "$HOME/Library/Audio/Plug-Ins/Components/Rustias.component"
-if [[ "${CI:-}" == true ]]; then auval -a > output/plugin/au-list.log 2>&1; fi
+if [[ "${CI:-}" == true ]]; then
+  # Fresh runner images retain an AU registrar cache predating this installation.
+  # Restart only the ephemeral CI account's registrar; never touch a user's host.
+  killall -u "$(id -un)" AudioComponentRegistrar 2>/dev/null || true
+  auval -a > output/plugin/au-list.log 2>&1
+fi
 if ! auval -v aumu Rsts Fshg -strict > output/plugin/auval.log 2>&1; then
+  /usr/bin/plutil -p "$rustias_plugin_build/Rustias.component/Contents/Info.plist"
+  if [[ "${CI:-}" == true ]]; then cat output/plugin/au-list.log; fi
   cat output/plugin/auval.log
   exit 1
 fi
