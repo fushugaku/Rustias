@@ -117,7 +117,9 @@ packaging also runs Apple's strict `auval` check. These checks render into memor
 and never open audio output. The optional `rustias-plugin-preview` target is a
 silent UI validation host that discards every output buffer.
 The actual AU Cocoa editor is also checked for host-driven and plugin-requested
-window resizing, separately from the direct editor host.
+window resizing, audio power cycles with the editor open, view detachment and
+reattachment, and repeated editor replacement with automation and size preserved.
+The direct editor host checks hide/show without reparenting.
 
 CI also runs Steinberg's VST3 validator against the actual packaged VST3 module.
 The AU check loads its exported factory directly and verifies MIDI, stereo output

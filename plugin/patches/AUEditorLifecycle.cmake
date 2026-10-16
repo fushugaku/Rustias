@@ -1,0 +1,25 @@
+# Apply the pinned wrapper's Cocoa lifecycle fixes to generated copies only.
+# AU Cleanup must not destroy an open editor; a detached view may be reused.
+find_program(RUSTIAS_PATCH_EXECUTABLE patch REQUIRED)
+set(au_patch_input "${CMAKE_CURRENT_BINARY_DIR}/au-lifecycle-input")
+set(au_compat "${CMAKE_CURRENT_BINARY_DIR}/au-lifecycle")
+set(au_sources wrapasauv2.cpp detail/auv2/wrappedview.asinclude.mm)
+foreach(source IN LISTS au_sources)
+  configure_file("${clap_wrapper_SOURCE_DIR}/src/${source}" "${au_patch_input}/${source}" COPYONLY)
+endforeach()
+set(au_lifecycle_patch "${CMAKE_CURRENT_LIST_DIR}/clap-wrapper-au-editor-lifecycle.patch")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${au_lifecycle_patch}")
+execute_process(COMMAND "${RUSTIAS_PATCH_EXECUTABLE}" -s -p1 -i "${au_lifecycle_patch}"
+  WORKING_DIRECTORY "${au_patch_input}" RESULT_VARIABLE au_patch_status)
+if(NOT au_patch_status EQUAL 0)
+  message(FATAL_ERROR "Could not apply the AU editor lifecycle fixes to the pinned clap-wrapper")
+endif()
+foreach(source IN LISTS au_sources)
+  configure_file("${au_patch_input}/${source}" "${au_compat}/${source}" COPYONLY)
+endforeach()
+get_target_property(au_wrapper_sources rustias_au SOURCES)
+list(REMOVE_ITEM au_wrapper_sources "${clap_wrapper_SOURCE_DIR}/src/wrapasauv2.cpp")
+list(APPEND au_wrapper_sources "${au_compat}/wrapasauv2.cpp")
+set_property(TARGET rustias_au PROPERTY SOURCES "${au_wrapper_sources}")
+# generated_cocoaclasses.hxx includes detail/auv2/wrappedview.asinclude.mm.
+target_include_directories(rustias_au BEFORE PRIVATE "${au_compat}" "${clap_wrapper_SOURCE_DIR}/src/detail/auv2")

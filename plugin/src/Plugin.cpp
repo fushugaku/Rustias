@@ -24,7 +24,7 @@ static Instrument& self(const clap_plugin_t* p){return *static_cast<Instrument*>
 #endif
 static std::string bundleResources;
 static const char* features[]={CLAP_PLUGIN_FEATURE_INSTRUMENT,CLAP_PLUGIN_FEATURE_SYNTHESIZER,CLAP_PLUGIN_FEATURE_STEREO,nullptr};
-static const clap_plugin_descriptor_t descriptor={CLAP_VERSION,"io.github.fushugaku.rustias","Rustias","Rustias","https://github.com/fushugaku/Rustias","","","0.1.3","The shared firmware-free Rustias engine",features};
+static const clap_plugin_descriptor_t descriptor={CLAP_VERSION,"io.github.fushugaku.rustias","Rustias","Rustias","https://github.com/fushugaku/Rustias","","","0.1.4","The shared firmware-free Rustias engine",features};
 
 Instrument::Instrument(const clap_host_t* h,std::string r):host(h),resources(std::move(r)){parameters[8]=30;}
 Instrument::~Instrument()=default;
@@ -162,8 +162,10 @@ static const clap_plugin_state_t state={
 static const clap_plugin_gui_t gui={
   [](const clap_plugin_t*,const char* api,bool floating){return !floating&&api&&std::strcmp(api,RUSTIAS_WINDOW_API)==0;},
   [](const clap_plugin_t*,const char** api,bool* floating){*api=RUSTIAS_WINDOW_API;*floating=false;return true;},
-  [](const clap_plugin_t* p,const char* api,bool floating){if(floating||!api||std::strcmp(api,RUSTIAS_WINDOW_API))return false;auto& s=self(p);if(!s.editor)s.editor=std::make_unique<Editor>(s);return true;},
-  [](const clap_plugin_t* p){if(self(p).editor)self(p).editor->show(false);},
+  [](const clap_plugin_t* p,const char* api,bool floating){if(floating||!api||std::strcmp(api,RUSTIAS_WINDOW_API))return false;auto& s=self(p);if(!s.editor){s.editorReady=false;s.editor=std::make_unique<Editor>(s);}return true;},
+  // GUI lifetime is independent of the native engine and saved program. AU
+  // creates a fresh embedded view on reopen without an explicit show callback.
+  [](const clap_plugin_t* p){auto& s=self(p);s.editor.reset();s.editorReady=false;},
   [](const clap_plugin_t*,double){return true;},
   [](const clap_plugin_t* p,uint32_t* w,uint32_t* h){*w=self(p).width;*h=self(p).height;return true;},
   [](const clap_plugin_t*){return true;},

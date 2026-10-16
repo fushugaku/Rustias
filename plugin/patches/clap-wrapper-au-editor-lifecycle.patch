@@ -1,0 +1,67 @@
+--- a/wrapasauv2.cpp
++++ b/wrapasauv2.cpp
+@@ -662,20 +662,8 @@
+ {
+   LOGINFO("[clap-wrapper] Cleaning up Plugin");
+   auto guarantee_mainthread = _plugin->AlwaysMainThread();
+-  if (this->_uiIsOpened)
+-  {
+-    LOGINFO("[clap-wrapper] !! UI still open, destroying UI and disconnecting view");
+-    if (_uiconn._canary)
+-    {
+-      *_uiconn._canary = 0;       // reset the canary
+-      _uiconn._canary = nullptr;  // and disconnect it
+-      if (_plugin->_plugin && _plugin->_ext._gui)
+-      {
+-        this->_uiconn._destroyWindow();
+-        this->_plugin->_ext._gui->destroy(_plugin->_plugin);
+-      }
+-    }
+-  }
++  // AU audio deactivation does not close a Cocoa editor retained by the host.
++  // The view's dealloc (or a replacement view) owns GUI destruction instead.
+   deactivateCLAP();
+   Base::Cleanup();
+ }
+@@ -840,6 +828,10 @@
+         _uiconn._window = nullptr;
+         _uiconn._registerWindow = [this](auto *x, auto *y)
+         {
++          // A host can retain the previous, detached Cocoa view. Disconnect
++          // its canary before a new view takes ownership of the single GUI.
++          if (this->_uiIsOpened && this->_uiconn._canary != y)
++            this->_uiconn._destroyWindow();
+           this->_uiconn._window = x;
+           this->_uiconn._canary = y;
+         };
+--- a/detail/auv2/wrappedview.asinclude.mm
++++ b/detail/auv2/wrappedview.asinclude.mm
+@@ -151,20 +151,14 @@
+ }
+ - (void)viewDidMoveToWindow
+ {
+-  if ([self window] == nil)
+-  {
+-    LOGINFO("[clap-wrapper] - view removed from a window");
+-    if (idleTimer)
+-    {
+-      CFRunLoopTimerInvalidate(idleTimer);
+-      idleTimer = 0;
+-    }
+-    if (canary)
+-    {
+-      ui._destroyWindow();
+-
+-      assert(canary == 0);
+-    }
++  // Moving between host windows is temporary; only dealloc destroys the GUI.
++  if (canary)
++  {
++    auto gui = ui._plugin->_ext._gui;
++    if ([self window])
++      gui->show(ui._plugin->_plugin);
++    else
++      gui->hide(ui._plugin->_plugin);
+   }
+   [super viewDidMoveToWindow];
+ }

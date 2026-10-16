@@ -2,6 +2,7 @@
 #include "Instrument.h"
 #include "Editor.h"
 #import <Cocoa/Cocoa.h>
+#import <WebKit/WebKit.h>
 #include <iostream>
 int main(int argc,char** argv){@autoreleasepool{
   if(argc!=2)return 1;setenv("RUSTIAS_UI_CHECK","1",1);[NSApplication sharedApplication];
@@ -15,6 +16,13 @@ int main(int argc,char** argv){@autoreleasepool{
     [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
   }
   if(!instrument.editorReady){std::cerr<<"Editor failed: "<<instrument.lastError<<'\n';return 1;}
-  instrument.editor->show(false);instrument.editor->parent((__bridge void*)window.contentView);instrument.editor->show(true);
+  WKWebView* web=nil;for(NSView* child in window.contentView.subviews)if([child isKindOfClass:WKWebView.class])web=(WKWebView*)child;
+  if(!web){std::cerr<<"Editor did not attach its WebView\n";return 1;}
+  for(int cycle=0;cycle<8;cycle++){
+    instrument.editor->show(false);
+    if(!web.hidden||web.superview!=window.contentView){std::cerr<<"Hide must keep the editor attached for show without reparenting\n";return 1;}
+    instrument.editor->show(true);
+    if(web.hidden||web.superview!=window.contentView){std::cerr<<"Show must restore the attached editor\n";return 1;}
+  }
   std::cout<<"Native editor, shared interface, WASM module, RDL worker, recording worker and IndexedDB initialized without audio hardware.\n";instrument.editor.reset();return 0;
 }}

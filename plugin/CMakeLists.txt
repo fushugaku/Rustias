@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(RustiasPlugin VERSION 0.1.3 LANGUAGES C CXX)
+project(RustiasPlugin VERSION 0.1.4 LANGUAGES C CXX)
 if(APPLE)
   enable_language(OBJC OBJCXX)
   set(CMAKE_OSX_DEPLOYMENT_TARGET 12.0)
@@ -103,6 +103,7 @@ add_library(rustias_vst3 MODULE)
 if(APPLE)
   add_library(rustias_au MODULE)
   target_add_auv2_wrapper(TARGET rustias_au OUTPUT_NAME Rustias BUNDLE_IDENTIFIER io.github.fushugaku.rustias.au BUNDLE_VERSION ${PROJECT_VERSION} MANUFACTURER_NAME Rustias MANUFACTURER_CODE Fshg SUBTYPE_CODE Rsts INSTRUMENT_TYPE aumu PREFER_CMAKE_AUV2_CONFIGURATION TRUE MACOS_EMBEDDED_CLAP_LOCATION "$<TARGET_BUNDLE_DIR:rustias_clap>")
+  include(patches/AUEditorLifecycle.cmake)
   add_dependencies(rustias_au rustias_clap)
   # A POST_BUILD copy is insufficient: reconfiguring CMake rewrites Info.plist
   # even when no relink follows. Keep AU registration in CMake's own template.

@@ -101,3 +101,8 @@ never let Installer replace a development checkout or merge stale resources.
 `scripts/verify-plugin-pkg.py` inspects the real payload and Installer choices.
 AU registration belongs to `plugin/Info-AU.plist.in`; a POST_BUILD-only plist copy
 is insufficient because a later CMake reconfigure can overwrite it without a relink.
+AU audio deactivation and temporary Cocoa view detachment must retain the editor.
+Destroy GUI resources only when the view is released or replaced; CLAP hide/show
+must work without another set_parent. Keep the pinned wrapper lifecycle patch in
+`plugin/patches/` and validate power cycles, view reattachment and editor recreation
+through the real AU bundle without audio hardware.

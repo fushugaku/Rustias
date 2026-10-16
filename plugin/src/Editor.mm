@@ -57,6 +57,7 @@ Editor::Editor(Instrument& s):impl(std::make_unique<Impl>(s)){auto owner=this;im
 Editor::~Editor()=default;
 bool Editor::parent(void* parent){if(!parent)return false;auto p=(__bridge NSView*)parent;[impl->web removeFromSuperview];impl->web.frame=p.bounds;[p addSubview:impl->web];return true;}
 void Editor::size(unsigned w,unsigned h){[impl->web setFrameSize:NSMakeSize(w,h)];}
-void Editor::show(bool visible){impl->web.hidden=!visible;if(!visible)[impl->web removeFromSuperview];}
+// Hosts may call show after hide without setting the parent again.
+void Editor::show(bool visible){impl->web.hidden=!visible;}
 void Editor::poll(){auto messages=impl->instrument.pull();if(messages.empty())return;std::string script="[";for(auto& s:messages){if(script.size()>1)script+=",";script+=s;}script+="].forEach(data=>window.__rustiasPluginReceive?.(data))";[impl->web evaluateJavaScript:string(script) completionHandler:nil];}
 void Editor::restore(){[impl->web evaluateJavaScript:[NSString stringWithFormat:@"window.__rustiasPluginRestore?.(%@)",string(impl->instrument.initialState())] completionHandler:nil];}
