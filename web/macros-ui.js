@@ -7,8 +7,8 @@ export function createMacrosPanel({resolve,write,onChange,onError}){
   const dialog=document.createElement('dialog');dialog.className='editor-dialog macro-dialog';dialog.id='macro-editor';
   dialog.innerHTML='<div class="dialog-heading"><h2 id="macro-title">Assign to macro</h2><button type="button" id="macro-close" aria-label="Close macro editor">×</button></div><p id="macro-parameter"></p><div id="macro-choices" class="macro-choices"></div><div id="macro-settings" hidden><label class="macro-name-label">Name<input id="macro-name" type="text" maxlength="32" aria-label="Macro name"></label><div id="macro-bindings"></div><p id="macro-empty">Right-click a parameter to assign it. On touch, press and hold.</p></div>';
   document.body.append(dialog);
-  const $=s=>dialog.querySelector(s);let editing=0,pending;
-  const bank=new MacroBank({resolve,write:changes=>{write(changes);onChange();refresh();}});
+  const $=s=>dialog.querySelector(s);let editing=0,pending,hostAutomation=false;
+  const bank=new MacroBank({resolve,write:changes=>{write(changes);if(!hostAutomation)onChange();refresh();}});
   function attempt(fn){try{fn();}catch(error){onError(error);}}
   function refresh(){for(let i=0;i<views.length;i++){const knob=bank.config.knobs[i],view=views[i];view.label.textContent=knob.name;view.label.title=knob.name;view.dial.render(knob.value);view.count.textContent=`${knob.bindings.length} / ${MACRO_BINDINGS}`;view.edit.title=`Edit ${knob.name} assignments`;view.edit.setAttribute('aria-label',`Edit Macro ${i+1} assignments`);}}
   function edit(index){editing=index;pending=null;const knob=bank.config.knobs[index];$('#macro-title').textContent=`Macro ${index+1}`;$('#macro-parameter').hidden=true;$('#macro-choices').hidden=true;$('#macro-settings').hidden=false;$('#macro-name').value=knob.name;renderBindings();if(!dialog.open)dialog.showModal();}
@@ -28,5 +28,5 @@ export function createMacrosPanel({resolve,write,onChange,onError}){
   $('#macro-close').addEventListener('click',()=>dialog.close());dialog.addEventListener('close',()=>{pending=null;});
   $('#macro-name').addEventListener('input',()=>{const name=$('#macro-name').value.trim();if(name){bank.config.knobs[editing].name=name;refresh();onChange();}});$('#macro-name').addEventListener('blur',()=>{$('#macro-name').value=bank.config.knobs[editing].name;});
   setMacroAssignmentHandler(assign);refresh();
-  return {getConfig:()=>bank.getConfig(),setConfig(raw){bank.setConfig(raw);if(dialog.open)dialog.close();refresh();},setLiveValues:values=>views.forEach((view,i)=>view.dial.setModulation(values?.[i])),rebase:target=>bank.rebase(target),rebaseTimbre(t){for(const base of bank.config.bases)if(base.target.timbre===t||base.target.kind==='effect'&&effectTimbre(base.target.slot)===t)bank.rebase(base.target);},refresh};
+  return {getConfig:()=>bank.getConfig(),setConfig(raw){bank.setConfig(raw);if(dialog.open)dialog.close();refresh();},setHostValue(index,value){hostAutomation=true;try{bank.setValue(index,Math.round(value));}finally{hostAutomation=false;}},setLiveValues:values=>views.forEach((view,i)=>view.dial.setModulation(values?.[i])),rebase:target=>bank.rebase(target),rebaseTimbre(t){for(const base of bank.config.bases)if(base.target.timbre===t||base.target.kind==='effect'&&effectTimbre(base.target.slot)===t)bank.rebase(base.target);},refresh};
 }

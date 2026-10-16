@@ -195,7 +195,7 @@ function writeMacros(changes){
   }
   for(const slot of effects)send({type:'effect',slot,program:fxUI.getSlot(slot)});
   for(const target of chainEffects.values())send({type:'chain-effect',timbre:target.timbre,program:fxUI.getChainEffect(target.timbre,target.id)});
-  for(const t of circuits)if(circuitUI.getConfig().tracks[t].enabled)macroCircuits.add(t);
+  for(const t of circuits)if(!pluginHost?.applyingAutomation&&circuitUI.getConfig().tracks[t].enabled)macroCircuits.add(t);
   if(macroCircuits.size&&!macroCircuitTimer)macroCircuitTimer=setTimeout(()=>{macroCircuitTimer=null;for(const t of macroCircuits)sendCircuits(t);macroCircuits.clear();},30);
   fxUI?.refresh();circuitUI?.refresh();updateControls();updateKeys();
 }
@@ -535,7 +535,7 @@ try {
   module=compiled;sequenceUI.setReady(true);recorder.setReady(true); $("#power").disabled = false;$('#load-program').disabled=false;updatePower(); document.body.dataset.engine = "ready";
   if(pluginHost){
     pluginHost.onRestore(session=>{if(session?.snapshot){loadSnapshot(session.snapshot);updateControls();}});
-    pluginHost.onParameter((id,value)=>{if(id===8){$('#volume').value=value;return;}const config=macroUI.getConfig();if(config.knobs[id]){config.knobs[id].value=value;macroUI.setConfig(config);}});
-    await startAudio();pluginHost.saveSession(currentSession());
+    pluginHost.onParameter((id,value)=>{if(id===8){$('#volume').value=value;return;}if(id>=0&&id<8)macroUI.setHostValue(id,value);});
+    await startAudio();await pluginHost.ready(module);pluginHost.saveSession(currentSession());
   }
 } catch (error) { $("#status").textContent = "Engine unavailable"; showError(error); }

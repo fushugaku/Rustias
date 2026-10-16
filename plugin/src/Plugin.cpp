@@ -65,6 +65,7 @@ void Instrument::parameter(unsigned id,double value,bool fromUI){
 void Instrument::uiMessage(const std::string& message){
   auto d=parse(message);if(!d.is_object())return;auto kind=d.value("kind",std::string());
   if(kind=="audio"&&d.contains("data"))queue(d["data"].dump());
+  else if(kind=="editor-ready")editorReady=true;
   else if(kind=="session"&&d.contains("data")){
     {std::lock_guard lock(stateMutex);session=d["data"].dump();}
     auto snapshot=d["data"].value("snapshot",Json::object());auto macros=snapshot.value("macros",Json());auto knobs=macros.is_object()?macros.value("knobs",Json::array()):Json::array();
@@ -105,7 +106,7 @@ clap_process_status Instrument::process(const clap_process_t* p){
   try{
     drain();
     if(p->transport){auto t=p->transport;bool play=t->flags&CLAP_TRANSPORT_IS_PLAYING;
-      if((t->flags&CLAP_TRANSPORT_HAS_TEMPO)&&std::isfinite(t->tempo)&&t->tempo>0&&t->tempo!=previousTempo){runtime->message("{\"type\":\"control\",\"timbre\":0,\"parameter\":89,\"value\":"+std::to_string(std::clamp(int(std::round(t->tempo*10)),100,3000))+"}");previousTempo=t->tempo;}
+      if((t->flags&CLAP_TRANSPORT_HAS_TEMPO)&&std::isfinite(t->tempo)&&t->tempo>0&&(!haveTransport||t->tempo!=previousTempo)){runtime->message("{\"type\":\"control\",\"timbre\":0,\"parameter\":89,\"value\":"+std::to_string(std::clamp(int(std::round(t->tempo*10)),100,3000))+"}");previousTempo=t->tempo;}
       if(play&&!hostPlaying)runtime->message("{\"type\":\"sequence-play\"}");
       if(!play&&hostPlaying)runtime->message("{\"type\":\"stop\"}");
       if(play&&haveTransport&&(t->flags&CLAP_TRANSPORT_HAS_BEATS_TIMELINE)){double beat=double(t->song_pos_beats)/CLAP_BEATTIME_FACTOR;if(std::abs(beat-previousBeat-previousFrames/rate*previousTempo/60)>.1)runtime->message("{\"type\":\"sequence-reset\"}");}

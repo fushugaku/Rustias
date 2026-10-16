@@ -12,10 +12,10 @@ function createHost(){
   };
   let port,restore,parameter,request=0;const pending=new Map();
   const send=value=>native.postMessage(serialize(value));
-  const host={initial:window.__RUSTIAS_PLUGIN__,onRestore:fn=>restore=fn,onParameter:fn=>parameter=fn,saveSession:data=>send({kind:'session',data})};
+  const host={initial:window.__RUSTIAS_PLUGIN__,applyingAutomation:false,onRestore:fn=>restore=fn,onParameter:fn=>parameter=fn,saveSession:data=>send({kind:'session',data})};
   window.__rustiasPluginReceive=data=>{
     if(data.type==='digest'){pending.get(data.request)?.(new Uint8Array(data.bytes).buffer);pending.delete(data.request);return;}
-    if(data.type==='host-parameter'){parameter?.(data.id,data.value);return;}
+    if(data.type==='host-parameter'){host.applyingAutomation=true;try{parameter?.(data.id,data.value);}finally{host.applyingAutomation=false;}return;}
     if(data.type==='record-chunk'&&Array.isArray(data.pcm))data.pcm=Int16Array.from(data.pcm);
     port?.onmessage?.({data});
   };
@@ -29,7 +29,17 @@ function createHost(){
       decodeAudioData:buffer=>(offline??=new OfflineAudioContext(1,1,48000)).decodeAudioData(buffer),resume:async()=>{context.state='running';send({kind:'power',enabled:true});context.onstatechange?.();},suspend:async()=>{context.state='suspended';send({kind:'power',enabled:false});context.onstatechange?.();},close:async()=>{context.state='closed';}};
     return context;
   };
-  host.node=()=>{port={onmessage:null,postMessage:data=>send({kind:'audio',data})};return {port,connect(){queueMicrotask(()=>port.onmessage?.({data:{type:'ready',sampleRate:host.initial.sampleRate??48000}}));},disconnect(){}};};
+  host.node=()=>{port={onmessage:null,postMessage:data=>{if(!host.applyingAutomation)send({kind:'audio',data});}};return {port,connect(){queueMicrotask(()=>port.onmessage?.({data:{type:'ready',sampleRate:host.initial.sampleRate??48000}}));},disconnect(){}};};
+  host.ready=async module=>{
+    const probe=(file,data,expected)=>new Promise((resolve,reject)=>{
+      const worker=new Worker(new URL(file,location.href)),timer=setTimeout(()=>{worker.terminate();reject(new Error('The plugin worker did not start.'));},10000);
+      worker.onmessage=({data})=>{clearTimeout(timer);worker.terminate();expected(data)?resolve():reject(new Error(data.error||'The plugin worker failed.'));};
+      worker.onerror=event=>{clearTimeout(timer);worker.terminate();reject(new Error(event.message));};worker.postMessage(data);
+    });
+    await probe('recordings-worker.js',{type:'probe',request:-1},data=>data.error==='Unknown recording operation.');
+    await probe('rdl-worker.js',{module,buffer:new ArrayBuffer(0)},data=>typeof data.error==='string');
+    send({kind:'editor-ready'});
+  };
   document.addEventListener('click',async event=>{const link=event.target.closest('a[download]');if(!link?.href||!link.href.startsWith('blob:'))return;event.preventDefault();const blob=await(await fetch(link.href)).blob();send({kind:'export',name:link.download||'Rustias-export',bytes:await base64(blob)});},true);
   return host;
 }

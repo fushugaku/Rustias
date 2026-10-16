@@ -28,6 +28,7 @@ struct Editor::Impl {
     comStatus=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
     wchar_t* local=nullptr;SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&local);
     if(local){profile=(std::filesystem::path(local)/L"Rustias"/L"Plugin"/L"WebView2").wstring();CoTaskMemFree(local);std::filesystem::create_directories(profile);}
+    if(getenv("RUSTIAS_UI_CHECK"))profile=(std::filesystem::temp_directory_path()/(L"Rustias-editor-check-"+std::to_wstring(GetCurrentProcessId()))).wstring();
     static const wchar_t* name=L"RustiasPluginEvents";
     WNDCLASSW cls{};cls.lpfnWndProc=[](HWND window,UINT message,WPARAM w,LPARAM l)->LRESULT{
       auto self=reinterpret_cast<Impl*>(GetWindowLongPtrW(window,GWLP_USERDATA));
