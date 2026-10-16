@@ -364,14 +364,14 @@ impl Sampler {
         if parameter == 10 && value != 0 && profile.settings[0] >= 4 {
             return false;
         }
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", rustias_plugin))]
         if parameter == 172 && value != 0 && profile.settings[171] >= 4 {
             return false;
         }
         if parameter == 0 && value >= 4 {
             profile.settings[10] = 0;
         }
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", rustias_plugin))]
         if parameter == 171 && value >= 4 {
             profile.settings[172] = 0;
         }
@@ -864,7 +864,7 @@ impl Sampler {
             if let Some(circuit) = &mut v.circuit {
                 let eg = v.envelopes.levels();
                 let lfo = v.modulation.pair.values(&self.modulation_tables.lfo);
-                #[cfg(target_arch = "wasm32")]
+                #[cfg(any(target_arch = "wasm32", rustias_plugin))]
                 circuit.oscillator3(v.program.controls.third, v.modulation.patches.targets);
                 circuit.controls([
                     if v.released { 0.0 } else { 1.0 },

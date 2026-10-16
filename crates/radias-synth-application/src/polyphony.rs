@@ -37,7 +37,7 @@ pub struct ActiveVoice {
     pub mixer: Option<crate::mixer::MixerProgram>,
     pub secondary: Option<crate::secondary::SecondaryProgram>,
     pub primary: Option<crate::primary::PrimaryProgram>,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub third: crate::primary::ThirdProgram,
     pub shaper: Option<crate::shaper::ShaperProgram>,
     pub comb_program: Option<crate::comb::CombProgram>,
@@ -63,7 +63,7 @@ impl ActiveVoice {
             mixer: self.mixer,
             secondary: self.secondary,
             primary: self.primary,
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third: self.third,
             shaper: self.shaper,
             comb_program: self.comb_program,
@@ -346,7 +346,7 @@ impl PolyphonicRenderer {
             else {
                 continue;
             };
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             {
                 voice.third = c.third;
             }
@@ -1987,9 +1987,9 @@ impl PolyphonicRenderer {
             voice.renderer.select_secondary(secondary);
         }
         if let (Some(scales), Some(mixer)) = (&self.mixer_scales, voice.mixer) {
-            #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+            #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
             let mix = mixer.compile(scales, [0; 3]);
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             let mix = mixer.compile_with_third(scales, [0; 3], voice.third.primary.selection);
             voice.renderer.initialize_mixer(mix);
             voice.renderer.mixer_slew_phase(3);
@@ -2047,7 +2047,7 @@ impl PolyphonicRenderer {
         }
         self.circuits[timbre] = prototype;
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub fn edit_third(&mut self, timbre: u8, program: crate::primary::ThirdProgram) {
         for voice in self
             .voices
@@ -3182,9 +3182,9 @@ impl PolyphonicRenderer {
                         m.patches.targets.controls[3],
                     ]
                 });
-                #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+                #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
                 let target = mixer.compile(scales, values);
-                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 let target = mixer.compile_with_third(
                     scales,
                     values,
@@ -3425,7 +3425,7 @@ impl PolyphonicRenderer {
                         .as_ref()
                         .zip(modulation_tables)
                         .map_or([0; LFO_COUNT], |(m, t)| m.pair.values(&t.lfo));
-                    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                     circuit.oscillator3(
                         active.third,
                         active

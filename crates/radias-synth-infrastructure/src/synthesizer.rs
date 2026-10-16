@@ -313,7 +313,7 @@ pub enum Command {
     MixerScales(Box<radias_synth_domain::controller_mixer::MixerScales>),
     Secondary(u8, SecondaryProgram),
     Primary(u8, radias_synth_application::primary::PrimaryProgram),
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     Third(u8, radias_synth_application::primary::ThirdProgram),
     NoiseTables(Box<radias_synth_application::noise::NoiseTables>),
     PhysicalFrames(Box<[radias_synth_domain::noise::NoiseFrameSeeds; 2]>),
@@ -344,9 +344,9 @@ pub struct Synthesizer {
     vocoder: Option<Box<radias_synth_application::vocoder::VocoderRenderer>>,
     vocoder_program: Option<[u8; radias_synth_domain::vocoder_control::STORED_BYTES]>,
     effects: Option<Box<radias_synth_application::effect_audio::EffectAudioRack>>,
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
     buffer: [[[StereoFrame; TIMBRE_COUNT]; 2]; 128],
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
     position: usize,
     tuning: Option<(PitchTable, BandwidthTable)>,
     controller_tables: Option<ControllerTables>,
@@ -384,7 +384,7 @@ pub(crate) struct Timbre {
     mixer: MixerProgram,
     secondary: SecondaryProgram,
     primary: radias_synth_application::primary::PrimaryProgram,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     third: radias_synth_application::primary::ThirdProgram,
     enabled: bool,
     channel: u8,
@@ -440,7 +440,7 @@ impl Synthesizer {
                 mixer: Default::default(),
                 secondary: Default::default(),
                 primary: Default::default(),
-                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 third: Default::default(),
                 enabled: i == 0,
                 channel: i as u8,
@@ -454,9 +454,9 @@ impl Synthesizer {
             vocoder: None,
             vocoder_program: None,
             effects: None,
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
             buffer: [[[StereoFrame::default(); TIMBRE_COUNT]; 2]; 128],
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
             position: 128,
             tuning,
             controller_tables,
@@ -502,7 +502,7 @@ impl Synthesizer {
     }
     pub fn drum_kit(&mut self, kit: Box<radias_synth_application::drum_program::CompiledDrumKit>) {
         self.pool.stop();
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", rustias_plugin))]
         {
             self.buffer
                 .fill([[StereoFrame::default(); TIMBRE_COUNT]; 2]);
@@ -543,7 +543,7 @@ impl Synthesizer {
     }
     pub fn clear_drums(&mut self) {
         self.pool.stop();
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", rustias_plugin))]
         {
             self.buffer
                 .fill([[StereoFrame::default(); TIMBRE_COUNT]; 2]);
@@ -713,7 +713,7 @@ impl Synthesizer {
             mixer: Some(settings.mixer),
             secondary: Some(settings.secondary),
             primary: Some(settings.primary),
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third: settings.third,
             shaper: Some(settings.shaper),
             comb_program: settings.comb_program,
@@ -813,7 +813,7 @@ impl Synthesizer {
                         mixer: c.mixer,
                         secondary: c.secondary,
                         primary: c.primary(),
-                        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                         third: c.third,
                         enabled: source.enabled,
                         channel: source.channel,
@@ -1135,7 +1135,7 @@ impl Synthesizer {
             }
             Command::PhysicalFrames(seeds) => self.pool.initialize_physical_frames(*seeds),
             Command::SecondaryTable(table) => self.pool.configure_secondary(*table),
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             Command::Third(timbre, program) => {
                 self.timbres[timbre as usize].third = program;
                 self.pool.edit_third(timbre, program);
@@ -1315,7 +1315,7 @@ impl Synthesizer {
                 mixer: c.mixer,
                 secondary: c.secondary,
                 primary: c.primary(),
-                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 third: c.third,
                 modulation: c.modulation,
                 auxiliary: [c.envelope[0], c.envelope[2]],
@@ -1343,7 +1343,7 @@ impl Synthesizer {
     /// summing both processors would count the Slave voices twice.
     /// `sample` and this method share one clock and one WASM block cursor.
     pub fn sample_buses(&mut self) -> [[StereoFrame; TIMBRE_COUNT]; 2] {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", rustias_plugin)))]
         {
             self.pool.next_buses_with_modulation(
                 &self.table,
@@ -1352,7 +1352,7 @@ impl Synthesizer {
                 |program| &self.plans[program].events,
             )
         }
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", rustias_plugin))]
         {
             if self.position == 128 {
                 for sample in &mut self.buffer {

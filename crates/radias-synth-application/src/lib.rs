@@ -12,7 +12,7 @@ pub trait VoiceCircuit: radias_synth_domain::voice::SignalProcessor {
     fn reconfigure(&mut self, prototype: &dyn VoiceCircuit);
     fn controls(&mut self, values: [f64; 8]);
     fn tail_active(&self) -> bool;
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn oscillator3(
         &mut self,
         _program: crate::primary::ThirdProgram,

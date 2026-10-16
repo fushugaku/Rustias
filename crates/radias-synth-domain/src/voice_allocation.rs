@@ -1,11 +1,11 @@
 //! Original 24-slot allocation priority, SH3 007aac/007b4c and 0075b4/007610.
-#[cfg(all(feature = "web-polyphony", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-polyphony", any(target_arch = "wasm32", rustias_plugin)))]
 pub const VOICE_COUNT: usize = 128;
-#[cfg(not(all(feature = "web-polyphony", target_arch = "wasm32")))]
+#[cfg(not(all(feature = "web-polyphony", any(target_arch = "wasm32", rustias_plugin))))]
 pub const VOICE_COUNT: usize = 24;
-#[cfg(all(feature = "web-polyphony", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-polyphony", any(target_arch = "wasm32", rustias_plugin)))]
 pub type VoiceMask = u128;
-#[cfg(not(all(feature = "web-polyphony", target_arch = "wasm32")))]
+#[cfg(not(all(feature = "web-polyphony", any(target_arch = "wasm32", rustias_plugin))))]
 pub type VoiceMask = u32;
 pub const VOICE_MASK: VoiceMask = VoiceMask::MAX >> (VoiceMask::BITS as usize - VOICE_COUNT);
 pub const VOICES_PER_PROCESSOR: usize = VOICE_COUNT / 2;
@@ -587,7 +587,7 @@ impl VoiceOrder {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(any(target_arch = "wasm32", rustias_plugin))))]
 mod capacity_tests {
     #[test]
     fn desktop_capacity_stays_original_even_with_web_feature() {

@@ -1,0 +1,22 @@
+[package]
+name = "rustias-plugin-engine"
+version = "0.1.1"
+edition = "2024"
+publish = false
+
+# Separate build prevents plugin cfg/feature unification with the reference app.
+[workspace]
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+radias-web = { path = "../../crates/radias-web" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rustias_plugin)'] }

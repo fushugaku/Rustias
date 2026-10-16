@@ -18,7 +18,7 @@ use radias_synth_domain::{
 };
 use serde::Deserialize;
 use std::{collections::BTreeMap, sync::Arc};
-#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
 mod osc3;
 mod primary;
 const LIMIT: usize = 64;
@@ -51,9 +51,9 @@ fn default_output() -> String {
 enum Kind {
     Osc1,
     Osc2,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     Osc3,
-    #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+    #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
     Noise,
     Mix,
     Filter1,
@@ -65,7 +65,7 @@ enum Kind {
     Eg3,
     Lfo1,
     Lfo2,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     Lfo3,
     Gate,
     Velocity,
@@ -85,16 +85,16 @@ fn kind(name: &str) -> Option<Kind> {
         "osc1" => Kind::Osc1,
         "osc2" => Kind::Osc2,
         "noise" => {
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             {
                 Kind::Osc3
             }
-            #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+            #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
             {
                 Kind::Noise
             }
         }
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         "osc3" => Kind::Osc3,
         "mixer" => Kind::Mix,
         "filter1" => Kind::Filter1,
@@ -106,7 +106,7 @@ fn kind(name: &str) -> Option<Kind> {
         "eg3" => Kind::Eg3,
         "lfo1" => Kind::Lfo1,
         "lfo2" => Kind::Lfo2,
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         "lfo3" => Kind::Lfo3,
         "gate" => Kind::Gate,
         "velocity" => Kind::Velocity,
@@ -124,7 +124,7 @@ fn kind(name: &str) -> Option<Kind> {
     })
 }
 fn cv(k: Kind) -> bool {
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     if k == Kind::Lfo3 {
         return true;
     }
@@ -151,7 +151,7 @@ fn output_port(k: Kind, name: &str) -> Option<(usize, bool)> {
     }
 }
 fn port(k: Kind, name: &str) -> Option<(usize, bool)> {
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     if k == Kind::Osc3 {
         return match name {
             "mod" => Some((0, false)),
@@ -207,7 +207,7 @@ struct Node {
 }
 struct Plan {
     fixed: bool,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fine: radias_synth_domain::controller_secondary::FineTuneTable,
     nodes: Vec<Node>,
     order: Vec<usize>,
@@ -222,17 +222,17 @@ pub struct CircuitVoice {
     controls: [f64; 8],
     frames: u64,
     release_frames: u32,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     third: State,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     third_program: radias_synth_application::primary::ThirdProgram,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     third_targets: radias_synth_domain::modulation::AppliedModulationTargets,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     source_taps: radias_synth_domain::voice::OscillatorTaps,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     previous_phases: Option<[radias_synth_domain::Phase; 2]>,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     source_wraps: [bool; 2],
 }
 struct State {
@@ -248,7 +248,7 @@ struct State {
     env_gate: bool,
     phase: f64,
     switch_mix: Option<f64>,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     third_pitch: Option<osc3::Pitch>,
 }
 impl Default for State {
@@ -266,13 +266,13 @@ impl Default for State {
             env_gate: false,
             phase: 0.0,
             switch_mix: None,
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third_pitch: None,
         }
     }
 }
 impl CircuitVoice {
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub fn fixed() -> Self {
         Self::new(Arc::new(Plan {
             fixed: true,
@@ -459,11 +459,11 @@ impl CircuitVoice {
             }
         }
         if !circuit.enabled {
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             {
                 return Ok(Some(Self::fixed()));
             }
-            #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+            #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
             {
                 return Ok(None);
             }
@@ -477,7 +477,7 @@ impl CircuitVoice {
             .then(|| Box::new(primary::Tables::new()));
         Ok(Some(Self::new(Arc::new(Plan {
             fixed: false,
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             fine: crate::standalone_tables::fine(),
             nodes,
             order,
@@ -510,24 +510,24 @@ impl CircuitVoice {
             controls: [1.0, 1.0, 60.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             frames: 0,
             release_frames: 0,
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third: State {
                 primary: Some(Box::default()),
                 ..Default::default()
             },
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third_program: Default::default(),
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third_targets: Default::default(),
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             source_taps: Default::default(),
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             previous_phases: None,
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             source_wraps: [false; 2],
         }
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn third_reference(&self, sources: [Sample; 3]) -> (Sample, bool) {
         let (_, reference) = osc3::interaction(self.third_program, self.third_targets);
         let sample = match reference {
@@ -549,13 +549,13 @@ impl VoiceCircuit for CircuitVoice {
         if let Some(next) = prototype.as_any().downcast_ref::<Self>() {
             let from_fixed = self.plan.fixed;
             if next.plan.fixed {
-                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 if !from_fixed
                     && let Some(n) = self.plan.nodes.iter().find(|n| n.kind == Kind::Osc3)
                 {
                     self.third = std::mem::take(&mut self.states[n.id]);
                 }
-                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 if self.third.primary.is_none() {
                     self.third.primary = Some(Box::default());
                 }
@@ -567,7 +567,7 @@ impl VoiceCircuit for CircuitVoice {
                 self.states.resize_with(LIMIT, State::default);
             }
             for n in &next.plan.nodes {
-                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 if from_fixed && n.kind == Kind::Osc3 && self.third.primary.is_some() {
                     self.states[n.id] = std::mem::take(&mut self.third);
                     continue;
@@ -598,7 +598,7 @@ impl VoiceCircuit for CircuitVoice {
     fn controls(&mut self, v: [f64; 8]) {
         self.controls = v;
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn oscillator3(
         &mut self,
         program: radias_synth_application::primary::ThirdProgram,
@@ -627,7 +627,7 @@ impl SignalProcessor for CircuitVoice {
     fn fixed_graph(&self) -> bool {
         self.plan.fixed
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn needs_oscillator_taps(&self) -> bool {
         let (mode, reference) = osc3::interaction(self.third_program, self.third_targets);
         mode.ring
@@ -639,7 +639,7 @@ impl SignalProcessor for CircuitVoice {
                     .iter()
                     .any(|i| self.plan.nodes[*i].kind == Kind::Osc3))
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn oscillator_taps(&mut self, taps: radias_synth_domain::voice::OscillatorTaps) {
         let sync = radias_synth_domain::secondary_control::SecondaryModulation {
             ring: false,
@@ -652,7 +652,7 @@ impl SignalProcessor for CircuitVoice {
         self.previous_phases = Some(taps.phases);
         self.source_taps = taps;
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn prepare_sources(
         &mut self,
         mut sources: [Sample; 3],
@@ -687,7 +687,7 @@ impl SignalProcessor for CircuitVoice {
         level: i16,
         table: &WaveformTable,
     ) -> Sample {
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         let (reference, wrap) = self.third_reference(sources);
         let mut out = [[0.0; 2]; LIMIT];
         let gate = self.controls[0] > 0.0;
@@ -705,7 +705,7 @@ impl SignalProcessor for CircuitVoice {
             let result = match n.kind {
                 Kind::Osc1 => sources[0].0 as f64 / 2147483647.0,
                 Kind::Osc2 => sources[1].0 as f64 / 2147483647.0,
-                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 Kind::Osc3 => {
                     let mut cv = input;
                     if n.inputs[4].is_none() {
@@ -735,7 +735,7 @@ impl SignalProcessor for CircuitVoice {
                     .0 as f64
                         / 2147483647.0
                 }
-                #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+                #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
                 Kind::Noise => sources[2].0 as f64 / 2147483647.0,
                 Kind::Mix => {
                     input[0] * p.mix.primary_gain as f64 / 32768.0
@@ -838,7 +838,7 @@ impl SignalProcessor for CircuitVoice {
                 Kind::Eg3 => self.controls[4],
                 Kind::Lfo1 => self.controls[5],
                 Kind::Lfo2 => self.controls[6],
-                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 Kind::Lfo3 => self.controls[7],
                 Kind::Gate => self.controls[0],
                 Kind::Velocity => self.controls[1],

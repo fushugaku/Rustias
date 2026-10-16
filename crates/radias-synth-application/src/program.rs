@@ -26,7 +26,7 @@ pub struct TimbreControls {
     pub oscillator_selection: u8,
     pub oscillator_controls: [u8; 2],
     pub secondary: SecondaryProgram,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub third: crate::primary::ThirdProgram,
     pub mixer: MixerProgram,
     pub filter_route: u8,
@@ -144,7 +144,7 @@ impl TimbreControls {
                 bend_enabled: timbre.bytes()[5] & 0x80 != 0,
                 wheel_enabled: timbre.bytes()[5] & 0x10 != 0,
             },
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third: Default::default(),
             oscillator_selection: p[0x16],
             oscillator_controls: [p[0x17], p[0x18]],

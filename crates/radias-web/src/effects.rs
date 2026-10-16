@@ -129,7 +129,7 @@ impl State {
         let mut rack = prepare_rack(self.slots.map(Into::into), tempo)?;
         for (t, chain) in self.chains.iter().enumerate() {
             validate_chain(chain, tempo)?;
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
             {
                 let settings = chain
                     .iter()
@@ -146,7 +146,7 @@ impl State {
                     .collect::<Result<Vec<_>, String>>()?;
                 rack.configure_chain(t, settings).map_err(String::from)?;
             }
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(any(target_arch = "wasm32", rustias_plugin)))]
             {
                 let _ = t;
                 if !chain.is_empty() {

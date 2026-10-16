@@ -5,13 +5,13 @@ use radias_synth_domain::modulation::{
     VirtualPatch,
 };
 
-pub const SOURCE_COUNT: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+pub const SOURCE_COUNT: usize = if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
     17
 } else {
     16
 };
 
-pub const PATCH_ROUTES: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+pub const PATCH_ROUTES: usize = if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
     8
 } else {
     6
@@ -176,14 +176,14 @@ impl VoiceModulation {
     ) -> AppliedModulationTargets {
         sources[3] = (values[0] as i32) >> 1;
         sources[4] = (values[1] as i32) >> 1;
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         {
             sources[16] = (values[2] as i32) >> 1;
         }
         let targets = self.patches.tick(matrix, &sources);
         self.pair.parameters[0].frequency_modulation = targets.controls[11];
         self.pair.parameters[1].frequency_modulation = targets.controls[12];
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         {
             self.pair.parameters[2].frequency_modulation = targets.controls[40];
         }
@@ -220,7 +220,7 @@ impl VirtualPatchController {
         let patches: [VirtualPatch; PATCH_ROUTES] = core::array::from_fn(|i| {
             let p = self.routes[i];
             let selector =
-                if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) && p.source == 16 {
+                if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) && p.source == 16 {
                     16
                 } else {
                     p.source & 15

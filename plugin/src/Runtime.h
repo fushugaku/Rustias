@@ -1,7 +1,8 @@
 #pragma once
-#ifndef RUSTIAS_PORTABLE_RUNTIME
+#ifndef RUSTIAS_QUICKJS_RUNTIME
 #include <JavaScriptCore/JavaScriptCore.h>
 #endif
+#include "NativeEngine.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -21,19 +22,24 @@ public:
   bool failed()const{return failure;}
   const std::string& error()const{return errorText;}
 private:
-#ifdef RUSTIAS_PORTABLE_RUNTIME
+#ifdef RUSTIAS_QUICKJS_RUNTIME
   struct Portable;
   std::unique_ptr<Portable> portable;
 #else
   JSGlobalContextRef context=nullptr;
   JSObjectRef receiver=nullptr,renderer=nullptr,midiFn=nullptr,paramFn=nullptr,statsFn=nullptr;
   std::vector<std::string> outgoing;
-  std::vector<unsigned char> wasm;
+  NativeEngine engine;
+  struct Binding { Runtime* owner; unsigned method; };
+  std::vector<Binding> bindings;
   void check(JSValueRef exception);
   JSObjectRef function(const char* name);
   JSValueRef call(JSObjectRef fn,size_t count,const JSValueRef* values);
   void evaluate(const std::string& source);
   static JSValueRef post(JSContextRef,JSObjectRef,JSObjectRef,size_t,const JSValueRef[],JSValueRef*);
+  static JSValueRef invoke(JSContextRef,JSObjectRef,JSObjectRef,size_t,const JSValueRef[],JSValueRef*);
+  static JSValueRef readBuffer(JSContextRef,JSObjectRef,JSObjectRef,size_t,const JSValueRef[],JSValueRef*);
+  static JSValueRef writeBuffer(JSContextRef,JSObjectRef,JSObjectRef,size_t,const JSValueRef[],JSValueRef*);
 #endif
   std::string errorText;
   bool failure=false;

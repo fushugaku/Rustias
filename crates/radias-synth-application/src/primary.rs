@@ -43,7 +43,7 @@ impl PrimaryProgram {
 }
 
 /// Browser OSC 3 reuses OSC 1 synthesis and OSC 2 tuning controls.
-#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThirdProgram {
     pub primary: PrimaryProgram,
@@ -51,7 +51,7 @@ pub struct ThirdProgram {
     pub interaction: u8,
     pub reference: u8,
 }
-#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
 impl ThirdProgram {
     pub fn selection(
         self,
@@ -67,7 +67,7 @@ impl ThirdProgram {
         wave | (mode << 4)
     }
 }
-#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
 impl Default for ThirdProgram {
     fn default() -> Self {
         Self {

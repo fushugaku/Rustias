@@ -41,7 +41,7 @@ use radias_synth_domain::{
 
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const NATIVE_PARAMETER_COUNT: usize = 155;
-pub const PARAMETER_COUNT: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+pub const PARAMETER_COUNT: usize = if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
     179
 } else {
     NATIVE_PARAMETER_COUNT
@@ -62,7 +62,7 @@ pub struct Parameter {
 pub fn parameters() -> Vec<Parameter> {
     let mut spec: Vec<Parameter> =
         serde_json::from_str(PARAMETER_SCHEMA).expect("Static parameter schema");
-    if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+    if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
         spec[141].max = (TIMBRE_COUNT - 1) as i32;
         for i in 0..6 {
             spec[90 + i * 4].max = 16;
@@ -158,7 +158,7 @@ fn controls(v: &Values) -> TimbreControls {
     let selection = v[0] as u8 | ((v[10] as u8) << 4);
     let secondary = v[13] as u8 | ((v[14] as u8) << 4);
     TimbreControls {
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         third: radias_synth_application::primary::ThirdProgram {
             primary: radias_synth_application::primary::PrimaryProgram {
                 selection: v[171] as u8 | ((v[172] as u8) << 4),
@@ -385,7 +385,7 @@ impl StandaloneSynth {
         #[cfg(all(
             feature = "web-expanded",
             feature = "web-modular",
-            target_arch = "wasm32"
+            any(target_arch = "wasm32", rustias_plugin)
         ))]
         {
             let prototype = crate::circuit::CircuitVoice::fixed();
@@ -464,7 +464,7 @@ impl StandaloneSynth {
                 159 | if v[151] != 0 { 64 } else { 0 } | if v[153] != 0 { 32 } else { 0 },
             );
         }
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         if is(&[171, 172, 173, 174, 175, 176, 177, 178]) {
             self.engine.apply(Command::Third(t, c.third));
         }
@@ -597,7 +597,7 @@ impl StandaloneSynth {
             v[144] as u8,
             v[145] as u8,
         );
-        if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+        if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
             program.timbre = Some(v[141] as u8);
         }
         CompiledDrumKit {
@@ -649,7 +649,7 @@ impl StandaloneSynth {
         if id == 10 && value != 0 && self.value(t, 0) >= 4 {
             return false;
         }
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         if id == 172 && value != 0 && self.value(t, 171) >= 4 {
             return false;
         }
@@ -700,7 +700,7 @@ impl StandaloneSynth {
         if id == 0 && value >= 4 {
             self.settings[t as usize][10] = 0;
         }
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         if id == 171 && value >= 4 {
             self.settings[t as usize][172] = 0;
         }
@@ -746,7 +746,7 @@ impl StandaloneSynth {
         if id == 10 && value != 0 && self.drum_settings[i][0] >= 4 {
             return false;
         }
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         if id == 172 && value != 0 && self.drum_settings[i][171] >= 4 {
             return false;
         }
@@ -754,7 +754,7 @@ impl StandaloneSynth {
         if id == 0 && value >= 4 {
             self.drum_settings[i][10] = 0;
         }
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         if id == 171 && value >= 4 {
             self.drum_settings[i][172] = 0;
         }
@@ -841,7 +841,7 @@ impl StandaloneSynth {
                 }
             }
         }
-        if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+        if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
             let defaults = default_values();
             for v in p.timbres.iter_mut().chain(&mut p.drums) {
                 if v.len() == NATIVE_PARAMETER_COUNT
@@ -873,7 +873,7 @@ impl StandaloneSynth {
             if v.len() != PARAMETER_COUNT || v[0] >= 4 && v[10] != 0 || v[119] > v[120] {
                 return None;
             }
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             if v[171] >= 4 && v[172] != 0 {
                 return None;
             }
@@ -952,7 +952,7 @@ struct ProgramState {
 mod tests {
     use super::*;
     #[test]
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", rustias_plugin)))]
     fn browser_expansion_never_changes_native_capacities() {
         assert_eq!(TIMBRE_COUNT, 4);
         assert_eq!(PARAMETER_COUNT, 155);

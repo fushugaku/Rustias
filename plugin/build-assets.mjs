@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {installPluginCrypto} from '../web/plugin-platform.js';
 const root=path.resolve(import.meta.dirname,'..'),out=path.join(root,'output/plugin/resources');
+await fs.rm(out,{recursive:true,force:true});
 await fs.mkdir(out,{recursive:true});
 await fs.cp(path.join(root,'dist'),path.join(out,'web'),{recursive:true});
 const workers={};
@@ -17,6 +18,6 @@ await fs.writeFile(path.join(out,'web/host-app.js'),'window.__RUSTIAS_PLUGIN_WOR
 const html=await fs.readFile(path.join(out,'web/index.html'),'utf8');
 await fs.writeFile(path.join(out,'web/index.html'),html.replace(/<script type="module" src="[^"]+"><\/script>/,'<script defer src="./host-app.js"></script>'));
 await build({entryPoints:[path.join(root,'plugin/runtime.js')],outfile:path.join(out,'runtime.js'),bundle:true,format:'iife',platform:'neutral',target:'safari15',legalComments:'eof'});
-await fs.copyFile(path.join(root,'dist/rustias.wasm'),path.join(out,'rustias.wasm'));
+await fs.rm(path.join(out,'rustias.wasm'),{force:true});
 await fs.copyFile(path.join(root,'plugin/THIRD_PARTY_NOTICES.txt'),path.join(out,'THIRD_PARTY_NOTICES.txt'));
-console.log('Plugin resources use the shared WASM, worklet and complete web interface.');
+console.log('Plugin resources use the shared control layer and interface; DSP is a native Rust static library.');

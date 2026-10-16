@@ -19,7 +19,7 @@ impl Default for MixerProgram {
     }
 }
 impl MixerProgram {
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub fn compile_with_third(
         self,
         tables: &MixerScales,

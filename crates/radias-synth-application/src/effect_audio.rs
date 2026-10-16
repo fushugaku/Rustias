@@ -2,9 +2,9 @@
 //! Two serial Insert FX per timbre, then the stereo Master FX. This is a
 //! native audition topology; original FXD03 bus/arithmetic parity is unproven.
 use alloc::boxed::Box;
-#[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+#[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
 use alloc::vec;
-#[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+#[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
 use radias_synth_domain::effect_audio::DELAY_WORDS;
 use radias_synth_domain::{
     Sample,
@@ -15,15 +15,15 @@ use radias_synth_domain::{
 };
 
 use crate::polyphony::TIMBRE_COUNT;
-#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
 use alloc::{string::String, vec::Vec};
-#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
 struct ChainEffect {
     id: String,
     processor: EffectAudioProcessor,
     memory: Box<[f32]>,
 }
-#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
 fn effect_memory(kind: u8) -> Result<Box<[f32]>, &'static str> {
     let mut memory = Vec::new();
     let words = radias_synth_domain::effect_audio::delay_storage_words(kind);
@@ -37,9 +37,9 @@ fn effect_memory(kind: u8) -> Result<Box<[f32]>, &'static str> {
 }
 pub const MASTER_EFFECT_SLOT: usize = 2 * TIMBRE_COUNT;
 // Keep the original insert and Master indices stable for saved browser bindings.
-#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
 pub const TIMBRE_EFFECTS: usize = 4;
-#[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+#[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
 pub const TIMBRE_EFFECTS: usize = 2;
 pub const EXTRA_EFFECT_START: usize = MASTER_EFFECT_SLOT + 1;
 pub const EFFECT_SLOTS: usize = EXTRA_EFFECT_START + TIMBRE_COUNT * (TIMBRE_EFFECTS - 2);
@@ -58,15 +58,15 @@ pub struct EffectAudioRack {
     memory: [Box<[f32]>; EFFECT_SLOTS],
     contexts: [EffectAudioContext; TIMBRE_COUNT + 1],
     held: [[u8; 128]; TIMBRE_COUNT],
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     chains: [Vec<ChainEffect>; TIMBRE_COUNT],
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     active_fixed: [u8; TIMBRE_COUNT],
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     active_extra: [Vec<usize>; TIMBRE_COUNT],
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     master_active: bool,
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     any_active: bool,
 }
 impl EffectAudioRack {
@@ -76,11 +76,11 @@ impl EffectAudioRack {
         let mut rack = Self {
             instances: settings.map(EffectAudioProcessor::new),
             memory: core::array::from_fn(|slot| {
-                #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 {
                     effect_memory(settings[slot].program.kind).expect("Effect scratch allocation")
                 }
-                #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+                #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
                 {
                     let _ = slot;
                     vec![0.0; DELAY_WORDS].into_boxed_slice()
@@ -88,18 +88,18 @@ impl EffectAudioRack {
             }),
             contexts: [Default::default(); TIMBRE_COUNT + 1],
             held: [[0; 128]; TIMBRE_COUNT],
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             chains: core::array::from_fn(|_| Vec::new()),
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             active_fixed: [0; TIMBRE_COUNT],
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             active_extra: core::array::from_fn(|_| Vec::new()),
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             master_active: false,
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             any_active: false,
         };
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         rack.refresh_fixed_plan();
         rack
     }
@@ -107,18 +107,18 @@ impl EffectAudioRack {
         core::array::from_fn(|i| self.instances[i].settings().program)
     }
     pub fn active(&self) -> bool {
-        #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+        #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
         {
             self.instances
                 .iter()
                 .any(|fx| fx.settings().program.kind != 0 && fx.settings().program.enabled)
         }
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         {
             self.any_active
         }
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn refresh_active(&mut self) {
         // Keep the original global predicate, including a paired odd insert.
         // It selects the browser's bus/PCM saturation path independently of
@@ -129,7 +129,7 @@ impl EffectAudioRack {
             .any(|fx| fx.settings().program.kind != 0 && fx.settings().program.enabled)
             || self.active_extra.iter().any(|chain| !chain.is_empty());
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn refresh_fixed_plan(&mut self) {
         for t in 0..TIMBRE_COUNT {
             let mut mask = 0;
@@ -150,7 +150,7 @@ impl EffectAudioRack {
         self.master_active = master.kind != 0 && master.enabled;
         self.refresh_active();
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn refresh_extra_plan(&mut self, t: usize) {
         let active = &mut self.active_extra[t];
         active.clear();
@@ -164,7 +164,7 @@ impl EffectAudioRack {
         }
         self.refresh_active();
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub fn chain_programs(&self) -> [Vec<(String, EffectAudioProgram)>; TIMBRE_COUNT] {
         core::array::from_fn(|t| {
             self.chains[t]
@@ -173,7 +173,7 @@ impl EffectAudioRack {
                 .collect()
         })
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub fn configure_chain(
         &mut self,
         timbre: usize,
@@ -233,7 +233,7 @@ impl EffectAudioRack {
         self.refresh_active();
         Ok(())
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub fn configure_chain_effect(
         &mut self,
         timbre: usize,
@@ -269,9 +269,9 @@ impl EffectAudioRack {
         if slot >= EFFECT_SLOTS {
             return Err("Invalid effect slot");
         }
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         let previous = self.instances[slot].settings().program;
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         {
             if self.memory[slot].len()
                 < radias_synth_domain::effect_audio::delay_storage_words(settings.program.kind)
@@ -283,7 +283,7 @@ impl EffectAudioRack {
         if processor.configure(settings) {
             self.memory[slot].fill(0.0);
         }
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         {
             if radias_synth_domain::effect_audio::delay_storage_words(settings.program.kind) == 0 {
                 self.memory[slot] = Vec::new().into_boxed_slice();
@@ -338,7 +338,7 @@ impl EffectAudioRack {
             for role in 0..TIMBRE_EFFECTS {
                 self.instances[timbre_effect_slot(timbre, role)].note_on();
             }
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             for fx in &mut self.chains[timbre] {
                 fx.processor.note_on();
             }
@@ -367,7 +367,7 @@ impl EffectAudioRack {
         let mut right = 0i64;
         for (timbre, input) in buses.into_iter().enumerate() {
             let mut sample = input;
-            #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+            #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
             for role in 0..TIMBRE_EFFECTS {
                 if role == 1
                     && matches!(self.instances[2 * timbre].settings().program.kind, 29 | 30)
@@ -379,7 +379,7 @@ impl EffectAudioRack {
                     .process(sample, &mut self.memory[slot], &self.contexts[timbre])
                     .expect("Constructed effect storage and type");
             }
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             {
                 let mut mask = self.active_fixed[timbre];
                 while mask != 0 {
@@ -405,7 +405,7 @@ impl EffectAudioRack {
             left: Sample(crate_saturate(left)),
             right: Sample(crate_saturate(right)),
         };
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         {
             if !self.master_active {
                 return sample;
@@ -418,7 +418,7 @@ impl EffectAudioRack {
                 )
                 .expect("Constructed Master effect storage and type")
         }
-        #[cfg(not(all(feature = "web-expanded", target_arch = "wasm32")))]
+        #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
         {
             self.instances[MASTER_EFFECT_SLOT]
                 .process(
@@ -432,7 +432,7 @@ impl EffectAudioRack {
     pub fn delay_storage_bytes(&self) -> usize {
         let bytes = self.memory.iter().map(|memory| memory.len()).sum::<usize>()
             * core::mem::size_of::<f32>();
-        #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         let bytes = bytes
             + self
                 .chains

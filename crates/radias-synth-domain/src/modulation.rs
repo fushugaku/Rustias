@@ -1,12 +1,12 @@
 //! Six Virtual Patch routes: original SH3 022300 and 022390..022610.
 pub const MODULATION_DESTINATIONS: usize =
-    if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+    if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
         52
     } else {
         40
     };
 pub const VIRTUAL_PATCHES: usize = 6;
-pub const PITCH_OSCILLATORS: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32"))
+pub const PITCH_OSCILLATORS: usize = if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))
 {
     3
 } else {

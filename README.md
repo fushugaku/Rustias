@@ -8,7 +8,7 @@ The project is under development. Individual algorithms and recorded scenarios a
 
 ## AU / VST3 plugins
 
-The complete browser instrument also builds as universal macOS AU/VST3 and Windows x64 VST3, using the same WASM engine and worklet. Project state includes all timbres, sequencers, modulation, FX and loaded sample PCM. See [installation and builds](plugin/README.md); the [plugin workflow](https://github.com/fushugaku/Rustias/actions/workflows/plugins.yml) provides archives.
+The complete browser instrument also builds as universal macOS AU/VST3 and Windows x64 VST3, with the shared Rust DSP compiled directly into native machine code. The interface and sequencing/control layer remain shared with the browser. Project state includes all timbres, sequencers, modulation, FX and loaded sample PCM. See [installation and builds](plugin/README.md); the [plugin workflow](https://github.com/fushugaku/Rustias/actions/workflows/plugins.yml) provides archives.
 
 ## WebAssembly
 
@@ -194,7 +194,7 @@ Every synthesis module except the required Output has an **×** button, includin
 
 The oscillator, filter, envelope, modulation and voice kernels live in `crates/radias-synth-*`. WASM and the native device adapter call the same kernels. The local `radias-emulator/rust` checkout links its synthesis `src/` and `examples/` directories to these canonical sources; it no longer has a separately edited engine copy. To establish this arrangement in another local checkout, run `python3 scripts/link-engine-source.py --desktop-root /path/to/radias-emulator/rust`. Existing directories are preserved in a dated backup.
 
-Native builds retain the fixed signal graph, four timbres, six virtual patches, nine FX slots, 24 voices and original controller scheduling. The browser crate enables `web-modular`; `web-polyphony` and `web-expanded` increase voices, timbres, routes and FX buses **only on the WASM target**. Browser FX 3/4 reuse the same effect processors on individual timbre buses. These features are disabled in the original desktop workspace. Firmware, original recordings and reference fixtures remain outside the web build. Changing common source files therefore reaches both builds; pushing the changes to Rustias rebuilds GitHub Pages.
+The original native reference builds retain the fixed signal graph, four timbres, six virtual patches, nine FX slots, 24 voices and original controller scheduling. The browser crate enables `web-modular`; `web-polyphony` and `web-expanded` increase voices, timbres, routes and FX buses **on WASM or in the explicitly isolated native plugin build (`rustias_plugin` cfg)**. Ordinary native builds keep the reference profile, including with `--all-features`. Browser FX 3/4 reuse the same effect processors on individual timbre buses. These features are disabled in the original desktop workspace. Firmware, original recordings and reference fixtures remain outside the web build. Changing common source files therefore reaches both builds; pushing the changes to Rustias rebuilds GitHub Pages.
 
 ## Desktop and CLI builds
 

@@ -2,11 +2,15 @@
 
 [Русский](README.ru.md)
 
-The full firmware-free Rustias instrument as a DAW plugin. It uses the exact WASM
-and worklet built for the browser, including eight timbres, 128 voices, OSC 3,
-polyphonic and modulation sequencers, macros, modular routing, sample kits and
-timbre effect chains. Changes to the shared Rust engine also reach these builds.
-The original reference desktop engine is unchanged.
+The full firmware-free Rustias instrument as a DAW plugin. **Synthesis, filters,
+voices, sample playback and effects are compiled ahead of time from Rust into
+native machine code** for Apple Silicon, Intel macOS and Windows x64. There is
+no WASM runtime in the plugin's audio engine.
+
+The browser and plugins compile the same canonical Rust sources, with eight
+timbres, 128 voices, OSC 3, modular routing and timbre effect chains. Sequencers,
+macros and the interface retain the shared JavaScript control layer. The original
+reference desktop profile remains unchanged.
 
 ## Install
 
@@ -51,8 +55,10 @@ the DAW project. Keep a WAV/MP3 export for portable recordings.
 
 ## Build and verify
 
-macOS requires Xcode command-line tools, CMake 3.25+, Node 22+, Rust and the
-`wasm32-unknown-unknown` target:
+macOS requires Xcode command-line tools, Python 3, CMake 3.25+, Node 22+, Rust
+and the `aarch64-apple-darwin`, `x86_64-apple-darwin` and
+`wasm32-unknown-unknown` targets. The WASM target builds the browser assets and
+RDL import worker, not the plugin DSP:
 
 ```sh
 bash scripts/build-plugin.sh
@@ -68,7 +74,8 @@ Archives appear in `output/plugin/packages/`. The `plugins.yml` workflow builds
 macOS universal AU/VST3 and Windows x64 VST3 on every shared engine/UI change.
 SDK versions and hashes are pinned in `plugin/CMakeLists.txt`.
 
-`ctest` verifies the real shared engine at 44.1/48/96 kHz, MIDI, variable blocks,
+`ctest` compares 79 native PCM/state scenarios with the actual browser build,
+then verifies the native engine at 44.1/48/96 kHz, MIDI, variable blocks,
 instance isolation, complete state round trips and sample-rate changes. macOS
 packaging also runs Apple's strict `auval` check. These checks render into memory
 and never open audio output. The optional `rustias-plugin-preview` target is a
@@ -82,11 +89,19 @@ strict `auval` validation. Both macOS architectures can run the direct check.
 
 ## Implementation
 
-The macOS shell runs the unchanged worklet in system JavaScriptCore and embeds
-the full interface in WKWebView. Windows runs that worklet in QuickJS-NG, the same
-WASM in Wasmtime, and the interface in WebView2. Both call the existing WASM ABI.
-The UI, sequencing, DSP, effects and storage logic are shared with `web/` and
-`crates/radias-web`; no separate synthesizer implementation is maintained.
+`plugin/engine` builds a Rust static library linked into the native plugin.
+It depends on `crates/radias-web` and the canonical `radias-synth-*` crates; there
+is no copied DSP implementation. `scripts/build-plugin-engine.py` enables the
+explicit `rustias_plugin` compiler cfg in an isolated Cargo build. Ordinary native
+builds, including `--all-features`, retain their original reference capacities.
+Each plugin instance owns its engine and can move between DAW threads.
+
+The shared sequencing, modulation, macros and output adapter run in system
+JavaScriptCore on macOS and QuickJS-NG on Windows, calling that native library.
+The full editor uses WKWebView / WebView2. WebAssembly is disabled in the audio
+control context and Wasmtime is no longer a dependency. A WASM file remains in
+the editor's web assets for local RDL parsing and metadata; it does not render
+the plugin's sound. The UI, controls and storage stay shared with the browser.
 
 Bundles are self-contained and work offline. The initial release is a development
 build; validation does not establish compatibility with every DAW or hardware

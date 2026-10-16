@@ -9,3 +9,6 @@ web-expanded = ["radias-synth-domain/web-expanded"]
 
 [dependencies]
 radias-synth-domain = { path = "../radias-synth-domain" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rustias_plugin)'] }

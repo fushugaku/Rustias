@@ -1,4 +1,4 @@
-Rustias plugin uses the canonical Rustias WASM engine and web application.
+Rustias plugin uses the canonical Rustias Rust engine compiled as native machine code, plus the shared web interface and control layer.
 No Korg firmware, factory PCM or commercial SDK binaries are included.
 
 Native shell dependencies:
@@ -14,9 +14,6 @@ Native shell dependencies:
 - QuickJS-NG 0.17.0 (Windows): MIT License
   Copyright Fabrice Bellard, Charlie Gordon and QuickJS-NG contributors
   https://github.com/quickjs-ng/quickjs
-- Wasmtime 49.0.3 (Windows): Apache License 2.0 with LLVM exception
-  Copyright the Bytecode Alliance contributors
-  https://github.com/bytecodealliance/wasmtime/blob/v49.0.3/LICENSE
 - Microsoft.Web.WebView2 1.0.3856.49 (Windows build): Microsoft package license
   https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3856.49
   The separately installed Microsoft Edge WebView2 Runtime is used for the editor.

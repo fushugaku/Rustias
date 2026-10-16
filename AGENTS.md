@@ -10,9 +10,11 @@ as the Semble search root for the synthesis implementation.
 Keep desktop parity intact: the native fixed graph, 24 voices, physical controller
 scheduling, and original reference workflows must remain unchanged. Modular
 routing is guarded by `web-modular`; expanded allocation is guarded by
-`web-polyphony` AND the WASM target. Eight timbres, eight virtual patches, three synthesis LFOs and
-thirty-three FX slots and OSC 3 require `web-expanded` AND the WASM target; native sizes stay
-four, six, two and nine even when that feature is enabled on a native test. Never enable those features in the original
+`web-polyphony` AND either WASM or the explicit `rustias_plugin` cfg. Eight timbres, eight virtual patches, three synthesis LFOs and
+thirty-three FX slots and OSC 3 require `web-expanded` AND either WASM or the explicit `rustias_plugin` cfg; reference native sizes stay
+four, six, two and nine even when that feature is enabled on a native test without that cfg. Only scripts/build-plugin-engine.py enables this cfg
+in an isolated Cargo invocation; ordinary --all-features must keep the reference
+profile. Never enable those features or the plugin cfg in the original
 desktop workspace. Browser sequencing, sample library, circuit UI and storage
 belong to `web/` and `crates/radias-web`, with no dependency from the native app.
 Exact shared arithmetic optimizations must retain staged rounding and saturation:
@@ -37,7 +39,7 @@ Additional browser timbre FX live in `effects.chains[timbre]` with stable string
 IDs, after the four fixed stages and before Master. No fixed chain count cap;
 reuse shared EffectAudioProcessor state by ID on reorder. Keep the active-FX fast
 path aware of chains, and grow the browser JSON buffer before obtaining its view.
-OSC 3 uses OSC 1's selection-dependent mixer scale in WASM; native Noise remains
+OSC 3 uses OSC 1's selection-dependent mixer scale in the web/plugin profile; reference native Noise remains
 unchanged. Sequencer Gate modulation is a temporary percentage-point offset,
 including current note releases, and never overwrites the saved step Gate.
 Program macros, their bipolar bindings and added-timbre count are browser data.
@@ -62,14 +64,21 @@ instrument UI in the shared crates/web; Android-specific file dialogs, lifecycle
 and fullscreen live in the shell. `bash scripts/build-android.sh` builds the web
 assets, APK, export unit tests and Android lint. Do not start audible device tests.
 
-`plugin/` hosts that exact WASM and unchanged `web/worklet.js` as AUv2/VST3/CLAP.
-macOS uses system JavaScriptCore + WKWebView; Windows uses pinned QuickJS-NG +
-Wasmtime + WebView2. Keep all instrument logic in the shared Rust/web sources;
-only DAW lifecycle, MIDI/transport, automation, state and editor bridges belong in
-this shell. Native reference profiles must remain unchanged. Editor initialization
-must adopt restored sample/profile IDs without resetting a playing instance.
-DAW state includes loaded sample PCM, full session and sequencer/modulation data.
-Web libraries/recordings use persistent editor storage. Never introduce a second
-hardware AudioContext in a plugin. All plugin checks render into discarded memory;
-`rustias-plugin-preview` is a silent UI host. Run CTest and strict Apple auval when
+`plugin/engine` statically links an AOT native Rust build of the same
+`crates/radias-web` and synthesis sources into AUv2/VST3/CLAP. The explicit
+`rustias_plugin` cfg opts into the web extensions without changing ordinary native
+reference builds, even under --all-features. Keep synthesis in these shared crates,
+not copied into the shell. NativeHost owns per-instance state; never rely on one
+thread-local singleton for multiple DAW instances or for thread migration.
+The JS control/sequencing/output adapter remains shared with web/worklet.js:
+JavaScriptCore on macOS, QuickJS-NG on Windows. WebAssembly is disabled in that
+context; do not reintroduce a WASM audio fallback or Wasmtime. WKWebView/WebView2
+only host the editor; its WASM resource is for RDL parsing and metadata.
+Only DAW lifecycle, MIDI/transport, automation, state and editor bridges belong in
+the shell. Editor initialization must adopt restored sample/profile IDs without
+resetting a playing instance. DAW state includes loaded sample PCM, full session
+and sequencer/modulation data. Web libraries/recordings use persistent editor
+storage. Never introduce a hardware AudioContext in a plugin. All plugin checks
+render into discarded memory; rustias-plugin-preview is a silent UI host.
+Run CTest (including native/browser PCM/state parity) and strict Apple auval when
 changing host code. CI builds macOS universal and Windows x64 plugin archives.

@@ -1,3 +1,4 @@
+import {engineWrite,engineBytes,engineFloats} from '../web/engine-io.js';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {SequenceClock,emptySequence} from '../web/sequence.js';
@@ -51,7 +52,7 @@ export function verifyBrowserExtensions({module,parameters,workletSource,sequenc
   assert.deepEqual(moved.engine.effects.chains[7],program.engine.effects.chains[0]);assert.ok(moved.modulation.tracks[7].every(l=>l.target.timbre===7),'Timbre saves move Gate lanes and extra FX lanes to their new owner');assert.deepEqual(validateEffects(complete.effects),complete.effects);
 
   for(const sampleRate of [48000,44100]){
-    let Processor;const messages=[];vm.runInNewContext(sequenceSource+'\n'+workletSource.replace(/^import .*;\n/gm,''),{sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,writeWasmJson,AudioWorkletProcessor:class{constructor(){this.port={postMessage:data=>messages.push(data)};}},registerProcessor:(_name,p)=>Processor=p});
+    let Processor;const messages=[];vm.runInNewContext(sequenceSource+'\n'+workletSource.replace(/^import .*;\n/gm,''),{sampleRate,WebAssembly,Float32Array,Uint8Array,validSampleSource,RecordingTap,MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,timbreArray,ModulationAutomation,ModulationHost,writeWasmJson,engineWrite,engineBytes,engineFloats,AudioWorkletProcessor:class{constructor(){this.port={postMessage:data=>messages.push(data)};}},registerProcessor:(_name,p)=>Processor=p});
     const p=new Processor({processorOptions:{module,gain:1}}),wasm=p.wasm;
     for(const [parameter,value]of [[3,0],[4,127],[5,127],[6,0],[9,127]])p.port.onmessage({data:{type:'control',timbre:0,parameter,value}});
     const seq=emptySequence();seq.tracks.forEach(track=>track.enabled=false);seq.tracks[0].enabled=true;seq.tracks[0].steps[0].notes=[69];const mod=emptyModulation(),gate={...newModulationLane('gate-clock'),target,resolution:'1/8'};gate.values.fill(-50);mod.tracks[0]=[gate];

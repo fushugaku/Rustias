@@ -15,3 +15,6 @@ web-modular = ["radias-synth-application/web-modular", "radias-synth-domain/web-
 web-expanded = ["radias-synth-application/web-expanded", "radias-synth-domain/web-expanded"]
 default = []
 desktop-io = ["dep:cpal"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rustias_plugin)'] }

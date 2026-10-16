@@ -2,7 +2,7 @@
 //! supplied by the instrument; this use case has no audio/device dependencies.
 use radias_synth_domain::lfo::{LfoState, LfoTables, LfoWave};
 
-pub const LFO_COUNT: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+pub const LFO_COUNT: usize = if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
     3
 } else {
     2

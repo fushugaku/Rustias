@@ -1,3 +1,4 @@
+import {engineWrite,engineBytes,engineFloats} from './engine-io.js';
 import {SequenceClock,StepAudition} from "./sequence.js";
 import {RecordingTap} from './recording-tap.js';
 import {ModulationAutomation} from './modulation.js';
@@ -7,7 +8,7 @@ import {writeWasmJson} from './wasm-json.js';
 class RustiasProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    this.wasm = new WebAssembly.Instance(options.processorOptions.module, {}).exports;
+    this.wasm = options.processorOptions.engine ?? new WebAssembly.Instance(options.processorOptions.module, {}).exports;
     if(this.wasm.rustias_parameter_count()!==PARAMETER_COUNT||typeof this.wasm.rustias_osc3_control!=='function'||typeof this.wasm.rustias_effect_chain!=='function')throw new Error('The audio engine and controls need to reload together.');
     this.wasm.rustias_init();
     this.gain = options.processorOptions.gain ?? 0.3;
@@ -45,13 +46,13 @@ class RustiasProcessor extends AudioWorkletProcessor {
         else if(data.type==='circuit'){
           const json=JSON.stringify(data.circuit),bytes=Uint8Array.from(json,c=>c.charCodeAt(0));
           if(bytes.length>this.wasm.rustias_preset_capacity())throw new Error('Modular patch exceeds the engine buffer.');
-          new Uint8Array(this.wasm.memory.buffer,this.wasm.rustias_preset_buffer(),bytes.length).set(bytes);
+          engineWrite(this.wasm,this.wasm.rustias_preset_buffer(),bytes);
           if(!this.wasm.rustias_circuit(data.timbre,bytes.length))this.port.postMessage({type:'warning',message:'The engine rejected this modular patch.'});
         }
         else if(data.type==='drum-gain')this.wasm.rustias_drum_gain(data.value);
         else if(data.type==='effect'){
           const json=JSON.stringify(data.program),bytes=Uint8Array.from(json,c=>c.charCodeAt(0));
-          new Uint8Array(this.wasm.memory.buffer,this.wasm.rustias_preset_buffer(),bytes.length).set(bytes);
+          engineWrite(this.wasm,this.wasm.rustias_preset_buffer(),bytes);
           if(!this.wasm.rustias_effect(data.slot,bytes.length))this.port.postMessage({type:'warning',message:'The engine rejected these effect settings.'});
         }
         else if(data.type==='effect-chain'||data.type==='chain-effect'){
@@ -62,7 +63,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
         else if(data.type==='library-reset'){this.wasm.rustias_library_reset();this.libraryProfiles.clear();}
         else if(data.type==='library-sample'){
           const frames=data.data.length,pointer=this.wasm.rustias_library_sample_buffer(data.asset,frames);let ok=false;
-          if(pointer){new Float32Array(this.wasm.memory.buffer,pointer,frames).set(data.data);ok=!!this.wasm.rustias_library_sample_commit(data.asset,frames);}
+          if(pointer){engineWrite(this.wasm,pointer,Float32Array.from(data.data));ok=!!this.wasm.rustias_library_sample_commit(data.asset,frames);}
           this.port.postMessage({type:'sample-ready',request:data.request,ok});
         }
         else if(data.type==='library-profile'){
@@ -101,7 +102,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
         else if(data.type==="sample"){
           const frames=data.data.length,pointer=this.wasm.rustias_sample_buffer(data.instrument,frames);
           let ok=false;
-          if(pointer){new Float32Array(this.wasm.memory.buffer,pointer,frames).set(data.data);ok=!!this.wasm.rustias_sample_commit(data.instrument,frames,data.mode);}
+          if(pointer){engineWrite(this.wasm,pointer,Float32Array.from(data.data));ok=!!this.wasm.rustias_sample_commit(data.instrument,frames,data.mode);}
           this.port.postMessage({type:"sample-ready",request:data.request,ok});
         }
         else if(data.type==="sample-clear")this.wasm.rustias_sample_clear(data.instrument);
@@ -133,7 +134,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
   }
   snapshot(midi) {
     const length = this.wasm.rustias_save(), pointer = this.wasm.rustias_preset_buffer();
-    const bytes = new Uint8Array(this.wasm.memory.buffer, pointer, length);
+    const bytes = engineBytes(this.wasm,pointer,length);
     let json = ""; for (let i = 0; i < length; i++) json += String.fromCharCode(bytes[i]);
     const program=JSON.parse(json);
     if(midi)this.modulation.acceptValues(target=>{
@@ -149,14 +150,14 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.port.postMessage({ type: "error", message: error.message ?? String(error) });
   }
   nativeSample() {
-    if(this.block&&this.block.buffer!==this.wasm.memory.buffer)this.block=new Float32Array(this.wasm.memory.buffer,this.pointer,256);
+    if(this.wasm.memory&&this.block&&this.block.buffer!==this.wasm.memory.buffer)this.block=engineFloats(this.wasm,this.pointer,256);
     if (this.nativeIndex === 128) {
       const tempo=this.wasm.rustias_value(0,89)/10;this.modulation.clock.setTempo(tempo);this.modulation.beforeRender(128);
       const sequenceTempo=this.wasm.rustias_value(0,89)/10;if(sequenceTempo!==this.sequencer.tempo)this.sequencer.setTempo(sequenceTempo);
       this.sequencer.beforeRender(128);this.audition.beforeRender(128);
       const pointer = this.wasm.rustias_render();
-      if (this.pointer !== pointer || this.block?.buffer !== this.wasm.memory.buffer) {
-        this.pointer = pointer; this.block = new Float32Array(this.wasm.memory.buffer, pointer, 256);
+      if (this.wasm.readBuffer || this.pointer !== pointer || this.block?.buffer !== this.wasm.memory.buffer) {
+        this.pointer = pointer; this.block = engineFloats(this.wasm,pointer,256);
       }
       this.nativeIndex = 0;
     }

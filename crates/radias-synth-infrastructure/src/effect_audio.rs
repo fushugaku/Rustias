@@ -39,7 +39,7 @@ pub struct EffectDefinition {
 }
 pub fn definition(kind: u8, master: bool) -> Option<&'static EffectDefinition> {
     let definition = data::CATALOG[usize::from(master)].get(usize::from(kind))?;
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     if master && kind == 11 {
         // Original MFX has six reverb types; the insert range has three.
         static MASTER_REVERB: std::sync::OnceLock<EffectDefinition> = std::sync::OnceLock::new();
@@ -395,7 +395,7 @@ mod tests {
         effect_audio::{DELAY_WORDS, EffectAudioContext, EffectAudioProcessor},
         pan::StereoFrame,
     };
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", rustias_plugin)))]
     #[test]
     fn browser_expansion_preserves_the_native_effect_rack() {
         use radias_synth_application::{effect_audio::TIMBRE_EFFECTS, polyphony::TIMBRE_COUNT};

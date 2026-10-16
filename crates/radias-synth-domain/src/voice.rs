@@ -28,11 +28,11 @@ pub trait SignalProcessor: Send {
     ) -> [Sample; 3] {
         sources
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn needs_oscillator_taps(&self) -> bool {
         false
     }
-    #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn oscillator_taps(&mut self, _taps: OscillatorTaps) {}
     fn process(
         &mut self,
@@ -44,7 +44,7 @@ pub trait SignalProcessor: Send {
 }
 
 /// Browser source interactions observe the native generators without editing them.
-#[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
 #[derive(Clone, Copy, Default)]
 pub struct OscillatorTaps {
     pub phases: [Phase; 2],
@@ -158,7 +158,7 @@ impl Voice {
         #[cfg(all(
             feature = "web-expanded",
             feature = "web-modular",
-            target_arch = "wasm32"
+            any(target_arch = "wasm32", rustias_plugin)
         ))]
         let secondary_before_ring = if p.secondary_modulation.ring
             && processor
@@ -174,7 +174,7 @@ impl Voice {
         #[cfg(all(
             feature = "web-expanded",
             feature = "web-modular",
-            target_arch = "wasm32"
+            any(target_arch = "wasm32", rustias_plugin)
         ))]
         let secondary_phase = self.secondary.phase();
         self.secondary.set_gain(if p.secondary_modulation.ring {
@@ -195,7 +195,7 @@ impl Voice {
         let mut noise = self.mixer_noise.next_word(inputs.excitation_bias);
         #[cfg(feature = "web-modular")]
         if let Some(processor) = processor {
-            #[cfg(all(feature = "web-expanded", target_arch = "wasm32"))]
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             processor.oscillator_taps(OscillatorTaps {
                 phases: [current, secondary_phase],
                 secondary_before_ring: secondary_before_ring.unwrap_or(secondary),

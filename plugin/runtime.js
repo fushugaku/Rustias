@@ -1,9 +1,9 @@
 import '../web/worklet.js';
 import {macroOffset,targetKey} from '../web/macros.js';
 let processor,outputs,left,right;const buffers=new Map();
-globalThis.pluginBoot=(bytes,rate)=>{
+globalThis.pluginBoot=(engine,rate)=>{
   globalThis.sampleRate=rate;
-  processor=new globalThis.PluginProcessor({processorOptions:{module:new WebAssembly.Module(bytes),gain:.3}});
+  processor=new globalThis.PluginProcessor({processorOptions:{engine,gain:.3}});
   left=new Float32Array(128);right=new Float32Array(128);outputs=[[left,right]];
 };
 globalThis.pluginMessage=message=>processor.port.onmessage({data:message});
@@ -25,4 +25,4 @@ globalThis.pluginParameter=(index,value)=>{
   processor.modulationHost.write(changes);
 };
 globalThis.pluginFailed=()=>processor.failed;
-globalThis.pluginStats=()=>JSON.stringify({frames:processor.wasm.rustias_frames(),voices:processor.wasm.rustias_voices(),capacity:processor.wasm.rustias_voice_capacity(),failed:processor.failed});
+globalThis.pluginStats=()=>JSON.stringify({frames:processor.wasm.rustias_frames(),voices:processor.wasm.rustias_voices(),capacity:processor.wasm.rustias_voice_capacity(),failed:processor.failed,backend:"native-rust"});

@@ -10,3 +10,6 @@ web-expanded = []
 
 [dependencies]
 libm = "0.2.16"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rustias_plugin)'] }

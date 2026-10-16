@@ -3,6 +3,8 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cstring>
+#include <array>
+#include <cmath>
 
 static std::string text(JSContextRef c,JSValueRef v){
   auto s=JSValueToStringCopy(c,v,nullptr);std::string r(JSStringGetMaximumUTF8CStringSize(s),'\0');
@@ -17,14 +19,51 @@ JSValueRef Runtime::post(JSContextRef ctx,JSObjectRef,JSObjectRef,size_t count,c
   auto self=static_cast<Runtime*>(JSObjectGetPrivate(JSContextGetGlobalObject(ctx)));
   if(self&&count)self->outgoing.push_back(text(ctx,args[0]));return JSValueMakeUndefined(ctx);
 }
+static JSValueRef nativeError(JSContextRef ctx,JSValueRef* exception,const char* message){
+  auto s=JSStringCreateWithUTF8CString(message);auto v=JSValueMakeString(ctx,s);JSStringRelease(s);*exception=JSObjectMakeError(ctx,1,&v,nullptr);return JSValueMakeUndefined(ctx);
+}
+JSValueRef Runtime::invoke(JSContextRef ctx,JSObjectRef fn,JSObjectRef,size_t count,const JSValueRef args[],JSValueRef* exception){
+  auto b=static_cast<Binding*>(JSObjectGetPrivate(fn));std::array<double,16> values{};
+  if(count>values.size())return nativeError(ctx,exception,"Invalid native engine argument count");
+  for(size_t i=0;i<count;i++){values[i]=JSValueToNumber(ctx,args[i],exception);if(*exception)return JSValueMakeUndefined(ctx);}
+  double result=0;if(!rustias_native_call(b->owner->engine.handle,b->method,values.data(),unsigned(count),&result))return nativeError(ctx,exception,"Native engine rejected its API arguments");
+  return JSValueMakeNumber(ctx,result);
+}
+JSValueRef Runtime::readBuffer(JSContextRef ctx,JSObjectRef,JSObjectRef,size_t count,const JSValueRef args[],JSValueRef* exception){
+  if(count!=3)return nativeError(ctx,exception,"Invalid native buffer request");
+  auto self=static_cast<Runtime*>(JSObjectGetPrivate(JSContextGetGlobalObject(ctx)));
+  double token=JSValueToNumber(ctx,args[0],exception),length=JSValueToNumber(ctx,args[1],exception);bool floating=JSValueToBoolean(ctx,args[2]);
+  if(*exception)return JSValueMakeUndefined(ctx);
+  if(!std::isfinite(length)||length<0||length>32*1024*1024||std::floor(length)!=length)return nativeError(ctx,exception,"Invalid native buffer size");
+  auto view=JSObjectMakeTypedArray(ctx,floating?kJSTypedArrayTypeFloat32Array:kJSTypedArrayTypeUint8Array,size_t(length),exception);if(*exception)return JSValueMakeUndefined(ctx);
+  auto bytes=static_cast<uint8_t*>(JSObjectGetTypedArrayBytesPtr(ctx,view,exception));if(*exception)return JSValueMakeUndefined(ctx);
+  if(!rustias_native_read(self->engine.handle,uint32_t(token),bytes,size_t(length)*(floating?sizeof(float):1)))return nativeError(ctx,exception,"Expired or invalid native buffer");
+  return view;
+}
+JSValueRef Runtime::writeBuffer(JSContextRef ctx,JSObjectRef,JSObjectRef,size_t count,const JSValueRef args[],JSValueRef* exception){
+  if(count!=2)return nativeError(ctx,exception,"Invalid native buffer write");
+  auto self=static_cast<Runtime*>(JSObjectGetPrivate(JSContextGetGlobalObject(ctx)));
+  auto token=JSValueToNumber(ctx,args[0],exception);auto view=JSValueToObject(ctx,args[1],exception);if(*exception)return JSValueMakeUndefined(ctx);
+  auto length=JSObjectGetTypedArrayByteLength(ctx,view,exception);auto bytes=static_cast<uint8_t*>(JSObjectGetTypedArrayBytesPtr(ctx,view,exception));if(*exception)return JSValueMakeUndefined(ctx);
+  if(!rustias_native_write(self->engine.handle,uint32_t(token),bytes,length))return nativeError(ctx,exception,"Expired or invalid native buffer");
+  return JSValueMakeUndefined(ctx);
+}
 Runtime::Runtime(const std::string& resources,double rate){
   JSClassDefinition definition=kJSClassDefinitionEmpty;auto cls=JSClassCreate(&definition);context=JSGlobalContextCreate(cls);JSClassRelease(cls);JSObjectSetPrivate(JSContextGetGlobalObject(context),this);
   try{
     auto n=JSStringCreateWithUTF8CString("__nativePost");auto f=JSObjectMakeFunctionWithCallback(context,n,post);JSObjectSetProperty(context,JSContextGetGlobalObject(context),n,f,kJSPropertyAttributeReadOnly,nullptr);JSStringRelease(n);
-    evaluate("globalThis.AudioWorkletProcessor=class{constructor(){this.port={postMessage:data=>__nativePost(JSON.stringify(data,(_k,v)=>ArrayBuffer.isView(v)?Array.from(v):v))}}};globalThis.registerProcessor=(_name,fn)=>globalThis.PluginProcessor=fn;");
-    evaluate(read(resources+"/runtime.js"));auto data=read(resources+"/rustias.wasm");wasm.assign(data.begin(),data.end());
-    JSValueRef e=nullptr;auto a=JSObjectMakeTypedArrayWithBytesNoCopy(context,kJSTypedArrayTypeUint8Array,wasm.data(),wasm.size(),[](void*,void*){},nullptr,&e);check(e);
+    evaluate("globalThis.WebAssembly=undefined;globalThis.AudioWorkletProcessor=class{constructor(){this.port={postMessage:data=>__nativePost(JSON.stringify(data,(_k,v)=>ArrayBuffer.isView(v)?Array.from(v):v))}}};globalThis.registerProcessor=(_name,fn)=>globalThis.PluginProcessor=fn;");
+    evaluate(read(resources+"/runtime.js"));
+    auto a=JSObjectMake(context,nullptr,nullptr);JSValueProtect(context,a);
+    JSClassDefinition methodClass=kJSClassDefinitionEmpty;methodClass.className="NativeRustFunction";methodClass.callAsFunction=invoke;auto nativeClass=JSClassCreate(&methodClass);
+    bindings.resize(rustias_native_method_count());
+    for(unsigned i=0;i<bindings.size();i++){
+      bindings[i]={this,i};auto name=JSStringCreateWithUTF8CString(rustias_native_method_name(i));auto method=JSObjectMake(context,nativeClass,&bindings[i]);
+      JSObjectSetProperty(context,a,name,method,kJSPropertyAttributeReadOnly,nullptr);JSStringRelease(name);
+    }JSClassRelease(nativeClass);
+    for(auto pair:{std::pair{"readBuffer",readBuffer},std::pair{"writeBuffer",writeBuffer}}){auto name=JSStringCreateWithUTF8CString(pair.first);auto method=JSObjectMakeFunctionWithCallback(context,name,pair.second);JSObjectSetProperty(context,a,name,method,kJSPropertyAttributeReadOnly,nullptr);JSStringRelease(name);}
     JSValueRef args[]={a,JSValueMakeNumber(context,rate)};call(function("pluginBoot"),2,args);
+    JSValueUnprotect(context,a);
     receiver=function("pluginMessage");renderer=function("pluginRender");midiFn=function("pluginMidi");paramFn=function("pluginParameter");statsFn=function("pluginStats");
     for(auto f:{receiver,renderer,midiFn,paramFn,statsFn})JSValueProtect(context,f);
   }catch(...){JSGlobalContextRelease(context);context=nullptr;throw;}

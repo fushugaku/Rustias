@@ -5,7 +5,7 @@ use crate::{
 };
 
 // The original four hardware buses are unchanged in every native build.
-pub const TIMBRE_BUSES: usize = if cfg!(all(feature = "web-expanded", target_arch = "wasm32")) {
+pub const TIMBRE_BUSES: usize = if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
     8
 } else {
     4
