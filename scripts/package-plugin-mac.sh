@@ -21,6 +21,9 @@ mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
 ditto "$rustias_plugin_build/Rustias.component" "$HOME/Library/Audio/Plug-Ins/Components/Rustias.component"
 touch "$HOME/Library/Audio/Plug-Ins/Components/Rustias.component"
 if [[ "${CI:-}" == true ]]; then
+  # Hosted runners can run the registrar outside the login user's library domain.
+  sudo mkdir -p /Library/Audio/Plug-Ins/Components
+  sudo ditto "$rustias_plugin_build/Rustias.component" /Library/Audio/Plug-Ins/Components/Rustias.component
   # Fresh runner images retain an AU registrar cache predating this installation.
   # Restart only the ephemeral CI account's registrar; never touch a user's host.
   killall -u "$(id -un)" AudioComponentRegistrar 2>/dev/null || true
