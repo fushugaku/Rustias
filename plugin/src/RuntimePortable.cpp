@@ -18,7 +18,7 @@ struct Runtime::Portable {
   JSValue buffer=JS_UNDEFINED;uint8_t* memoryBase=nullptr;size_t memorySize=0;
   std::vector<std::string> outgoing;
   Portable(Runtime& r):owner(r){}
-  ~Portable(){if(ctx){JS_FreeValue(ctx,buffer);JS_FreeContext(ctx);}if(jsRuntime)JS_FreeRuntime(jsRuntime);for(auto& f:functions)wasm_functype_delete(f.type);if(store)wasmtime_store_delete(store);if(module)wasmtime_module_delete(module);if(engine)wasm_engine_delete(engine);}
+  ~Portable(){if(jsRuntime)JS_UpdateStackTop(jsRuntime);if(ctx){JS_FreeValue(ctx,buffer);JS_FreeContext(ctx);}if(jsRuntime)JS_FreeRuntime(jsRuntime);for(auto& f:functions)wasm_functype_delete(f.type);if(store)wasmtime_store_delete(store);if(module)wasmtime_module_delete(module);if(engine)wasm_engine_delete(engine);}
   static Portable& get(JSContext* c){return *static_cast<Portable*>(JS_GetContextOpaque(c));}
   static std::string string(JSContext* c,JSValueConst v){size_t size=0;auto p=JS_ToCStringLen(c,&size,v);if(!p)return {};std::string s(p,size);JS_FreeCString(c,p);return s;}
   [[noreturn]] void fail(const std::string& message){owner.failure=true;owner.errorText=message;throw std::runtime_error(message);}
@@ -74,15 +74,15 @@ struct Runtime::Portable {
 };
 Runtime::Runtime(const std::string& resources,double rate):portable(std::make_unique<Portable>(*this)){portable->initialize(resources,rate);}
 Runtime::~Runtime()=default;
-void Runtime::message(const std::string& text){auto& s=*portable;auto value=s.checked(JS_ParseJSON(s.ctx,text.data(),text.size(),"host-message"));auto result=s.call("pluginMessage",1,&value);JS_FreeValue(s.ctx,value);JS_FreeValue(s.ctx,result);}
-void Runtime::midi(unsigned char a,unsigned char b,unsigned char c){auto& s=*portable;JSValue args[]={JS_NewInt32(s.ctx,a),JS_NewInt32(s.ctx,b),JS_NewInt32(s.ctx,c)};auto r=s.call("pluginMidi",3,args);JS_FreeValue(s.ctx,r);}
-void Runtime::parameter(unsigned index,double value){auto& s=*portable;JSValue args[]={JS_NewInt32(s.ctx,index),JS_NewFloat64(s.ctx,value)};auto r=s.call("pluginParameter",2,args);JS_FreeValue(s.ctx,r);}
+void Runtime::message(const std::string& text){auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);auto value=s.checked(JS_ParseJSON(s.ctx,text.data(),text.size(),"host-message"));auto result=s.call("pluginMessage",1,&value);JS_FreeValue(s.ctx,value);JS_FreeValue(s.ctx,result);}
+void Runtime::midi(unsigned char a,unsigned char b,unsigned char c){auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);JSValue args[]={JS_NewInt32(s.ctx,a),JS_NewInt32(s.ctx,b),JS_NewInt32(s.ctx,c)};auto r=s.call("pluginMidi",3,args);JS_FreeValue(s.ctx,r);}
+void Runtime::parameter(unsigned index,double value){auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);JSValue args[]={JS_NewInt32(s.ctx,index),JS_NewFloat64(s.ctx,value)};auto r=s.call("pluginParameter",2,args);JS_FreeValue(s.ctx,r);}
 void Runtime::render(float* left,float* right,unsigned frames){
-  auto& s=*portable;JSValue count=JS_NewInt32(s.ctx,frames);auto result=s.call("pluginRender",1,&count);
+  auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);JSValue count=JS_NewInt32(s.ctx,frames);auto result=s.call("pluginRender",1,&count);
   for(unsigned channel=0;channel<2;channel++){
     auto view=JS_GetPropertyUint32(s.ctx,result,channel);size_t offset=0,length=0,element=0,capacity=0;auto buffer=s.checked(JS_GetTypedArrayBuffer(s.ctx,view,&offset,&length,&element));auto ptr=JS_GetArrayBuffer(s.ctx,&capacity,buffer);
     if(!ptr||element!=sizeof(float)||length!=frames*sizeof(float)||offset+length>capacity)s.fail("Invalid host render buffer");std::memcpy(channel?right:left,ptr+offset,length);JS_FreeValue(s.ctx,buffer);JS_FreeValue(s.ctx,view);
   }JS_FreeValue(s.ctx,result);
 }
 std::vector<std::string> Runtime::takeMessages(){std::vector<std::string> result;result.swap(portable->outgoing);return result;}
-std::string Runtime::stats(){auto& s=*portable;auto value=s.call("pluginStats",0,nullptr);auto text=Portable::string(s.ctx,value);JS_FreeValue(s.ctx,value);return text;}
+std::string Runtime::stats(){auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);auto value=s.call("pluginStats",0,nullptr);auto text=Portable::string(s.ctx,value);JS_FreeValue(s.ctx,value);return text;}

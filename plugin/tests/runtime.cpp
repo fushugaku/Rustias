@@ -5,6 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <nlohmann/json.hpp>
+#include <thread>
 static void require(bool b,const char* m){if(!b)throw std::runtime_error(m);}
 int main(int argc,char** argv){
   try{
@@ -21,6 +22,7 @@ int main(int argc,char** argv){
       a.parameter(0,100);a.render(l,r,257);for(int i=0;i<4;i++)a.render(l,r,257);require(std::any_of(l,l+257,[](float v){return std::abs(v)>.001f;}),"DAW macro reaches a bound sound parameter");
       a.parameter(0,0);for(int i=0;i<40;i++)a.render(l,r,257);require(std::all_of(l,l+257,[](float v){return std::abs(v)<.00001f;}),"DAW macro can close its bound level");
       b.render(l,r,257);require(std::all_of(l,l+257,[](float v){return v==0;}),"Plugin instances are isolated");
+      std::exception_ptr threadError;std::thread audioThread([&]{try{a.render(l,r,257);}catch(...){threadError=std::current_exception();}});audioThread.join();if(threadError)std::rethrow_exception(threadError);
       a.midi(0x80,69,0);a.message("{\"type\":\"stop\"}");
       require(a.stats().find("\"capacity\":128")!=std::string::npos,"Same expanded 128-voice engine");
       std::cout<<"Shared WASM/worklet: "<<rate<<" Hz, MIDI, variable blocks and instance isolation passed; peak "<<peak<<"\n";

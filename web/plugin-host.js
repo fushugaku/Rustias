@@ -13,10 +13,11 @@ function createHost(){
       const blob=URL.createObjectURL(new Blob([source],{type:'text/javascript'}));super(blob,{...options,type:'classic'});setTimeout(()=>URL.revokeObjectURL(blob),1000);
     }
   };
-  let port,restore,parameter,request=0;const pending=new Map();
+  let port,restore,parameter,context,request=0;const pending=new Map();
   const send=value=>native.postMessage(serialize(value));
   const host={initial:window.__RUSTIAS_PLUGIN__,applyingAutomation:false,onRestore:fn=>restore=fn,onParameter:fn=>parameter=fn,saveSession:data=>send({kind:'session',data})};
   window.__rustiasPluginReceive=data=>{
+    if(data.type==='host-rate'){host.initial.sampleRate=data.sampleRate;context?.onstatechange?.();return;}
     if(data.type==='digest'){pending.get(data.request)?.(new Uint8Array(data.bytes).buffer);pending.delete(data.request);return;}
     if(data.type==='host-parameter'){host.applyingAutomation=true;try{parameter?.(data.id,data.value);}finally{host.applyingAutomation=false;}return;}
     if(data.type==='record-chunk'&&Array.isArray(data.pcm))data.pcm=Int16Array.from(data.pcm);
@@ -29,7 +30,7 @@ function createHost(){
     const id=++request,bytes=await base64(new Blob([buffer]));return new Promise(resolve=>{pending.set(id,resolve);send({kind:'digest',request:id,bytes});});
   };
   host.context=()=>{
-    let offline;const context={sampleRate:host.initial.sampleRate??48000,state:'running',destination:{},audioWorklet:{addModule:async()=>{}},onstatechange:null,
+    let offline;context={get sampleRate(){return host.initial.sampleRate??48000;},state:'running',destination:{},audioWorklet:{addModule:async()=>{}},onstatechange:null,
       decodeAudioData:buffer=>(offline??=new OfflineAudioContext(1,1,48000)).decodeAudioData(buffer),resume:async()=>{context.state='running';send({kind:'power',enabled:true});context.onstatechange?.();},suspend:async()=>{context.state='suspended';send({kind:'power',enabled:false});context.onstatechange?.();},close:async()=>{context.state='closed';}};
     return context;
   };

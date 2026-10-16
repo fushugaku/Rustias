@@ -33,11 +33,12 @@ bool Instrument::activate(double sampleRate){
   try{
     if(!std::isfinite(sampleRate)||sampleRate<1||sampleRate>2000000)return false;
     if(!runtime||rate!=sampleRate){
+      if(runtime){runtime->message("{\"type\":\"record-stop\"}");for(auto& message:runtime->takeMessages())publish(std::move(message));}
       runtime=std::make_unique<Runtime>(resources,sampleRate);rate=sampleRate;
       std::vector<std::pair<uint64_t,std::string>> events;{std::lock_guard lock(stateMutex);for(auto& [_,value]:remembered)events.push_back(value);}
       std::sort(events.begin(),events.end());for(auto& [_,message]:events)runtime->message(message);
     }
-    drain();for(unsigned i=0;i<9;i++)runtime->parameter(i,parameters[i]);active=true;haveTransport=false;hostPlaying=false;return true;
+    drain();for(unsigned i=0;i<9;i++)runtime->parameter(i,parameters[i]);active=true;haveTransport=false;hostPlaying=false;publish("{\"type\":\"host-rate\",\"sampleRate\":"+std::to_string(rate)+"}");return true;
   }catch(const std::exception& e){lastError=e.what();return false;}
 }
 std::vector<std::string> Instrument::pull(){std::vector<std::string> result;auto r=outgoingRead.load(std::memory_order_relaxed);while(r!=outgoingWrite.load(std::memory_order_acquire)){result.push_back(std::move(outgoing[r]));r=(r+1)%outgoing.size();}outgoingRead.store(r,std::memory_order_release);return result;}
