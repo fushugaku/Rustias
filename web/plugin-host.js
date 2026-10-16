@@ -1,8 +1,10 @@
 // Opt-in native host. Ordinary browser/Android builds never open this bridge.
+import {installPluginCrypto} from './plugin-platform.js';
 const native=window.__RUSTIAS_PLUGIN__&&window.webkit?.messageHandlers?.rustiasHost;
 const serialize=value=>JSON.stringify(value,(_key,item)=>ArrayBuffer.isView(item)?Array.from(item):item);
 export const pluginHost=native?createHost():null;
 function createHost(){
+  installPluginCrypto();
   // A DAW owns one editor window; browser-only links that open another interface
   // tab do not belong in that window.
   const style=document.createElement('style');style.textContent='.interface-navigation{display:none}';document.head.append(style);
@@ -36,6 +38,7 @@ function createHost(){
   };
   host.node=()=>{port={onmessage:null,postMessage:data=>{if(!host.applyingAutomation)send({kind:'audio',data});}};return {port,connect(){queueMicrotask(()=>port.onmessage?.({data:{type:'ready',sampleRate:host.initial.sampleRate??48000}}));},disconnect(){}};};
   host.ready=async module=>{
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(crypto.randomUUID()))throw new Error('Cannot create local program identifiers.');
     const probe=(file,data,expected)=>new Promise((resolve,reject)=>{
       const worker=new Worker(new URL(file,location.href)),timer=setTimeout(()=>{worker.terminate();reject(new Error('The plugin worker did not start.'));},10000);
       worker.onmessage=({data})=>{clearTimeout(timer);worker.terminate();expected(data)?resolve():reject(new Error(data.error||'The plugin worker failed.'));};

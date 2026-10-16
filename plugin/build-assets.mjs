@@ -1,6 +1,7 @@
 import {build} from 'esbuild';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {installPluginCrypto} from '../web/plugin-platform.js';
 const root=path.resolve(import.meta.dirname,'..'),out=path.join(root,'output/plugin/resources');
 await fs.mkdir(out,{recursive:true});
 await fs.cp(path.join(root,'dist'),path.join(out,'web'),{recursive:true});
@@ -9,7 +10,7 @@ for(const file of ['recordings-worker.js','rdl-worker.js']){
   const result=await build({entryPoints:[path.join(root,'web',file)],bundle:true,format:'iife',platform:'browser',target:'safari15',write:false,legalComments:'eof'});
   // WKWebView custom schemes do not support module workers. These contain the
   // same source bundled into classic blob workers, including the MP3 encoder.
-  workers[file]=(file==='recordings-worker.js'?(await fs.readFile(path.join(root,'web/vendor/lamejs/lame.all.js'),'utf8'))+'\nconst importScripts=()=>{};\n':'')+result.outputFiles[0].text;
+  workers[file]=`(${installPluginCrypto.toString()})();crypto.randomUUID();\n`+(file==='recordings-worker.js'?(await fs.readFile(path.join(root,'web/vendor/lamejs/lame.all.js'),'utf8'))+'\nconst importScripts=()=>{};\n':'')+result.outputFiles[0].text;
 }
 const ui=await build({entryPoints:[path.join(root,'web/app.js')],bundle:true,format:'esm',platform:'browser',target:'safari15',write:false,define:{'import.meta.url':'window.location.href'},legalComments:'eof'});
 await fs.writeFile(path.join(out,'web/host-app.js'),'window.__RUSTIAS_PLUGIN_WORKERS__='+JSON.stringify(workers)+';\n(async()=>{\n'+ui.outputFiles[0].text+'\n})().catch(error=>window.dispatchEvent(new ErrorEvent("error",{message:error.message,error})));\n');
