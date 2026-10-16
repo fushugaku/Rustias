@@ -3,14 +3,17 @@
 ## Shared visual skin
 
 Both Classic and New interface use the Sad Pet plugin family style. `web/theme.css`
-owns the semantic palette and component skin; `styles.css` and `new-interface.css`
-keep layout and responsive behavior. Do not add hardcoded colors to those layout
-files. The shared controls, DSP, program formats and clock remain unchanged.
+owns the semantic palette, component skin and shared rack composition. The legacy
+layouts live in `foundation` (`styles.css`) and `workspace` (`new-interface.css`)
+CSS layers. The unlayered skin overrides normal legacy selectors without
+specificity escalation. Keep `[hidden]` authoritative and preserve conditional
+folded states when overriding base display rules. Do not add hardcoded colors to
+layout files. DSP, program formats and clock remain shared.
 
-Canvas #141715; panel #181d18; raised #1e251e; overlay #252e24. Inset controls
-#151a15, idle #232923, hover #2d372b. Text #e6ebe5 / #b4c0af / #91a18b /
-#64735f. Borders #293128 / #364132 / #52634a, lime focus #cff68d. Lime active
-states use #354b2c with #cee8b0 text; ordinary choices stay dark with white text.
+Canvas #111612; panel #191f1a; raised #202720; overlay #293129. Inset controls
+#151b16, idle #252d25, hover #303b2e. Text #edf1e9 / #b1bcae / #84917f /
+#606d5c. Borders #293229 / #354133 / #53674a, lime focus #cef39c. Lime active
+states use #2d4028 with #d4ebbb text; ordinary choices stay dark with white text.
 Teal #8cdcd1 marks modulation/CV; coral #ed9a91 marks recording and playback.
 Keep playback distinct from selection. Four/eight-pixel spacing, six-pixel controls,
 eight-pixel panel/dialog corners. Depth comes from surface changes and subtle
@@ -21,8 +24,9 @@ readable control labels and monospace numeric values. Dials have a smooth olive
 face, pale pointer and a 270-degree lime value arc from the original --angle.
 The teal modulation marker remains independent. Synth and FX dial labels sit below
 the face, then their value; choices/switches retain labels above. Eight macros form
-centered vertical groups with their assignment pencil and target summary. On phone
-widths use four columns and 44px edit targets. The waveform logo identifies RUSTIAS
+horizontal strips: dial on the left, name/value beside it and a visible assignment
+pencil on the right. Use eight columns on desktop, four at 801–1100px, two on phones
+with 44px input/edit targets. The waveform logo identifies RUSTIAS
 on desktop and mobile. All menus, inspectors, drums, recorder and Build use this
 same palette and shared control tokens.
 
@@ -30,7 +34,7 @@ same palette and shared control tokens.
 
 `?interface=new` is a second presentation of the same controls, not a DSP fork. Classic/New interface navigation opens the other presentation in a separate browser tab. Layout-specific selectors are scoped to `.new-interface`; shared skin and density rules live in `theme.css`. `new-interface.js` reparents original controls before the circuit editor captures their parents. `sequence-workspace.js` observes the canonical sequencer API; its pure display helpers live in `sequence-view.js`. Playback clocks, program formats and audio processing are shared.
 
-Desktop uses a compact two-row dark olive header, eight macros with target summaries, an internally scrolling dark synthesis rack, a 320px FX column and a resizable sequencer dock. Program/Save/Timbre remain adjacent; BPM/Play/Record share the transport row. Files and Controls use anchored popovers. Macros and Keyboard fold independently. Rack section shortcuts scroll only the rack. EG1–3 and LFO1–3 have thin vertical separators when adjacent and horizontal separators when stacked. Start each LFO group on a new grid row. Virtual Patch uses four equal modules per desktop row (>1100px), two at 801–1100px and one on phones. Each patch stacks full-width Source/Destination LCD fields above two equal Intensity/Offset dials. Master has a stronger separator; empty FX slots stay compact and active parameters can fold independently.
+Desktop uses a compact two-row header, eight macro strips with target summaries, an internally scrolling synthesis rack, a 300px FX column (260px at 801–1100px) and a resizable sequencer dock. Program/Save/Timbre remain adjacent; BPM/Play/Record share the transport row. Files and Controls use anchored popovers. Macros and Keyboard fold independently. Rack section shortcuts scroll only the rack. Separate modules with quiet surfaces, 8px gaps and thin borders rather than intersecting grid lines. EG1–3 and LFO1–3 have individual outlines and small shape previews. Start each LFO group on a new grid row. Virtual Patch uses four equal modules per desktop row (>1100px), two at 801–1100px and one on phones. Each patch stacks full-width Source/Destination fields above two equal Intensity/Offset dials. Master has a stronger separator; empty FX slots stay compact and active parameters can fold independently.
 
 Sequence views: Steps keeps all lanes; Piano roll and Samples edit the selected lane. A 128-step overview retains muted events and events outside shortened loops and selects the selected timbre's visible block. Hide the redundant per-lane block dropdowns in New interface; Classic keeps them. Grid rows show exact MIDI pitches or kit/direct sample identities, with velocity opacity and gate length; lime selection/editor outlines stay distinct from the red playback underline. Select + endpoints works on touch; Shift-click selects a range on desktop. Step properties use the original dialog nonmodally as a right inspector, so synthesizer controls remain usable. An open Mod Sequence replaces the roll area with its own scrolling controls. The separator supports pointer drag and keyboard Up/Down/Home/End. Layout preferences are separate from programs.
 
@@ -38,11 +42,13 @@ At ≤800px use a sticky three-row header, a timbre dropdown plus Add, and align
 
 ## Classic interface
 
-The dark olive faceplate, smooth value-arc knobs, inset choices and lime active pads are the signature. All 155 implemented native parameters plus twenty-four controls for browser Patch 7/8, LFO 3 and OSC 3 share one full-width rack; only timbre selection changes its editing context. Signal flow: three oscillators/mixer/filters/Drive, three envelopes and three LFOs, eight virtual patches, then voice/pitch/amplifier/MIDI/tuning/drums. Up to eight sequencer lanes and the keyboard sit below. No category tabs or decorative cards.
+Quiet olive-charcoal modules, smooth value-arc knobs, inset choices and lime active pads are the signature. All 155 implemented native parameters plus twenty-four browser controls share one full-width rack; only timbre selection changes its editing context. Signal flow: oscillators/mixer/filters/Drive, envelopes and LFOs, eight virtual patches, then voice/pitch/amplifier/MIDI/tuning/drums. Up to eight sequencer lanes and a folding keyboard sit below. Do not replace the complete rack with category tabs.
 
 Use the shared visual skin above. Keep the Classic rack density and module rules; only knobs and LEDs are circular.
 
-Desktop: a 28-column oscillator row and 24-column voice row with fixed module spans. Desktop rack controls use 36px knobs, 32px choices, 48px choice rows and 68px dial rows. At 801–1399px, Classic places OSC 1/2 in quarter-width columns and OSC 3 across the remaining half, followed by four equal mixer/filter/Drive modules; the header uses two rows. When OSC 3 has at least 304px of inner width, its four choices share one row, so it does not stretch OSC 1/2. Keep compact patch routes and numeric custom-scale cells. Added timbres, macros and active FX extend the scrollable content; keep the header and performance footer available. At ≤1399 px the rack wraps; ≤800 px uses two columns; ≤520 px stacks complex sections, keeps touch targets ≥44 px and has four pad columns. Only the sequencer container scrolls sideways; the page must never overflow horizontally.
+Desktop: a 12-column sound/voice grid. OSC 1/2 each span three columns, OSC 3 six; all four OSC 3 choices share the first row, four dials the second. Mixer/Filter1/Filter2/Drive use four equal sections on the next row. EG/LFO use three columns, six at ≥1600px. Virtual Patch uses four columns. Rack controls use 44px knobs, 11px labels, 12px values, 32px choices, 48px choice rows and 76px dial rows. Keep compact patch routes and numeric custom-scale cells. Added timbres, macros and active FX extend the scrollable content. At ≤800px use two OSC columns and full-width complex modules with 44px controls. Mobile header keeps Program/Sound together, timbres and audio power together, then Save/Files/Controls/Build/fullscreen. Files contains import/export/RDL; Controls contains performance/MIDI/panic. Reparent the same controls back to the desktop header on resize. Only internal grids scroll sideways; the page must never overflow horizontally.
+
+Classic Keyboard starts folded and remembers visibility in `rustias.classic.keyboard`, independently of programs and New interface preferences. Its toggle sits beside recording controls. OSC/LFO previews identify selected waveforms; envelope outlines follow ADSR. These are compact UI diagrams, not measured audio waveforms.
 
 Choices use a shared inset choice popover, with arrow/Home/End navigation, Escape and outside-click dismissal. On/Off controls are immediate LED switches. Drive has separate Off/Drive/WS, remembered WS Type, Depth and PreFilt1/PreAmp. Dependency states derive from current engine settings; PCM source controls, linked filters, Unison, tempo divisions and custom tuning show their actual availability. Source gain/Expression is explicit; automatic Unison gain bank is a readout.
 
@@ -78,9 +84,9 @@ Five dark FX panels follow either rack or Build: Insert 1/2, Timbre FX 3/4, then
 
 Recording controls sit with the keyboard: dark Record button with red active state, fixed-width inset elapsed-time display, searchable folder picker, Recordings disclosure. Keep the active destination pinned during capture. The nonmodal library is a separate section before the sticky performance footer, so a long folder list never pushes recording controls underneath the sticky header. Folders use collapsible dark rows, editable names, take duration/date and aligned Listen/WAV/MP3/Move/delete actions. Prepared file links stay available after encoding. Mobile uses 44px controls, a two-row recorder strip and aligned take actions (two rows on narrow screens). Names save on input debounce, blur or Enter.
 
-Timbre tabs start at four; the adjacent + adds a sound and sequencer lane up to eight. At mobile widths use four equal columns and a second row. New timbres receive independent channel, four timbre FX and module layout; unused slots stay hidden. Eight virtual-patch modules span the same rack row on desktop and wrap on small screens.
+Timbre tabs start at four; the adjacent + adds a sound and sequencer lane up to eight. At mobile widths use four equal columns and a second row. New timbres receive independent channel, four timbre FX and module layout; unused slots stay hidden. Eight virtual-patch modules use two desktop rows of four and wrap on small screens.
 
-Program macros use eight smooth dials with numeric percentage and an assignment count/pencil button underneath. Mobile uses four columns and 44px input/edit targets. Right click, Shift+F10 or touch hold opens Assign to macro; dragging cancels touch hold. The pencil opens the name and target list; each row has a full-width target label, signed influence slider (-100…+100%), fixed-width percentage and 44px remove button. Up to twelve bindings per macro. Knob positions, shared base values, names and signed amounts persist with programs, copies, JSON and sessions.
+Program macros use eight horizontal strips with a smooth dial, numeric percentage and a visible assignment pencil. Mobile uses two columns and 44px input/edit targets. Right click, Shift+F10 or touch hold opens Assign to macro; dragging cancels touch hold. The pencil opens the name and target list; each row has a full-width target label, signed influence slider (-100…+100%), fixed-width percentage and 44px remove button. Up to twelve bindings per macro. Knob positions, shared base values, names and signed amounts persist with programs, copies, JSON and sessions.
 
 Mod Sequencer: a 44px disclosure beside each T1–T8 lane opens a dark subpanel and selects its timbre. + Mod adds up to six rows; the disclosure uses LCD color when rows exist. Each row has On, searchable Parameter (including eight program Macros), bipolar Intensity, independent Steps/Bars/Resolution, Step/Slide, direction, Loop/OneShot, optional sixteen-step block picker and remove. Sixteen smooth step dials use signed offsets and centered zero; active playback has the same red underline as notes. Desktop shows inactive knobs dimmed; mobile hides inactive steps, uses up to four columns and equal-width 44px LCD fields. Each main note row owns its horizontal scrolling, so expanded modulation panels fit the viewport.
 
@@ -90,4 +96,4 @@ RDL sequencing: the note lane's ⋯ opens aligned settings on the dark plate (si
 
 LFO 3 uses the shared Rust LFO 1 waveform/clock algorithm behind `web-expanded` + wasm32; desktop remains at two. Append its eight stored parameter IDs at 163–170 and source ID 16 / rate destination 42; keep all native/old browser indexes stable. Add a removable builtin LFO 3 CV node at ID 63 in new graphs, preserving the original 0–15 IDs and existing user modules. Older graphs can add LFO 3 through Add module. Program/timbre/sample storage, macro gestures and Mod Sequencer choices use the extended schema.
 
-OSC 3 replaces Noise at builtin node 2, preserving old IDs/cables. It has OSC 1's six waveforms/four modes and CTRL1/2, OSC 2's Semi/Fine, plus independent Ring/Sync and Source (OSC 1, OSC 2 before Ring, current OSC 1→2 result). Its four LCDs occupy two equal columns; the four dials share the following row. Keep OSC 1/2/3 bottom rules aligned on desktop, and OSC 3 full-width on phones. Source references use native audio/phase taps; the original pair is unchanged. Store IDs 171–178, Virtual Patch destinations 43–51 and existing Level 5. Noise/Formant disable only synthesis Mode. CV/audio ports and macro gestures follow independent OSC 1. Defaults retain Noise with Ring/Sync off, native desktop retains its original Noise generator.
+OSC 3 replaces Noise at builtin node 2, preserving old IDs/cables. It has OSC 1's six waveforms/four modes and CTRL1/2, OSC 2's Semi/Fine, plus independent Ring/Sync and Source (OSC 1, OSC 2 before Ring, current OSC 1→2 result). Its four choices share one row and the four dials share the following row. Keep OSC 1/2/3 bottom rules aligned on desktop, and OSC 3 full-width on phones. Source references use native audio/phase taps; the original pair is unchanged. Store IDs 171–178, Virtual Patch destinations 43–51 and existing Level 5. Noise/Formant disable only synthesis Mode. CV/audio ports and macro gestures follow independent OSC 1. Defaults retain Noise with Ring/Sync off, native desktop retains its original Noise generator.

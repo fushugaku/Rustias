@@ -1,3 +1,4 @@
+@layer workspace {
 .interface-identity{display:flex;flex-direction:column;gap:4px;flex:none}.interface-navigation{display:flex;align-items:center;gap:8px;white-space:nowrap;font:10px Arial,sans-serif}.interface-navigation a{color:var(--text-tertiary);padding:2px 0;border-bottom:2px solid transparent}.interface-navigation a[aria-current=page]{color:var(--lcd);border-bottom-color:var(--lcd)}.interface-navigation a:hover{color:var(--text)}
 
 /* A second presentation of the same live controls. The Classic selectors stay intact. */
@@ -29,11 +30,11 @@
 @media(max-width:800px){.new-interface .interface-navigation a{display:inline-flex;align-items:center;min-height:44px;padding:0}.new-interface .nw-section-jumps button,.new-interface .sample-kit{height:44px;min-height:44px}.new-interface #rack .module-drums .module-heading{height:44px}.new-interface .nw-fx .nw-stage-heading button{width:44px;min-width:44px;height:44px;min-height:44px}.new-interface #circuit-canvas .module-heading{height:44px}.new-interface #circuit-canvas .circuit-remove{width:44px;min-width:44px;height:44px;min-height:44px}.new-interface .volume input{height:44px}}
 
 /* Classic's responsive rows use important spans. This rack flattens those rows. */
-.new-interface #rack .module{grid-column:span 4!important}
-.new-interface #rack .module:is(.module-midi,.module-scale,.patch-module){grid-column:span 6!important}
-.new-interface #rack .module:is(.module-voice,.module-drums){grid-column:1/-1!important}
-@media(max-width:1100px) and (min-width:801px){.new-interface #rack .module{grid-column:span 6!important}}
-@media(max-width:800px){.new-interface #rack .module{grid-column:span 4!important}.new-interface #rack .module:is(.module-voice,.module-scale,.module-midi,.module-drums,.module-filter1,.module-filter2,.module-drive,.module-amp,.module-mixer,.module-eg1,.module-eg2,.module-eg3,.module-lfo1,.module-lfo2,.module-lfo3,.patch-module){grid-column:1/-1!important}}
+.new-interface #rack .module{grid-column:span 4}
+.new-interface #rack .module:is(.module-midi,.module-scale,.patch-module){grid-column:span 6}
+.new-interface #rack .module:is(.module-voice,.module-drums){grid-column:1/-1}
+@media(max-width:1100px) and (min-width:801px){.new-interface #rack .module{grid-column:span 6}}
+@media(max-width:800px){.new-interface #rack .module{grid-column:span 4}.new-interface #rack .module:is(.module-voice,.module-scale,.module-midi,.module-drums,.module-filter1,.module-filter2,.module-drive,.module-amp,.module-mixer,.module-eg1,.module-eg2,.module-eg3,.module-lfo1,.module-lfo2,.module-lfo3,.patch-module){grid-column:1/-1}}
 @media(min-width:801px){.new-interface .nw-stage:has(.nw-fx.folded){grid-template-columns:minmax(0,1fr) 44px}.new-interface .nw-fx.folded .nw-stage-heading{height:100%;padding:0;justify-content:center}.new-interface .nw-fx.folded .nw-stage-heading h2{display:none}}
 
 .new-interface #rack .module:is(.module-eg1,.module-eg2,.module-eg3){border-bottom-color:var(--line)}
@@ -45,14 +46,16 @@
 .new-interface #rack .patch-route{grid-column:1/-1}
 .new-interface #rack .module:is(.module-lfo1,.module-lfo2,.module-lfo3){border-bottom-color:var(--line)}
 @media(min-width:1101px){
-  .new-interface #rack .module.patch-module{grid-column:span 3!important}
-  .new-interface #rack .module-lfo1{grid-column:1/span 4!important}
+  .new-interface #rack .module.patch-module{grid-column:span 3}
+  .new-interface #rack .module-lfo1{grid-column:1/span 4}
   .new-interface #rack .module:is(.module-lfo2,.module-lfo3,.module-patch2,.module-patch3,.module-patch4,.module-patch6,.module-patch7,.module-patch8){border-left:1px solid var(--line)}
 }
 @media(min-width:801px) and (max-width:1100px){
-  .new-interface #rack .module-lfo1{grid-column:1/span 6!important}
+  .new-interface #rack .module-lfo1{grid-column:1/span 6}
   .new-interface #rack .module:is(.module-lfo2,.module-patch2,.module-patch4,.module-patch6,.module-patch8){border-left:1px solid var(--line)}
 }
 
 .new-interface #rack .module:is(.module-osc1,.module-osc2,.module-osc3){align-self:stretch}
-@media(max-width:800px){.new-interface #rack .module.module-osc3{grid-column:1/-1!important}}
+@media(max-width:800px){.new-interface #rack .module.module-osc3{grid-column:1/-1}}
+
+}

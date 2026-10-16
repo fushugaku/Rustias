@@ -45,7 +45,9 @@ Dials support vertical drag, Shift for fine adjustment, wheel, arrow/Page/Home/E
 
 ### New interface
 
-Both interfaces use the same dark olive and lime visual style as [Sad Pet](https://fushugaku.github.io/sad-pet/): smooth knobs with value arcs, inset fields, thin section rules and matching menus, effects, sequencer and Build panels. The shared palette lives in `web/theme.css`; layout and audio behavior are independent of the skin.
+Both interfaces use the dark olive and lime style of [Sad Pet](https://fushugaku.github.io/sad-pet/), with aligned compact modules, readable value-arc knobs, inset fields and matching menus. Small waveform and envelope diagrams identify each oscillator, LFO and EG. Eight macros form compact strips with visible assignment pencils. The shared skin lives in `web/theme.css`; audio behavior is unchanged.
+
+Classic also has a **Keyboard** toggle beside the recorder; its visibility is remembered separately from programs. On phones, **Files** contains import/export and **Controls** contains performance, MIDI and Stop notes, leaving the synthesis panel more room. Resizing back to desktop restores the full header.
 
 **New interface** opens in a separate browser tab. It uses the same Rust engine, controls, program library, sample profiles and recordings as **Classic**. The shared DSP, AudioWorklet clock and desktop instrument are unchanged.
 

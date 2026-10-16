@@ -15,7 +15,24 @@ export function setupInterfaceNavigation(){
     const link=element('a','',name),url=new URL(location.href);value?url.searchParams.set('interface',value):url.searchParams.delete('interface');link.href=url.href;
     if(fresh===(value==='new'))link.setAttribute('aria-current','page');else{link.target='_blank';link.rel='noopener';}nav.append(link);
   }
-  brand.replaceWith(identity);identity.append(brand,nav);return fresh;
+  brand.replaceWith(identity);identity.append(brand,nav);
+  if(!fresh){
+    const keybed=$('.keybed'),toggle=button('Keyboard'),key='rustias.classic.keyboard';keybed.id='classic-keyboard';
+    let open=false;try{open=localStorage.getItem(key)==='true';}catch{}
+    const render=()=>{keybed.hidden=!open;toggle.setAttribute('aria-expanded',open);toggle.setAttribute('aria-pressed',open);toggle.title=(open?'Hide':'Show')+' keyboard';};
+    toggle.id='classic-keyboard-toggle';toggle.setAttribute('aria-controls',keybed.id);toggle.addEventListener('click',()=>{open=!open;render();try{localStorage.setItem(key,String(open));}catch{}});$('#recorder').prepend(toggle);render();
+    const fileItems=[$('#save-program'),$('#load-program'),$('#rdl-details'),$('#program-file')],fileGroup=$('.program-files'),actions=$('.toolbar-actions'),performance=$('#performance'),midi=$('#midi'),panic=$('#panic'),power=$('#power');
+    const files=popover('Files',[]),controls=popover('Controls',[]),phone=matchMedia('(max-width:800px)');
+    for(const menu of [files,controls]){menu.popup.classList.add('classic-tool-popover');fileGroup.append(menu.trigger);}
+    files.popup.addEventListener('click',event=>{if(event.target.closest('#load-program,#save-program,#rdl-details'))files.hide();});
+    const placeTools=()=>{
+      files.hide();controls.hide();files.trigger.hidden=controls.trigger.hidden=!phone.matches;
+      if(phone.matches){files.popup.append(...fileItems);controls.popup.append(performance,midi,panic);$('.timbre-bank').append(power);}
+      else{fileGroup.prepend($('.patch-save'));fileGroup.append(...fileItems,files.trigger,controls.trigger);actions.before(performance);actions.insertBefore(midi,$('#fullscreen'));actions.insertBefore(panic,$('#fullscreen'));actions.append(power);}
+    };
+    phone.addEventListener('change',placeTools);placeTools();
+  }
+  return fresh;
 }
 
 function popover(label,content){

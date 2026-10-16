@@ -12,7 +12,7 @@ const shortLabels = {
 const rows = [
   [
     {key:"osc1",name:"OSC 1",span:4,columns:2,ids:[0,10,11,12],wave:true},
-    {key:"osc2",name:"OSC 2",span:3,columns:2,ids:[13,14,15,16]},
+    {key:"osc2",name:"OSC 2",span:3,columns:2,ids:[13,14,15,16],preview:true},
     {key:"osc3",name:"OSC 3",span:4,columns:4,wave:true,ids:[OSC3_BASE,OSC3_BASE+1,OSC3_BASE+6,OSC3_BASE+7,OSC3_BASE+2,OSC3_BASE+3,OSC3_BASE+4,OSC3_BASE+5]},
     {key:"mixer",name:"MIXER / AMP",span:3,columns:3,ids:[17,18,19,7,8]},
     {key:"filter1",name:"FILTER 1",span:4,columns:3,ids:[9,1,2,25,26]},
@@ -100,7 +100,7 @@ export function makeDial({label,min,max,getMax=()=>max,defaultValue,read,onChang
   }};
 }
 export function createPanel({parameters,readValues,setControl,format,disabled,displayValue,nativeValue,macroTarget,maxValue=id=>parameters[id].max}){
-  const fields=new Map();
+  const fields=new Map(),previews=[];
   function field(id){
     const p=parameters[id],wrap=document.createElement("div"),label=document.createElement("label");wrap.className="parameter";wrap.dataset.parameter=id;
     const aria=`${p.group} ${id===89?"BPM":p.label}`;label.textContent=p.group.startsWith("Patch")?({Source:"SRC",Destination:"DEST",Intensity:"Intensity","Manual offset":"Offset"}[p.label]??p.label):shortLabels[id]??(id>=125&&id<=136?p.label.replace(" cents"," ¢"):p.label);label.htmlFor=`parameter-${id}`;label.title=aria;wrap.append(label);
@@ -127,12 +127,26 @@ export function createPanel({parameters,readValues,setControl,format,disabled,di
     for(const plan of plans){
       const section=document.createElement("section"),head=document.createElement("div"),title=document.createElement("h2"),body=document.createElement("div");section.className=`module module-${plan.key}`;section.dataset.module=plan.key;section.setAttribute("aria-label",plan.name);section.style.setProperty("--span",plan.span??1);body.style.setProperty("--columns",plan.columns??2);body.className="module-controls";head.className="module-heading";title.textContent=plan.name;head.append(title);
       if(plan.wave){const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg"),path=document.createElementNS(ns,"path");svg.id=plan.key==="osc1"?"wave-display":"wave-display-osc3";svg.setAttribute("viewBox","0 0 240 72");svg.setAttribute("role","img");path.id=plan.key==="osc1"?"wave-path":"wave-path-osc3";svg.append(path);head.append(svg);}
+      if(plan.preview||plan.key.startsWith('eg')||plan.key.startsWith('lfo')){
+        const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),path=document.createElementNS(ns,'path');svg.classList.add('module-preview');svg.setAttribute('viewBox','0 0 240 72');svg.setAttribute('role','img');svg.append(path);head.append(svg);previews.push({plan,svg,path});
+      }
       if(plan.patch){section.classList.add("patch-module");body.classList.add("patch-body");const route=document.createElement("div");route.className="patch-route";route.append(field(plan.ids[0]),field(plan.ids[1]));body.append(route,field(plan.ids[2]),field(plan.ids[3]));}
       else for(const id of plan.ids)body.append(field(id));
       section.append(head,body);row.append(section);
     }
   });
   return {setModulations(records){const live=new Map((records??[]).map(c=>[targetKey(c.target),c.value]));for(const [id,field]of fields){const target=macroTarget?.(id);field.dial?.setModulation(target?live.get(targetKey(target)):null);}},render(v,overrides={}){
+    for(const {plan,svg,path}of previews){
+      svg.toggleAttribute('hidden',!!disabled(plan.ids[0],v));
+      if(plan.key.startsWith('eg')){
+        const [a,d,s,r]=plan.ids.map(id=>v[id]),attack=8+a/127*52,decay=8+d/127*52,release=8+r/127*52,total=attack+decay+release+56,y=60-s/127*48;
+        path.setAttribute('d',`M0 60 L${attack/total*240} 12 L${(attack+decay)/total*240} ${y} H${(attack+decay+56)/total*240} L240 60`);svg.setAttribute('aria-label',`${plan.name} envelope shape`);
+      }else{
+        const p=parameters[plan.ids[0]],label=p.options?.[p.values?p.values.indexOf(v[plan.ids[0]]):v[plan.ids[0]]-p.min]??'';
+        const shape=label.toLowerCase(),d=shape.includes('sine')?`M${Array.from({length:61},(_,i)=>`${i*4} ${36-24*Math.sin(i/60*4*Math.PI)}`).join(' L')}`:shape.includes('tri')?'M0 36 L30 12 L90 60 L150 12 L210 60 L240 36':shape.includes('square')||shape.includes('pulse')?'M0 60 V12 H60 V60 H120 V12 H180 V60 H240':shape.includes('s&h')?'M0 36 H30 V12 H70 V52 H110 V28 H150 V60 H190 V20 H240':'M0 60 L60 12 V60 L120 12 V60 L180 12 V60 L240 12';
+        path.setAttribute('d',d);svg.setAttribute('aria-label',`${plan.name} ${label} waveform`);
+      }
+    }
     for(const [id,f] of fields){const p=parameters[id],value=v[id],inactive=disabled(id,v);f.wrap.classList.toggle("inactive",inactive);for(const input of f.inputs)input.disabled=inactive;
       if(f.output)f.output.value=format(id,value);
       if(f.picker)f.picker.render(value,overrides[id]);

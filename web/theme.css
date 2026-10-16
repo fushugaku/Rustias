@@ -1,24 +1,24 @@
 /* Shared instrument skin, from the Sad Pet plugin family. Layouts live separately. */
 :root {
   color-scheme: dark;
-  --canvas: #141715;
-  --surface: #181d18;
-  --surface-raised: #1e251e;
-  --surface-overlay: #252e24;
-  --control: #232923;
-  --control-hover: #2d372b;
-  --control-inset: #151a15;
-  --text: #e6ebe5;
-  --text-secondary: #b4c0af;
-  --text-tertiary: #91a18b;
-  --text-muted: #64735f;
-  --line-subtle: #293128;
-  --line: #364132;
-  --line-strong: #52634a;
-  --accent: #cff68d;
-  --accent-text: #cee8b0;
-  --accent-dim: #354b2c;
-  --accent-wash: #cff68d18;
+  --canvas: #111612;
+  --surface: #191f1a;
+  --surface-raised: #202720;
+  --surface-overlay: #293129;
+  --control: #252d25;
+  --control-hover: #303b2e;
+  --control-inset: #151b16;
+  --text: #edf1e9;
+  --text-secondary: #b1bcae;
+  --text-tertiary: #84917f;
+  --text-muted: #606d5c;
+  --line-subtle: #293229;
+  --line: #354133;
+  --line-strong: #53674a;
+  --accent: #cef39c;
+  --accent-text: #d4ebbb;
+  --accent-dim: #2d4028;
+  --accent-wash: #cef39c18;
   --accent-ink: #202c18;
   --modulation: #8cdcd1;
   --danger: #ed9a91;
@@ -45,14 +45,14 @@
 }
 
 html { background: var(--canvas); scrollbar-color: var(--line-strong) var(--canvas); }
-body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+body { font: 13px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--canvas); }
 ::selection { background: var(--accent-dim); color: var(--text); }
 button, a, input { transition: background-color .12s ease-out, border-color .12s ease-out, color .12s ease-out; }
 button:disabled, .tool-button[aria-disabled=true] { opacity: .4; }
 button[aria-pressed=true] { background: var(--accent-dim); border-color: var(--line-strong); color: var(--accent); }
 input { accent-color: var(--accent); }
 .toolbar { background: var(--canvas); border-bottom: 1px solid var(--line); color: var(--text); }
-.brand { display: flex; align-items: center; gap: 10px; font-size: 23px; font-weight: 850; letter-spacing: -.8px; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 750; letter-spacing: -.5px; }
 .brand-mark { width: 36px; height: 36px; flex: none; color: var(--accent); }
 .brand-wordmark { display: flex; flex-direction: column; gap: 4px; }
 .brand .brand-wordmark > span { color: var(--text-tertiary); font-size: 8px; letter-spacing: 1.4px; font-weight: 500; margin: 0; }
@@ -64,7 +64,7 @@ input { accent-color: var(--accent); }
 .tool-button, .nw-button, .lcd-choice, .lcd-readout, .switch-control { border-radius: var(--radius); box-shadow: none; }
 .tool-button, .nw-button { color: var(--text-secondary); background: var(--control); }
 .tool-button:hover:not(:disabled), .nw-button:hover:not(:disabled) { color: var(--text); background: var(--control-hover); }
-.lcd-choice { background: var(--control-inset); color: var(--text); font-family: inherit; }
+.lcd-choice { background: var(--control-inset); color: var(--text); font-family: inherit; font-size: 12px; border-color: var(--line-subtle); }
 .lcd-choice:hover:not(:disabled) { background: var(--control); border-color: var(--line-strong); }
 .choice-arrow { color: var(--text-tertiary); }
 .choice-popup, .new-interface .nw-popover { background: var(--surface-overlay); border-color: var(--line-strong); border-radius: 8px; box-shadow: 0 12px 36px var(--shadow); }
@@ -72,11 +72,22 @@ input { accent-color: var(--accent); }
 .choice-popup button[aria-selected=true] { background: var(--accent-dim); color: var(--accent); }
 .choice-popup button:hover, .choice-popup button:focus { background: var(--control-hover); color: var(--text); }
 .choice-popup button[aria-selected=true]:hover { background: var(--accent-dim); color: var(--accent); }
+.classic-tool-popover { position: fixed; inset: auto; margin: 0; padding: 12px; color: var(--text); background: var(--surface-overlay); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 12px 36px var(--shadow); overflow: auto; }
+.classic-tool-popover .nw-popover-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.classic-tool-popover h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.classic-tool-popover .nw-popover-heading button { padding: 0; width: 44px; font-size: 20px; }
+.classic-tool-popover > :is(button,a) { display: flex; width: 100%; height: 44px; min-height: 44px; align-items: center; justify-content: center; margin-top: 4px; font-size: 12px; }
+.classic-tool-popover .performance { width: 100%; min-width: 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); margin-bottom: 12px; }
+.classic-tool-popover .performance .parameter { height: 84px; }
+.classic-tool-popover .performance .knob { width: 44px; height: 44px; }
+.classic-tool-popover .performance .knob-face { width: 32px; height: 32px; }
+.classic-tool-popover .performance .dial-value { height: 28px; line-height: 28px; }
+.classic-tool-popover .performance .switch-control { height: 44px; min-height: 44px; }
 .choice-search, .editor-dialog input, .recordings-library input { background: var(--control-inset); border-color: var(--line); color: var(--text); border-radius: var(--radius); }
 .editor-dialog { background: var(--surface-raised); border-radius: 8px; border-color: var(--line-strong); box-shadow: 0 16px 56px var(--shadow); }
 .dialog-heading h2 { font-weight: 650; }
-.module h2, .new-interface #rack .module h2 { color: var(--text-secondary); font-weight: 650; letter-spacing: 1.4px; font-size: 10px; }
-.module-heading svg { background: var(--control-inset); border-color: var(--line); border-radius: 4px; }
+.module h2 { color: var(--text); font-weight: 600; letter-spacing: 1px; font-size: 11px; }
+.module-heading svg { background: transparent; border: 0; border-radius: 0; opacity: .85; }
 .module-heading path { stroke: var(--accent); stroke-width: 2; }
 .parameter > label { color: var(--text-secondary); }
 .dial-value { color: var(--text); font-variant-numeric: tabular-nums; }
@@ -98,9 +109,9 @@ input { accent-color: var(--accent); }
 }
 .knob-face {
   background: linear-gradient(135deg, var(--control-hover), var(--control-inset));
-  border: 1px solid var(--line-strong); box-shadow: inset 0 0 0 2px var(--surface), 0 1px 3px var(--shadow);
+  border: 1px solid var(--line-strong); box-shadow: inset 0 0 0 2px var(--surface), 0 2px 4px var(--shadow);
 }
-.knob-face::after { top: 4px; width: 2px; height: 10px; background: var(--text); left: calc(50% - 1px); }
+.knob-face::after { top: 3px; width: 2px; height: 10px; background: var(--text); left: calc(50% - 1px); }
 .knob:hover:not(:disabled) { background: transparent; border: 0; }
 .knob:hover:not(:disabled) .knob-face { border-color: var(--accent); }
 .knob:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
@@ -129,141 +140,357 @@ input { accent-color: var(--accent); }
 meter::-webkit-meter-bar { background: var(--line); }
 meter::-webkit-meter-optimum-value { background: var(--accent); }
 
-.new-interface .toolbar { padding: 12px 16px 8px; }
-.new-interface .interface-identity { width: 164px; gap: 6px; }
-.new-interface .brand { font-size: 23px; }
-.new-interface .brand .brand-mark { display: block; }
-.new-interface .brand .brand-wordmark { display: flex; }
+/* Controls share a baseline, even when a module mixes choices and dials. */
+button { font-weight: 500; }
+.tool-button, .nw-button { height: 36px; min-height: 36px; padding: 0 12px; font-size: 12px; border-color: var(--line-subtle); }
+.tool-button[aria-pressed=true], .nw-button[aria-pressed=true] { background: var(--accent-dim); color: var(--accent); border-color: var(--line-strong); }
+.knob { width: 44px; height: 44px; min-height: 44px; }
+.knob-face { width: 32px; height: 32px; }
+.dial-value { height: 20px; line-height: 20px; font-size: 12px; }
+.switch-control { color: var(--text-secondary); background: var(--control-inset); border-color: var(--line-subtle); }
+.switch-led { width: 5px; height: 5px; background: var(--line-strong); }
+.segmented { gap: 2px; padding: 3px; background: var(--control-inset); border: 1px solid var(--line-subtle); border-radius: 6px; }
+.segmented button { background: transparent; border-color: transparent; border-radius: 4px; font-weight: 500; }
+.segmented button[aria-pressed=true] { background: var(--accent-dim); color: var(--accent); border-color: transparent; }
+.module { border: 1px solid var(--line-subtle); border-radius: 8px; background: var(--surface); padding: 8px 12px; }
+.module-heading { height: 24px; margin-bottom: 8px; gap: 8px; }
+.module h2 { line-height: 16px; }
+.module-heading svg { width: 92px; height: 24px; flex: none; }
+.module-heading path { stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.module:is(.module-eg1,.module-eg2,.module-eg3,.module-lfo1,.module-lfo2,.module-lfo3) .module-heading path { stroke: var(--modulation); opacity: .8; }
+#rack { padding: 12px 16px 16px; background: var(--canvas); }
+#rack .rack-row { display: grid; gap: 8px; margin-bottom: 12px; border: 0; }
+#rack .rack-row:last-child { margin-bottom: 0; }
+#rack .module { align-self: stretch; min-width: 0; }
+#rack .module-controls { gap: 8px; align-items: start; }
+#rack .parameter { height: 76px; gap: 1px; }
+#rack .parameter > label { height: 14px; line-height: 14px; font-size: 11px; color: var(--text-secondary); font-weight: 450; }
+#rack .knob { width: 44px; height: 44px; min-height: 44px; }
+#rack .knob-face { width: 32px; height: 32px; }
+#rack .dial-value { height: 16px; min-height: 16px; line-height: 16px; font-size: 12px; }
+#rack .parameter:has(> .lcd-choice), #rack .parameter:has(> .switch-control), #rack .parameter:has(> .lcd-readout) { height: 48px; gap: 2px; }
+#rack :is(.lcd-choice,.switch-control,.lcd-readout) { height: 32px; min-height: 32px; padding: 0 8px; font-size: 12px; }
+#rack .segment-parameter { height: auto; }
+#rack .segmented button { height: 28px; min-height: 28px; padding: 0 4px; font-size: 11px; }
+#rack .rack-row-0, #rack .rack-row-3 { grid-template-columns: repeat(12,minmax(0,1fr)); }
+#rack .rack-row-0 .module { grid-column: span 3; }
+#rack .rack-row-0 .module-osc3 { grid-column: span 6; }
+#rack .module-osc3 .module-controls { grid-template-columns: repeat(4,minmax(0,1fr)); }
+#rack .module-osc3 .parameter:has(> .lcd-choice) { grid-column: span 1; }
+#rack .module-mixer .module-controls, #rack .module-filter1 .module-controls { grid-template-columns: repeat(3,minmax(0,1fr)); }
+#rack .module-filter2 .module-controls { grid-template-columns: repeat(4,minmax(0,1fr)); }
+#rack .module-drive .module-controls { grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-areas: 'mode mode' 'type depth' 'position position'; }
+#rack .rack-row-1 { grid-template-columns: repeat(3,minmax(0,1fr)); }
+#rack .rack-row-1 .module, #rack .rack-row-2 .module { grid-column: auto; }
+#rack .rack-row-1 .module-controls { grid-template-columns: repeat(4,minmax(0,1fr)); }
+#rack .rack-row-2 { grid-template-columns: repeat(4,minmax(0,1fr)); }
+#rack .rack-row-3 .module { grid-column: span 3; }
+#rack .rack-row-3 .module-voice { grid-column: 1/-1; }
+#rack .module-voice .module-controls { grid-template-columns: repeat(9,minmax(0,1fr)); }
+#rack .module-amp .module-controls { grid-template-columns: repeat(3,minmax(0,1fr)); }
+#rack .module-midi .module-controls, #rack .module-scale .module-controls, #rack .module-drums .module-controls { grid-template-columns: repeat(4,minmax(0,1fr)); }
+#rack .module-scale .parameter:nth-child(n+5) { height: 48px; }
+#rack .module-scale .parameter:nth-child(n+5) .knob { display: none; }
+#rack .module-scale .parameter:nth-child(n+5) .dial-value { height: 32px; line-height: 32px; background: var(--control-inset); border: 1px solid var(--line-subtle); border-radius: 5px; width: 100%; max-width: none; }
+#rack .patch-body { grid-template-columns: repeat(2,minmax(0,1fr)); }
+#rack .patch-route { grid-column: 1/-1; gap: 4px; }
+#rack .patch-route .parameter { display: grid; grid-template-columns: 32px minmax(0,1fr); height: 32px; gap: 4px; }
+#rack .patch-route .parameter > label { height: auto; line-height: 16px; font-size: 9px; text-align: left; }
+
+/* The full rack and workspace share this header rhythm. */
+.toolbar { padding: 12px 16px; gap: 8px 12px; background: var(--canvas); border-bottom: 1px solid var(--line-subtle); }
+.interface-identity { gap: 8px; }
+.brand { gap: 8px; }
+.brand-mark { width: 32px; height: 32px; }
+.brand .brand-wordmark > span { display: none; }
+.interface-navigation { gap: 12px; font-size: 10px; line-height: 16px; }
+.interface-navigation a { border: 0; padding: 0; }
+.interface-navigation a[aria-current=page] { color: var(--text); }
+.interface-navigation a[aria-current=page]::before { content: ''; display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); vertical-align: middle; margin-right: 5px; }
+.timbre-bank { gap: 4px; }
+.timbres { gap: 4px; }
+.timbres button, .timbre-bank #add-timbre { width: 32px; min-width: 32px; height: 32px; min-height: 32px; font: 11px ui-monospace,monospace; }
+.timbres button[aria-selected=true] { background: var(--accent-dim); color: var(--accent); border-color: var(--line-strong); }
+.program { width: auto; min-width: 0; gap: 4px; }
+.program .lcd-choice { height: 36px; min-height: 36px; font-size: 12px; background: var(--surface); border-color: var(--line); }
+.program-caption, .program #edit-context { font: 9px/12px ui-monospace,monospace; color: var(--text-tertiary); letter-spacing: .6px; }
+.patch-save #patch-save-options { width: 28px; }
+.toolbar-actions { gap: 4px; margin: 0; }
+.power { height: 36px; min-height: 36px; font-size: 12px; min-width: 100px; }
+.fullscreen { width: 36px; padding: 0; }
+html:not(.new-interface) .toolbar { display: grid; grid-template-columns: 184px minmax(200px,1fr) minmax(160px,1fr) auto; }
+html:not(.new-interface) .toolbar .workspace { display: contents; }
+html:not(.new-interface) .interface-identity { grid-column: 1; grid-row: 1; }
+html:not(.new-interface) .program-select { grid-column: 2; grid-row: 1; }
+html:not(.new-interface) .sound-select { grid-column: 3; grid-row: 1; }
+html:not(.new-interface) .program-files { grid-column: 4; grid-row: 1; }
+html:not(.new-interface) .timbre-bank { grid-column: 1; grid-row: 2; max-width: 184px; }
+html:not(.new-interface) .performance { grid-column: 2; grid-row: 2; width: 260px; max-width: 100%; }
+html:not(.new-interface) .toolbar-actions { grid-column: 3/5; grid-row: 2; justify-content: flex-end; }
+.performance .parameter { height: 56px; gap: 0; }
+.performance .parameter > label { font-size: 9px; line-height: 12px; height: 12px; }
+.performance .knob { width: 32px; height: 32px; min-height: 32px; }
+.performance .knob-face { width: 22px; height: 22px; }
+.performance .dial-value { height: 12px; line-height: 12px; font-size: 10px; color: var(--text-secondary); }
+.performance .switch-control { height: 32px; min-height: 32px; font-size: 10px; }
+
+/* Macros read as eight small performance strips rather than another synth row. */
+.macros-rack { padding: 12px 16px; border: 0; background: var(--canvas); gap: 12px; }
+.macros-rack > h2 { font-size: 10px; color: var(--text-tertiary); letter-spacing: 1px; }
+#macros { gap: 8px; }
+.macro-control { display: grid; grid-template-columns: 36px minmax(0,1fr) 24px; grid-template-rows: 16px 20px auto; gap: 0 8px; padding: 8px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--surface); align-items: center; }
+.macro-control > label { grid-column: 2; grid-row: 1; text-align: left; color: var(--text-secondary); height: 16px; line-height: 16px; font-size: 10px; font-weight: 500; }
+.macro-control .knob { grid-column: 1; grid-row: 1/3; width: 36px; height: 36px; min-height: 36px; }
+.macro-control .knob-face { width: 26px; height: 26px; }
+.macro-control .dial-value { grid-column: 2; grid-row: 2; width: 100%; height: 20px; line-height: 20px; text-align: left; font-size: 12px; }
+.macro-control .macro-edit { grid-column: 3; grid-row: 1/3; min-width: 24px; width: 24px; height: 32px; min-height: 32px; padding: 0; font-size: 0; background: transparent; border-color: transparent; border-radius: 4px; }
+.macro-edit svg { width: 13px; height: 13px; }
+.macro-edit span { display: none; }
+.macro-control .macro-edit:hover { color: var(--accent); background: var(--accent-dim); }
+.nw-macro-targets { grid-column: 1/-1; grid-row: 3; width: 100%; height: 16px; font: 10px/16px ui-monospace,monospace; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.nw-macro-targets:empty { display: none; }
+
+/* Effects, patterns and the performance strip use the same quiet surfaces. */
+.effects-rack { padding: 12px 16px; gap: 8px; background: var(--canvas); border: 0; }
+.effects-rack .fx-module { padding: 12px; border: 1px solid var(--line-subtle); border-radius: 8px; background: var(--surface); }
+.effects-rack .module-heading { height: 28px; margin-bottom: 8px; }
+.fx-type .lcd-choice { height: 36px; min-height: 36px; font-size: 12px; }
+.fx-properties { gap: 8px; margin-top: 12px; }
+.fx-properties .parameter { height: 80px; gap: 2px; }
+.fx-properties .parameter > label { height: 16px; line-height: 16px; font-size: 10px; }
+.fx-properties .knob { width: 40px; height: 40px; min-height: 40px; }
+.fx-properties .knob-face { width: 28px; height: 28px; }
+.fx-properties .dial-choice { height: 20px; min-height: 20px; font-size: 11px; background: transparent; border-color: transparent; padding: 0 2px; }
+.fx-power, .nw-fx-expand { height: 28px; min-height: 28px; min-width: 32px; font-size: 11px; }
+.fx-add-row { padding: 0 0 8px; }
+.fx-add-row > .lcd-choice { height: 36px; min-height: 36px; }
+.sequencer { margin: 0 16px 12px; padding: 12px; border: 1px solid var(--line-subtle); border-radius: 8px; background: var(--surface); }
+.sequence-heading { margin-bottom: 12px; gap: 8px; }
+.sequence-heading h2 { font-size: 11px; font-weight: 600; letter-spacing: 1px; color: var(--text-secondary); }
+.sequence-tools button, .sequence-transport button { height: 32px; min-height: 32px; font-size: 11px; }
+.sequence-track { padding: 4px 0; }
+.sequence-track .track-head { gap: 4px; }
+.sequence-track .track-head button { height: 32px; min-height: 32px; font-size: 11px; }
+.sequence-step { height: 36px; min-height: 36px; padding: 3px 6px; background: var(--control-inset); border-color: var(--line-subtle); border-radius: 4px; }
+.step-index { font-size: 9px; color: var(--text-tertiary); }
+.step-notes { font-size: 11px; }
+.sequence-step.filled { background: var(--accent-dim); color: var(--accent-text); border-color: var(--line-strong); }
+.performance-footer { padding: 8px 16px; background: var(--canvas); border-top: 1px solid var(--line-subtle); box-shadow: none; }
+.keybed { gap: 12px; }
+.keybed-heading { font-size: 10px; letter-spacing: .8px; color: var(--text-secondary); }
+.keys { gap: 3px; }
+.key { height: 40px; min-height: 40px; border-color: var(--line); background: var(--control-hover); border-radius: 3px; }
+.key.black { background: var(--control-inset); border-color: var(--line-subtle); }
+.key span { font-size: 11px; font-weight: 500; }
+.key small { font-size: 9px; color: var(--text-tertiary); }
+.octaves button { width: 28px; height: 28px; }
+.monitor { font-size: 10px; color: var(--text-tertiary); }
+.recorder { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0; padding: 0; border: 0; }
+.record-target { width: 224px; max-width: 100%; }
+.recorder button, .record-time, .record-target .lcd-choice { height: 32px; min-height: 32px; font-size: 11px; }
+
+/* Workspace: sound has priority, effects and sequencing remain within reach. */
+.new-interface .toolbar { padding: 10px 16px 8px; }
+.new-interface .interface-identity { width: 160px; }
+.new-interface .brand { font-size: 22px; }
+.new-interface .brand span { display: flex; }
 .new-interface .brand .brand-wordmark > span { display: none; }
-.new-interface .program-caption, .new-interface .program #edit-context { color: var(--text-tertiary); font-size: 9px; letter-spacing: 1px; }
-.new-interface .nw-transport { padding-top: 8px; margin-top: 8px; border-top: 1px solid var(--line-subtle); }
-.new-interface .nw-transport .dial-value { background: var(--control-inset); border: 1px solid var(--line); color: var(--accent); border-radius: var(--radius); }
-.new-interface .nw-transport .parameter > label { order: 0; color: var(--text-tertiary); }
-.new-interface .nw-transport .dial-value { order: 0; }
-.new-interface .nw-header-tools .nw-button { color: var(--text-secondary); background: var(--control); }
-.new-interface .nw-view-tools button { border-color: var(--line); }
-.new-interface .nw-view-tools button[aria-pressed=true] { background: var(--accent-dim); border-color: var(--line-strong); color: var(--accent); }
-.new-interface .macros-rack { background: var(--canvas); padding: 8px 16px; border-bottom-color: var(--line); }
-.new-interface .macro-control { grid-template-columns: minmax(0,1fr); grid-template-rows: 40px 16px 20px 20px auto; gap: 0; }
-.new-interface .macro-control > label { grid-column: 1; grid-row: 2; height: 16px; line-height: 16px; }
-.new-interface .macro-control .knob { grid-column: 1; grid-row: 1; }
-.new-interface .macro-control .dial-value { grid-column: 1; grid-row: 3; }
-.new-interface .macro-control .macro-edit { grid-column: 1; grid-row: 4; }
-.new-interface .macro-control .nw-macro-targets { grid-column: 1; grid-row: 5; }
-.new-interface .macro-control .nw-macro-targets:empty { display: none; }
-.new-interface .macro-control > label { color: var(--text-secondary); font-size: 10px; font-weight: 500; letter-spacing: .6px; }
-.new-interface .macro-control .dial-value { color: var(--text); }
-.new-interface .nw-macro-targets { color: var(--text-tertiary); }
-.new-interface .nw-stage { padding: 12px 16px; gap: 12px; background: var(--canvas); }
-.new-interface .nw-sound, .new-interface .nw-fx { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
-.new-interface .nw-stage-heading { background: var(--surface-raised); border-color: var(--line); padding: 4px 12px; }
-.new-interface .nw-stage-heading h2 { color: var(--text-secondary); font-size: 11px; font-weight: 600; letter-spacing: .6px; }
-.new-interface .nw-section-jumps button { font-size: 11px; color: var(--text-tertiary); }
-.new-interface .nw-section-jumps button:hover { background: var(--accent-dim); color: var(--accent); }
-.new-interface .nw-signal-flow { background: var(--surface); border-color: var(--line-subtle); color: var(--text-tertiary); font-size: 10px; padding: 4px 12px; }
-.new-interface #rack { padding: 0 12px 16px; }
-.new-interface #rack .module { padding: 12px 8px; border-bottom-color: var(--line); }
-.new-interface #rack .module-heading { margin-bottom: 12px; }
-.new-interface #rack .module-controls { gap: 8px; }
-.new-interface .parameter > label { color: var(--text-secondary); font-size: 10px; letter-spacing: .1px; }
-.new-interface .dial-parameter > label { font-size: 9px; letter-spacing: .6px; text-transform: uppercase; }
-.new-interface .dial-value { color: var(--text); font-size: 12px; }
-.new-interface .nw-primary > label { color: var(--text-secondary); font-weight: 500; }
-.new-interface .nw-rack-divider { color: var(--text-tertiary); font-size: 10px; letter-spacing: 1.6px; padding-top: 20px; }
-.new-interface #rack .module:is(.module-eg1,.module-eg2,.module-eg3,.module-lfo1,.module-lfo2,.module-lfo3) { border-color: var(--line); }
-.new-interface .nw-fx #effects { background: var(--surface); }
-.new-interface .fx-module { border-color: var(--line); }
-.new-interface .fx-module.fx-shared { border-top-color: var(--line-strong); }
-.new-interface .nw-dock { margin: 0 16px; border: 1px solid var(--line); border-radius: 8px 8px 0 0; background: var(--surface); }
-.new-interface .nw-dock-grip { background: var(--surface); }
-.new-interface .nw-dock-grip::after { background: var(--line-strong); height: 2px; top: 3px; }
-.new-interface .nw-pattern-overview, .new-interface .sequence-track .track-head { background: var(--surface); }
-.new-interface .nw-bank { background: var(--control-inset); border-color: var(--line); border-radius: 4px; }
-.new-interface .nw-bank[aria-pressed=true] { background: var(--accent-dim); color: var(--accent); border-color: var(--line-strong); box-shadow: none; }
-.new-interface .nw-sequence-modes button[aria-pressed=true], .new-interface .sequence-lane[data-active=true] .track-select { background: var(--accent-dim); color: var(--accent); border-color: var(--line-strong); }
-.new-interface .nw-inspector { background: var(--surface-raised); }
-.new-interface .nw-row-label, .new-interface .nw-grid-time { background: var(--surface-raised); }
-.new-interface .nw-row-label.black { background: var(--control-inset); }
-.new-interface .nw-grid-event, .new-interface .nw-grid-event[aria-pressed=true] { background: var(--surface); }
-.new-interface .nw-event-marker { background: var(--accent); border-color: var(--accent); }
-.new-interface .nw-grid-event.selected, .new-interface .nw-grid-time.selected { background: var(--accent-dim); }
-.new-interface .nw-grid-event:hover:not(:disabled) { background: var(--control-hover); }
-.new-interface .performance-footer { background: var(--canvas); border-color: var(--line); padding: 8px 16px; box-shadow: none; }
+.new-interface .program { max-width: 260px; }
+.new-interface .nw-header-tools { gap: 4px; }
+.new-interface .nw-header-tools .nw-button { background: var(--control); color: var(--text-secondary); }
+.new-interface .nw-transport { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-subtle); }
+.new-interface .nw-transport > button { height: 32px; min-height: 32px; }
+.new-interface .nw-transport .parameter { height: 32px; }
+.new-interface .nw-transport .parameter > label { font-size: 10px; color: var(--text-tertiary); order: 0; }
+.new-interface .nw-transport .dial-value { background: var(--control-inset); color: var(--text); height: 32px; line-height: 32px; border: 1px solid var(--line-subtle); border-radius: 5px; order: 0; }
+.new-interface .nw-view-tools button { background: transparent; border-color: var(--line-subtle); color: var(--text-secondary); height: 32px; min-height: 32px; font-size: 11px; }
+.new-interface .nw-view-tools button[aria-pressed=true] { background: var(--accent-dim); color: var(--accent); border-color: var(--line-strong); }
+.new-interface #record-toggle, .new-interface #seq-reset { background: var(--control); border-color: var(--line-subtle); color: var(--text-secondary); }
+.new-interface #record-time { height: 32px; min-height: 32px; line-height: 32px; font-size: 11px; }
+.new-interface .macros-rack { padding: 8px 16px; border-bottom: 1px solid var(--line-subtle); }
+.new-interface .macros-rack > h2 { display: none; }
+.new-interface .nw-stage { padding: 12px 16px; gap: 12px; grid-template-columns: minmax(0,1fr) 300px; background: var(--canvas); }
+.new-interface .nw-sound { border: 0; border-radius: 0; background: var(--canvas); }
+.new-interface .nw-fx { background: var(--surface); border: 1px solid var(--line-subtle); border-radius: 8px; overflow: hidden; }
+.new-interface .nw-stage-heading { height: 36px; min-height: 36px; background: transparent; border-bottom: 0; padding: 0 0 8px; }
+.new-interface .nw-stage-heading h2 { font-size: 12px; font-weight: 600; color: var(--text); letter-spacing: .1px; }
+.new-interface .nw-fx .nw-stage-heading { padding: 4px 12px; height: 40px; min-height: 40px; border-bottom: 1px solid var(--line-subtle); }
+.new-interface .nw-section-jumps { gap: 4px; }
+.new-interface .nw-section-jumps button { height: 28px; min-height: 28px; padding: 0 8px; font-size: 11px; border: 0; border-radius: 4px; color: var(--text-tertiary); background: transparent; }
+.new-interface .nw-section-jumps button:hover { color: var(--text); background: var(--control); }
+.new-interface .nw-signal-flow { display: none; }
+.new-interface #rack { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); gap: 8px; padding: 0 4px 8px 0; scroll-padding-top: 0; align-items: stretch; }
+.new-interface #rack .rack-row { display: contents; }
+.new-interface #rack .module { grid-column: span 4; padding: 8px 12px; border: 1px solid var(--line-subtle); border-radius: 8px; }
+.new-interface #rack .module-osc1, .new-interface #rack .module-osc2 { grid-column: span 3; }
+.new-interface #rack .module-osc3 { grid-column: span 6; }
+.new-interface #rack .module:is(.module-drive,.module-amp,.module-midi,.module-scale) { grid-column: span 6; }
+.new-interface #rack .module:is(.module-voice,.module-drums) { grid-column: 1/-1; }
+.new-interface #rack .module.patch-module { grid-column: span 3; }
+.new-interface #rack .nw-rack-divider { margin: 0; padding: 12px 0 4px; font-size: 10px; line-height: 16px; letter-spacing: 1.5px; color: var(--text-tertiary); }
+.new-interface #rack .module-lfo1 { grid-column-start: 1; }
+.new-interface #rack .module-voice .module-controls { grid-template-columns: repeat(6,minmax(0,1fr)); }
+.new-interface #rack .module-drums .module-controls { grid-template-columns: repeat(8,minmax(0,1fr)); }
+.new-interface #effects { padding: 8px; background: transparent; }
+.new-interface #effects .fx-module { padding: 8px; margin-bottom: 8px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--control-inset); }
+.new-interface #effects .fx-module.fx-empty { display: grid; grid-template-columns: 88px minmax(0,1fr); gap: 4px; align-items: center; }
+.new-interface #effects .fx-empty > .module-heading { height: 32px; margin: 0; }
+.new-interface #effects .fx-module h2 { font-size: 10px; letter-spacing: .6px; }
+.new-interface #effects .fx-shared { margin-top: 16px; border-color: var(--line-strong); }
+.new-interface .fx-properties { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
+.new-interface .fx-collapsed .fx-properties { display: none; }
+.new-interface .nw-fx.folded #effects { display: none; }
+.new-interface .nw-dock { margin: 0 16px; border: 1px solid var(--line-subtle); border-radius: 8px 8px 0 0; background: var(--surface); }
+.new-interface .nw-dock-grip { background: transparent; height: 8px; min-height: 8px; }
+.new-interface .nw-dock-grip::after { height: 2px; top: 3px; background: var(--line-strong); }
+.new-interface .nw-sequence-heading { height: 40px; min-height: 40px; padding: 0 12px 8px; border-bottom: 1px solid var(--line-subtle); }
+.new-interface .nw-sequence-heading h2 { font-size: 11px; }
+.new-interface .nw-sequence-modes { gap: 2px; background: var(--control-inset); padding: 2px; border-radius: 5px; }
+.new-interface .nw-sequence-modes button { border: 0; background: transparent; border-radius: 3px; height: 28px; min-height: 28px; font-size: 11px; }
+.new-interface .nw-sequence-modes button[aria-pressed=true] { background: var(--control-hover); color: var(--text); }
+.new-interface .sequencer { margin: 0; padding: 0 12px 8px; border: 0; border-radius: 0; background: transparent; }
+.new-interface .nw-pattern-overview { padding: 4px 0 8px; background: transparent; }
+.new-interface .nw-pattern-caption { font-size: 10px; line-height: 14px; }
+.new-interface .nw-bank { height: 24px; min-height: 24px; padding: 2px 4px; gap: 2px; background: var(--control-inset); border-color: var(--line-subtle); border-radius: 3px; }
+.new-interface .nw-bank[aria-pressed=true] { background: var(--accent-dim); color: var(--accent-text); border-color: var(--line-strong); box-shadow: none; }
+.new-interface .nw-mini-step { background: var(--line); }
+.new-interface .nw-mini-step.filled { background: var(--accent); }
+.new-interface .nw-mini-step.current { background: var(--danger); }
+.new-interface .sequence-track .track-head { background: var(--surface); }
+.new-interface .nw-inspector { background: var(--surface-raised); border-color: var(--line-subtle); }
+.new-interface .performance-footer { padding: 8px 16px; background: var(--canvas); border-color: var(--line-subtle); }
+.new-interface .keybed { padding: 4px 0; }
+.new-interface .nw-footer-tools > button, .new-interface .nw-footer-tools .lcd-choice { height: 32px; min-height: 32px; font-size: 11px; }
 .new-interface .circuit-map { background: var(--surface-overlay); border-color: var(--line-strong); }
 .cable.cv { stroke: var(--modulation); }
 .circuit-port.cv { color: var(--modulation); }
-.circuit-port.cv.connected .port-dot, .circuit-port.cv[aria-pressed=true] .port-dot { background: var(--modulation); border-color: var(--modulation); }
+.circuit-port.cv.connected .port-dot { background: var(--modulation); border-color: var(--modulation); }
 
-@media (min-width:1400px) {
-  html:not(.new-interface) .rack-row-0 { grid-template-columns: repeat(28,minmax(0,1fr)); }
+@media (min-width:1600px) {
+  #rack .rack-row-1 { grid-template-columns: repeat(6,minmax(0,1fr)); }
 }
-/* Dense rack controls; the performance and touch surfaces keep their own sizes. */
-@media (min-width:801px) {
-  :root #rack .module { padding: 8px; }
-  :root #rack .module .module-heading { height: 18px; margin-bottom: 8px; }
-  :root #rack .module .module-controls { gap: 4px; }
-  :root #rack .module .module-controls .parameter { height: 68px; gap: 1px; }
-  :root #rack .module .module-controls .parameter > label { height: 14px; line-height: 14px; font-size: 9px; }
-  :root #rack .module .module-controls .parameter > .knob { width: 36px; height: 36px; min-height: 36px; }
-  :root #rack .module .module-controls .knob-face { width: 26px; height: 26px; }
-  :root #rack .module .module-controls .dial-value { height: 16px; min-height: 16px; line-height: 16px; font-size: 11px; }
-  :root #rack .module .module-controls .parameter:has(> .lcd-choice),
-  :root #rack .module .module-controls .parameter:has(> .switch-control),
-  :root #rack .module .module-controls .parameter:has(> .lcd-readout) { height: 48px; }
-  :root #rack .module .module-controls :is(.lcd-choice,.switch-control,.lcd-readout) { height: 32px; min-height: 32px; font-size: 11px; }
-  :root #rack .module .module-controls .segment-parameter { height: auto; }
-  :root #rack .module .segmented button { height: 32px; min-height: 32px; font-size: 10px; }
-  :root #rack .module .module-controls .patch-route .parameter { grid-template-columns: 28px minmax(0,1fr); height: 32px; }
-  :root #rack .patch-route .parameter > label { height: auto; }
-  :root #rack .module-scale .parameter:nth-child(n+5) .dial-value { height: 32px; line-height: 32px; }
-  :root #rack .module-osc3 { container: oscillator / inline-size; }
-}
-@container oscillator (min-width:304px) {
-  #rack .module-osc3 .module-controls > .parameter:has(> .lcd-choice) { grid-column: span 1; }
-}
-@media (min-width:801px) and (max-width:1399px) {
-  html:not(.new-interface) .toolbar { display: grid; grid-template-columns: auto auto repeat(2,minmax(96px,1fr)) auto; gap: 8px; padding: 8px 12px; }
-  html:not(.new-interface) .toolbar .workspace { display: contents; }
-  html:not(.new-interface) .toolbar .program { width: auto; min-width: 0; }
-  html:not(.new-interface) .toolbar .timbre-bank { max-width: 176px; }
-  html:not(.new-interface) .toolbar .program-files { margin-left: 0; }
-  html:not(.new-interface) .toolbar .performance { grid-column: 1/3; grid-row: 2; }
-  html:not(.new-interface) .toolbar .toolbar-actions { grid-column: 3/-1; grid-row: 2; justify-content: flex-end; margin: 0; }
-  html:not(.new-interface) .performance .parameter { height: 60px; }
-  html:not(.new-interface) .performance .knob { width: 32px; height: 32px; min-height: 32px; }
-  html:not(.new-interface) .performance .knob-face { width: 24px; height: 24px; }
-  html:not(.new-interface) .performance .switch-control { height: 32px; min-height: 32px; }
-  html:not(.new-interface) .performance .parameter > label { order: 1; }
-  html:not(.new-interface) .rack-row-0 .module { grid-column: span 3; }
-  html:not(.new-interface) .rack-row-0 .module-osc3 { grid-column: span 6; }
-  html:not(.new-interface) .rack-row-0 .module-mixer .module-controls { grid-template-columns: repeat(3,minmax(0,1fr)); }
-}
-@media (max-width:1100px) and (min-width:801px) {
-  .new-interface .nw-stage { padding: 8px; gap: 8px; }
+@media (min-width:801px) and (max-width:1100px) {
+  html:not(.new-interface) .toolbar { grid-template-columns: 184px minmax(180px,1fr) minmax(128px,1fr) auto; gap: 8px; padding: 8px 12px; }
+  .toolbar .tool-button { padding: 0 8px; font-size: 11px; }
+  .new-interface .nw-stage { grid-template-columns: minmax(0,1fr) 260px; gap: 8px; padding: 8px; }
   .new-interface .nw-dock { margin: 0 8px; }
+  .new-interface #rack .module { grid-column: span 6; }
+  .new-interface #rack .module-osc1, .new-interface #rack .module-osc2 { grid-column: span 6; }
+  .new-interface #rack .module-osc3 { grid-column: 1/-1; }
+  .new-interface #rack .module.patch-module { grid-column: span 6; }
+  .new-interface #rack .module-lfo1 { grid-column-start: 1; }
+  .new-interface #rack .module-voice, .new-interface #rack .module-drums { grid-column: 1/-1; }
+  #macros { grid-template-columns: repeat(4,minmax(0,1fr)); }
+  .macro-control { grid-template-columns: 32px minmax(0,1fr) 24px; grid-template-rows: 14px 18px auto; padding: 6px 8px; }
+  .macro-control .knob { width: 32px; height: 32px; min-height: 32px; }
+  .macro-control .knob-face { width: 24px; height: 24px; }
+  .macro-control .dial-value { height: 18px; line-height: 18px; }
 }
+
 @media (max-width:800px) {
-  html:not(.new-interface) .rack-row-0 .module-osc3 { grid-column: 1/-1; border-right: 0; }
+  .toolbar { padding: 8px; }
+  .tool-button, .nw-button, .power { height: 44px; min-height: 44px; }
+  .interface-navigation a { min-height: 44px; display: inline-flex; align-items: center; }
+  html:not(.new-interface) .toolbar { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); gap: 8px; }
+  html:not(.new-interface) .toolbar .workspace { display: contents; }
+  html:not(.new-interface) .interface-identity { grid-column: 1/-1; grid-row: 1; flex-direction: row; justify-content: space-between; align-items: center; }
+  html:not(.new-interface) .brand { font-size: 18px; }
+  html:not(.new-interface) .brand-mark { width: 28px; height: 28px; }
+  html:not(.new-interface) .program-select { grid-column: 1/7; grid-row: 2; }
+  html:not(.new-interface) .sound-select { grid-column: 7/-1; grid-row: 2; }
+  html:not(.new-interface) .program-caption, html:not(.new-interface) #edit-context { display: none; }
+  html:not(.new-interface) .timbre-bank { grid-column: 1/-1; grid-row: 3; max-width: none; flex-wrap: wrap; }
+  html:not(.new-interface) .timbres { flex: 1; min-width: 188px; }
+  html:not(.new-interface) .timbre-bank .power { margin-left: auto; }
+  html:not(.new-interface) .program-files { grid-column: 1/9; grid-row: 4; justify-content: flex-start; gap: 4px; }
+  html:not(.new-interface) .program-files :is(.tool-button,.nw-button) { padding: 0 8px; font-size: 11px; }
+  html:not(.new-interface) .toolbar-actions { grid-column: 9/-1; grid-row: 4; justify-content: flex-end; }
+  html:not(.new-interface) .toolbar-actions .tool-button { padding: 0 8px; font-size: 11px; }
+  .program .lcd-choice { height: 44px; min-height: 44px; }
+  .timbres button, .timbre-bank #add-timbre { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  #rack { padding: 8px; }
+  #rack .rack-row-0, #rack .rack-row-3 { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  #rack .rack-row-0 .module, #rack .rack-row-3 .module { grid-column: 1/-1; }
+  #rack .rack-row-0 .module-osc1, #rack .rack-row-0 .module-osc2 { grid-column: span 1; }
+  #rack .rack-row-1 { grid-template-columns: 1fr; }
+  #rack .rack-row-2 { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  #rack .rack-row-1 .module, #rack .rack-row-2 .module { grid-column: auto; }
+  #rack .module { padding: 12px 8px; }
+  #rack .module-heading svg { width: 56px; height: 24px; }
+  #rack .module-controls { gap: 8px 4px; }
+  #rack .parameter { height: 108px; gap: 2px; }
+  #rack .parameter > label { font-size: 10px; height: 16px; line-height: 16px; }
+  #rack .knob { width: 44px; height: 44px; min-height: 44px; }
+  #rack .knob-face { width: 32px; height: 32px; }
+  #rack .dial-value { height: 44px; min-height: 44px; line-height: 44px; font-size: 12px; }
+  #rack .parameter:has(> .lcd-choice), #rack .parameter:has(> .switch-control), #rack .parameter:has(> .lcd-readout) { height: 64px; }
+  #rack :is(.lcd-choice,.switch-control,.lcd-readout) { height: 44px; min-height: 44px; padding: 0 6px; font-size: 11px; }
+  #rack .patch-route .parameter { height: 44px; }
+  #rack .segmented button { height: 38px; min-height: 38px; font-size: 11px; }
+  #rack .segment-parameter { height: auto; }
+  #rack .module-voice .module-controls { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .effects-rack { padding: 8px; grid-template-columns: 1fr; }
+  .effects-rack .fx-module { padding: 12px; }
+  .fx-properties .parameter { height: 112px; }
+  .fx-properties .dial-choice { height: 44px; min-height: 44px; line-height: 44px; }
+  .fx-type .lcd-choice { height: 44px; min-height: 44px; }
+  .macros-rack { padding: 8px; }
+  #macros { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .macro-control { grid-template-columns: 44px minmax(0,1fr) 44px; grid-template-rows: 16px 44px auto; padding: 8px; gap: 0 4px; }
+  .macro-control .knob { width: 44px; height: 44px; min-height: 44px; }
+  .macro-control .macro-edit { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .macro-control .dial-value { height: 44px; min-height: 44px; line-height: 44px; }
+  .sequencer { margin: 0 8px 8px; padding: 8px; }
+  .sequence-track .track-head button, .sequence-step { height: 44px; min-height: 44px; }
+  .sequence-heading { flex-wrap: wrap; }
+  .performance-footer { padding: 8px; }
+  .recorder button, .record-time, .record-target .lcd-choice { height: 44px; min-height: 44px; }
+  .record-target { flex: 1; min-width: 0; }
+  .key { height: 44px; min-height: 44px; }
+  .octaves button { height: 44px; min-height: 44px; width: 36px; }
   .new-interface .toolbar { padding: 8px; }
   .new-interface .interface-identity { width: auto; }
   .new-interface .interface-identity .brand { display: flex; font-size: 18px; gap: 6px; }
-  .new-interface .interface-identity .brand-mark { width: 24px; height: 24px; }
-  .new-interface .interface-navigation { font-size: 10px; gap: 8px; }
-  .new-interface .nw-transport { margin-top: 8px; padding-top: 8px; }
+  .new-interface .brand-mark { width: 24px; height: 24px; }
+  .new-interface .nw-topbar { gap: 8px; }
+  .new-interface .nw-header-tools > button { height: 44px; min-height: 44px; }
+  .new-interface .nw-transport .parameter, .new-interface .nw-transport .dial-value, .new-interface .nw-transport > button { height: 44px; min-height: 44px; }
+  .new-interface .nw-transport .parameter > label { font-size: 9px; line-height: 12px; }
+  .new-interface .nw-transport .dial-value { padding-top: 12px; }
   .new-interface .nw-stage { padding: 8px; gap: 8px; }
   .new-interface .nw-sound { height: min(70dvh,600px); min-height: 400px; }
-  .new-interface .nw-sound > .nw-stage-heading { padding: 4px 8px; }
-  .new-interface .nw-stage-heading .nw-view-tools button { background: var(--control); border-color: var(--line); color: var(--text-secondary); }
-  .new-interface .nw-stage-heading .nw-view-tools button[aria-pressed=true] { background: var(--accent-dim); color: var(--accent); }
-  .new-interface .nw-section-jumps button { font-size: 11px; padding: 0 4px; }
-  .new-interface #rack { padding: 0 8px 12px; }
-  .new-interface #rack .module { padding: 12px 4px; }
-  .new-interface .parameter > label, .new-interface .dial-parameter > label { font-size: 10px; }
-  .new-interface .macros-rack { padding: 8px; }
-  .new-interface .macro-control { grid-template-rows: 44px 16px 24px 44px auto; }
+  .new-interface .nw-sound > .nw-stage-heading { height: auto; min-height: 88px; padding: 0 0 8px; }
+  .new-interface .nw-section-jumps button { height: 44px; min-height: 44px; padding: 0 4px; }
+  .new-interface .nw-view-tools button { height: 44px; min-height: 44px; }
+  .new-interface .nw-signal-flow { display: none; }
+  .new-interface #rack { grid-template-columns: repeat(2,minmax(0,1fr)); padding: 0 2px 8px 0; }
+  .new-interface #rack .module { grid-column: 1/-1; padding: 12px 8px; }
+  .new-interface #rack .module-osc1, .new-interface #rack .module-osc2 { grid-column: span 1; }
+  .new-interface #rack .module.patch-module { grid-column: 1/-1; }
+  .new-interface #rack .module-lfo1 { grid-column-start: 1; }
+  .new-interface #rack .module-voice .module-controls { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .new-interface #rack .module-drums .module-controls { grid-template-columns: repeat(4,minmax(0,1fr)); }
+  .new-interface .nw-fx { max-height: 480px; flex: none; }
+  .new-interface #effects .fx-empty > .module-heading { height: 44px; }
+  .new-interface .fx-properties { grid-template-columns: repeat(4,minmax(0,1fr)); }
   .new-interface .nw-dock { margin: 0 8px; }
+  .new-interface .nw-sequence-heading { height: auto; min-height: 104px; padding: 8px; }
+  .new-interface .nw-sequence-modes button, .new-interface .sequence-tools button { height: 44px; min-height: 44px; }
+  .new-interface .nw-bank { height: 44px; min-height: 44px; }
+  .new-interface .sequence-track .track-head { background: var(--surface); }
   .new-interface .performance-footer { padding: 8px; }
-  .new-interface .nw-transport .parameter > label { font-size: 9px; color: var(--text-tertiary); }
-  .new-interface .nw-transport .dial-value { padding-top: 12px; }
+  .new-interface .nw-footer-tools > button, .new-interface .nw-footer-tools .lcd-choice { height: 44px; min-height: 44px; }
+}
+@media (max-width:520px) {
+  #rack .rack-row-2 { grid-template-columns: 1fr; }
+  .macro-dialog .macro-choices { grid-template-columns: 1fr; }
+}
+@media (max-width:380px) {
+  .new-interface .interface-identity .brand { font-size: 15px; gap: 4px; }
+  .new-interface .brand-mark { width: 22px; height: 22px; }
+  .new-interface .interface-navigation { gap: 8px; font-size: 9px; }
+  .new-interface .nw-transport { grid-template-columns: minmax(92px,1fr) 64px 56px 56px; }
+  .new-interface .nw-transport .parameter, .new-interface .nw-transport .dial-value { width: 64px; }
+  .new-interface .nw-transport > button, .new-interface #record-toggle { width: 56px; }
 }
 @media (prefers-reduced-motion:reduce) { button, a, input { transition: none; } }
