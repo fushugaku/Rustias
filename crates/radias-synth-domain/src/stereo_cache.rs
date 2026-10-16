@@ -23,7 +23,13 @@ impl StereoCache {
             right: Sample(saturate(multiply_q15(amplified.0, pan) >> 4)),
         };
     }
+    #[inline]
     pub fn advance(&mut self, existing: StereoFrame) -> StereoFrame {
+        // Both exact Q15 decay products keep digital zero at zero. Never-used
+        // and fully decayed physical slots can leave the ordered bus untouched.
+        if self.samples == StereoFrame::default() {
+            return existing;
+        }
         let transition = |sample: Sample| {
             let first = saturate(multiply_q15(sample.0, self.gain));
             Sample(saturate(multiply_q15(first, -32767)))

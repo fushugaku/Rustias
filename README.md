@@ -142,6 +142,8 @@ Open `http://localhost:8080`. AudioWorklet requires HTTPS or localhost. The buil
 Run `node scripts/verify-web.mjs` to check the compiled module and AudioWorklet at 48/44.1 kHz. The [Pages workflow](.github/workflows/pages.yml) tests the standalone profile, builds WebAssembly and deploys `dist/` on pushes to `main`. Set Settings → Pages → Source to **GitHub Actions**.
 Node.js 22 or newer is required to export the Rust effect catalog during the build and run verification; npm packages are not needed.
 
+Shared renderer optimizations retain exact DSP arithmetic: Q31 combines the original partial products with their saturation correction, and inactive stereo caches skip decay only at exact digital zero. `cargo test --locked -p radias-synth-domain --test fixed_optimizations` checks staged rounding, edge values, every signed tail gain and saturated bus sums. For silent before/after WASM qualification, retain the earlier `.wasm`, rebuild, then run `node scripts/compare-render-performance.mjs before.wasm dist/rustias.wasm`. It compares PCM bytes across synthesis/FX/modulation/PCM scenes before measuring render times in alternating order. `cargo run --release --locked -p radias-synth-infrastructure --example benchmark_render -- output/native-benchmark` measures the native renderer and writes PCM32 evidence. Startup is excluded; results describe the test machine and workload.
+
 Three native reference tests require local firmware/captures and are excluded from the firmware-free Pages job. To run all native library tests against an existing reference checkout: `RADIAS_REFERENCE_ROOT=/path/to/radias-emulator cargo test --locked -p radias-synth-infrastructure --lib`. Reference files remain outside the repository and web build.
 
 ### Android

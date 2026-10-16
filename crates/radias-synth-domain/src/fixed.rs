@@ -14,16 +14,16 @@ pub fn high_product(left: i16, right: i16) -> i64 {
     }
 }
 
-/// Original four-part Q31 product. Two distinct truncations are significant.
+/// Exact equivalent of the original four-part Q31 product and both truncations.
 #[inline]
 pub fn multiply_q31(left: i32, right: i32) -> i64 {
-    let a_low = (left as u32 & 65535) as i64;
-    let b_low = (right as u32 & 65535) as i64;
-    let a_high = (left >> 16) as i16;
-    let b_high = (right >> 16) as i16;
-    let low = ((a_low * b_low * 2) >> 16) + a_high as i64 * b_low * 2;
-    let mixed = low + a_low * b_high as i64 * 2;
-    (mixed >> 16) + high_product(a_high, b_high)
+    // floor((floor(x/2^16) + k)/2^16) == floor((x + k*2^16)/2^32).
+    // Combining the partial products preserves both original floors. The
+    // saturated high-half MIN16*MIN16 product needs a one-unit correction
+    // throughout that entire pair of high halves, including nonzero low bits.
+    let correction =
+        (left >> 16 == i32::from(i16::MIN) && right >> 16 == i32::from(i16::MIN)) as i64;
+    ((i64::from(left) * i64::from(right)) >> 31) - correction
 }
 
 #[inline]

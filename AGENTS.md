@@ -15,6 +15,10 @@ thirty-three FX slots and OSC 3 require `web-expanded` AND the WASM target; nati
 four, six, two and nine even when that feature is enabled on a native test. Never enable those features in the original
 desktop workspace. Browser sequencing, sample library, circuit UI and storage
 belong to `web/` and `crates/radias-web`, with no dependency from the native app.
+Exact shared arithmetic optimizations must retain staged rounding and saturation:
+Q31 needs the high-half MIN16*MIN16 correction even with nonzero low halves.
+Only exactly zero inactive stereo caches may skip decay; nonzero tails and bus
+accumulation order must remain unchanged. Compare native PCM/WASM before/after.
 OSC 3 replaces browser Noise using the shared OSC 1 controller and OSC 2 tuning;
 stored IDs 171–178 and Virtual Patch destinations 43–51 append to the old schema.
 Ring/Sync observes native OSC 1/2 phase/audio taps without altering their states
