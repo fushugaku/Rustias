@@ -22,6 +22,7 @@ VST3 — для Ableton Live, Cubase, REAPER и других совместим�
 папку `Rustias.vst3` целиком в `C:\Program Files\Common Files\VST3\`.
 Содержимое `Contents/Resources` необходимо для работы плагина.
 Для редактора нужен [Microsoft WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+Если DAW ещё не установила [Microsoft Visual C++ x64 Runtime](https://aka.ms/vs/17/release/vc_redist.x64.exe), установите его отдельно.
 Звук работает и при закрытом редакторе.
 
 В архивы также включён CLAP. На Mac его можно положить в

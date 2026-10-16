@@ -3,6 +3,9 @@ const native=window.__RUSTIAS_PLUGIN__&&window.webkit?.messageHandlers?.rustiasH
 const serialize=value=>JSON.stringify(value,(_key,item)=>ArrayBuffer.isView(item)?Array.from(item):item);
 export const pluginHost=native?createHost():null;
 function createHost(){
+  // A DAW owns one editor window; browser-only links that open another interface
+  // tab do not belong in that window.
+  const style=document.createElement('style');style.textContent='.interface-navigation{display:none}';document.head.append(style);
   const NativeWorker=window.Worker;
   window.Worker=class extends NativeWorker{
     constructor(url,options){const name=new URL(url,location.href).pathname.split('/').at(-1),source=window.__RUSTIAS_PLUGIN_WORKERS__?.[name];

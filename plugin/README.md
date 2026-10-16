@@ -22,6 +22,8 @@ signature; there is no Developer ID notarization.
 `Rustias.vst3` directory to `C:\Program Files\Common Files\VST3\`.
 Keep its `Contents/Resources` directory intact. The editor requires Microsoft's
 [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+Install the [Microsoft Visual C++ x64 Runtime](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+if it is not already installed with the DAW.
 The instrument renders without the editor or a browser window open.
 
 CLAP builds are included too: on macOS use `~/Library/Audio/Plug-Ins/CLAP/`;
