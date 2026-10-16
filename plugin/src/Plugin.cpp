@@ -31,7 +31,7 @@ Instrument::~Instrument()=default;
 void Instrument::publish(std::string message){auto w=outgoingWrite.load(std::memory_order_relaxed);unsigned next=(w+1)%outgoing.size();if(next==outgoingRead.load(std::memory_order_acquire))return;outgoing[w]=std::move(message);outgoingWrite.store(next,std::memory_order_release);}
 bool Instrument::activate(double sampleRate){
   try{
-    if(!std::isfinite(sampleRate)||sampleRate<8000||sampleRate>384000)return false;
+    if(!std::isfinite(sampleRate)||sampleRate<1||sampleRate>2000000)return false;
     if(!runtime||rate!=sampleRate){
       runtime=std::make_unique<Runtime>(resources,sampleRate);rate=sampleRate;
       std::vector<std::pair<uint64_t,std::string>> events;{std::lock_guard lock(stateMutex);for(auto& [_,value]:remembered)events.push_back(value);}

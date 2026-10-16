@@ -20,5 +20,9 @@ chmod +x "$rustias_package/Install.command"
 mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
 ditto "$rustias_plugin_build/Rustias.component" "$HOME/Library/Audio/Plug-Ins/Components/Rustias.component"
 touch "$HOME/Library/Audio/Plug-Ins/Components/Rustias.component"
-auval -v aumu Rsts Fshg -strict > output/plugin/auval.log 2>&1
+if [[ "${CI:-}" == true ]]; then auval -a > output/plugin/au-list.log 2>&1; fi
+if ! auval -v aumu Rsts Fshg -strict > output/plugin/auval.log 2>&1; then
+  cat output/plugin/auval.log
+  exit 1
+fi
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$rustias_package" output/plugin/packages/Rustias-macOS-AU-VST3.zip
