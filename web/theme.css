@@ -328,7 +328,7 @@ html:not(.new-interface) .toolbar-actions { grid-column: 3/5; grid-row: 2; justi
 .new-interface #rack .module:is(.module-voice,.module-drums) { grid-column: 1/-1; }
 .new-interface #rack .module.patch-module { grid-column: span 3; }
 .new-interface #rack .nw-rack-divider { margin: 0; padding: 12px 0 4px; font-size: 10px; line-height: 16px; letter-spacing: 1.5px; color: var(--text-tertiary); }
-.new-interface #rack .module-lfo1 { grid-column-start: 1; }
+.new-interface #rack .module-lfo1 { grid-column: 1/span 4; }
 .new-interface #rack .module-voice .module-controls { grid-template-columns: repeat(6,minmax(0,1fr)); }
 .new-interface #rack .module-drums .module-controls { grid-template-columns: repeat(8,minmax(0,1fr)); }
 .new-interface #effects { padding: 8px; background: transparent; }
@@ -378,7 +378,7 @@ html:not(.new-interface) .toolbar-actions { grid-column: 3/5; grid-row: 2; justi
   .new-interface #rack .module-osc1, .new-interface #rack .module-osc2 { grid-column: span 6; }
   .new-interface #rack .module-osc3 { grid-column: 1/-1; }
   .new-interface #rack .module.patch-module { grid-column: span 6; }
-  .new-interface #rack .module-lfo1 { grid-column-start: 1; }
+  .new-interface #rack .module-lfo1 { grid-column: 1/span 6; }
   .new-interface #rack .module-voice, .new-interface #rack .module-drums { grid-column: 1/-1; }
   #macros { grid-template-columns: repeat(4,minmax(0,1fr)); }
   .macro-control { grid-template-columns: 32px minmax(0,1fr) 24px; grid-template-rows: 14px 18px auto; padding: 6px 8px; }
@@ -467,7 +467,7 @@ html:not(.new-interface) .toolbar-actions { grid-column: 3/5; grid-row: 2; justi
   .new-interface #rack .module { grid-column: 1/-1; padding: 12px 8px; }
   .new-interface #rack .module-osc1, .new-interface #rack .module-osc2 { grid-column: span 1; }
   .new-interface #rack .module.patch-module { grid-column: 1/-1; }
-  .new-interface #rack .module-lfo1 { grid-column-start: 1; }
+  .new-interface #rack .module-lfo1 { grid-column: 1/-1; }
   .new-interface #rack .module-voice .module-controls { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .new-interface #rack .module-drums .module-controls { grid-template-columns: repeat(4,minmax(0,1fr)); }
   .new-interface .nw-fx { max-height: 480px; flex: none; }
