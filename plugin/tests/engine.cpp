@@ -21,6 +21,7 @@ struct Engine {
 int main(int argc,char** argv){try{
   require(argc==2,"Browser parity fixture required");std::ifstream input(argv[1]);auto fixtures=Json::parse(input);unsigned total=0;
   for(auto& scenario:fixtures.at("cases")){
+    std::cerr<<"Native scenario: "<<scenario["name"].get<std::string>()<<"\n";
     Engine e;uint32_t buffer=0;double worst=0;
     for(auto& op:scenario.at("operations")){
       if(op.contains("call")){auto value=e.call(op["call"],op["args"].get<std::vector<double>>());if(op.value("buffer",false))buffer=uint32_t(value);else if(op.contains("expected"))require(std::abs(value-op["expected"].get<double>())<1e-7,"Native result differs: "+op["call"].get<std::string>());}

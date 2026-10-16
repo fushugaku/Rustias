@@ -81,6 +81,9 @@ pub struct PolyphonicRenderer {
     #[cfg(feature = "web-modular")]
     circuits: [Option<alloc::boxed::Box<dyn crate::VoiceCircuit>>; TIMBRE_COUNT],
     pub allocator: VoiceAllocator,
+    #[cfg(rustias_plugin)]
+    voices: alloc::boxed::Box<[Option<ActiveVoice>]>,
+    #[cfg(not(rustias_plugin))]
     voices: [Option<ActiveVoice>; VOICE_COUNT],
     physical_frames: [Option<radias_synth_domain::voice_frame::VoiceFrameState>; VOICE_COUNT],
     link: ProcessorLink,
@@ -159,6 +162,12 @@ impl Default for PolyphonicRenderer {
     fn default() -> Self {
         Self {
             allocator: VoiceAllocator::default(),
+            #[cfg(rustias_plugin)]
+            voices: core::iter::repeat_with(|| None)
+                .take(VOICE_COUNT)
+                .collect::<alloc::vec::Vec<_>>()
+                .into_boxed_slice(),
+            #[cfg(not(rustias_plugin))]
             voices: core::array::from_fn(|_| None),
             physical_frames: [None; VOICE_COUNT],
             #[cfg(feature = "web-modular")]
@@ -2131,7 +2140,7 @@ impl PolyphonicRenderer {
         // The expanded native pool exceeds a DAW worker's typical 512 KiB
         // stack if materialized as a temporary array. Drop actors in place.
         #[cfg(rustias_plugin)]
-        for voice in &mut self.voices {
+        for voice in self.voices.iter_mut() {
             *voice = None;
         }
         #[cfg(not(rustias_plugin))]

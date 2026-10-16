@@ -91,6 +91,9 @@ pub struct Sampler {
     assets: BTreeMap<u32, Rc<Vec<f32>>>,
     library: BTreeMap<u32, LibrarySample>,
     gain: f64,
+    #[cfg(rustias_plugin)]
+    voices: Box<[Option<SampleVoice>]>,
+    #[cfg(not(rustias_plugin))]
     voices: [Option<SampleVoice>; VOICES],
     programs: [DrumInstrumentProgram; 16],
     controllers: Box<ControllerTables>,
@@ -155,6 +158,12 @@ impl Sampler {
             assets: BTreeMap::new(),
             library: BTreeMap::new(),
             gain: 1.0,
+            #[cfg(rustias_plugin)]
+            voices: std::iter::repeat_with(|| None)
+                .take(VOICES)
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+            #[cfg(not(rustias_plugin))]
             voices: std::array::from_fn(|_| None),
             programs: std::array::from_fn(|i| synth.drum_program(i)),
             controllers: Box::new(tables::controllers()),
@@ -206,7 +215,7 @@ impl Sampler {
             return;
         }
         self.samples[instrument] = None;
-        for voice in &mut self.voices {
+        for voice in self.voices.iter_mut() {
             if voice
                 .as_ref()
                 .is_some_and(|v| v.library.is_none() && v.instrument == instrument)
@@ -237,21 +246,21 @@ impl Sampler {
         self.voices.iter().flatten().count()
     }
     pub fn stop_kit(&mut self) {
-        for voice in &mut self.voices {
+        for voice in self.voices.iter_mut() {
             if voice.as_ref().is_some_and(|v| v.library.is_none()) {
                 *voice = None;
             }
         }
     }
     pub fn stop(&mut self) {
-        for voice in &mut self.voices {
+        for voice in self.voices.iter_mut() {
             *voice = None;
         }
     }
     pub fn choke(&mut self, synth: &StandaloneSynth, instrument: usize) {
         let group = synth.drum_settings[instrument][147];
         if group != 0 {
-            for voice in &mut self.voices {
+            for voice in self.voices.iter_mut() {
                 if voice.as_ref().is_some_and(|v| {
                     v.timbre == synth.settings[0][141] as u8 && v.settings[147] == group
                 }) {
@@ -380,7 +389,7 @@ impl Sampler {
         true
     }
     pub fn library_reset(&mut self) {
-        for voice in &mut self.voices {
+        for voice in self.voices.iter_mut() {
             if voice.as_ref().is_some_and(|v| v.library.is_some()) {
                 *voice = None;
             }
@@ -398,7 +407,7 @@ impl Sampler {
                 profile.settings[117] = value as i32;
             }
         }
-        for voice in &mut self.voices {
+        for voice in self.voices.iter_mut() {
             if let Some(v) = voice
                 .as_mut()
                 .filter(|v| v.library.is_some() && v.timbre == timbre)
@@ -540,7 +549,7 @@ impl Sampler {
             profile.data.clone(),
         );
         if settings[147] != 0 {
-            for voice in &mut self.voices {
+            for voice in self.voices.iter_mut() {
                 if voice
                     .as_ref()
                     .is_some_and(|v| v.timbre == timbre && v.settings[147] == settings[147])

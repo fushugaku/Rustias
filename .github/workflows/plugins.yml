@@ -71,6 +71,13 @@ jobs:
         run: cmake --build output/plugin/build --target rustias_au rustias-au-check --parallel 4
       - name: Verify shared engine and project state silently
         run: ctest --test-dir output/plugin/build -C Release --output-on-failure
+      - name: Native Windows failure diagnostics
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & output/plugin/build/Release/rustias-engine-check.exe output/plugin/native-parity.json
+          Write-Host ('Native engine exit: 0x{0:X8}' -f ($LASTEXITCODE -band 0xffffffffL))
+          exit 1
       - name: Package and validate macOS
         if: runner.os == 'macOS'
         run: bash scripts/package-plugin-mac.sh
