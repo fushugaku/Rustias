@@ -11,6 +11,8 @@ for rustias_format in clap component vst3; do
   fi
   codesign --force --sign - --timestamp=none "$rustias_bundle"
   codesign --verify --deep --strict "$rustias_bundle"
+  # This is generated package staging; discard files removed by newer builds.
+  rm -rf "$rustias_package/Rustias.$rustias_format"
   ditto "$rustias_bundle" "$rustias_package/Rustias.$rustias_format"
 done
 cp plugin/README.md plugin/README.ru.md plugin/THIRD_PARTY_NOTICES.txt "$rustias_package/"
@@ -41,3 +43,4 @@ if ! auval -v aumu Rsts Fshg -strict > output/plugin/auval.log 2>&1; then
   fi
 fi
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$rustias_package" output/plugin/packages/Rustias-macOS-AU-VST3.zip
+python3 scripts/package-plugin-pkg.py --bundles "$rustias_package"

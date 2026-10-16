@@ -15,13 +15,20 @@ reference desktop profile remains unchanged.
 
 ## Install
 
-**macOS 12 or later, Apple Silicon or Intel:** unzip `Rustias-macOS-AU-VST3.zip`
-and run `Install.command`, or copy `Rustias.component` to
+**macOS 12 or later, Apple Silicon or Intel:** open `Rustias-macOS-<version>.pkg`.
+Installer lets you choose AU, VST3 and CLAP and installs them for your account
+in `~/Library/Audio/Plug-Ins/`. No administrator password is required. Existing
+bundles are replaced atomically, including their resources. Quit your DAW before
+installing, then reopen it and rescan plugins.
+
+The ZIP remains available: unzip `Rustias-macOS-AU-VST3.zip` and run
+`Install.command`, or copy `Rustias.component` to
 `~/Library/Audio/Plug-Ins/Components/` and `Rustias.vst3` to
 `~/Library/Audio/Plug-Ins/VST3/`. AU is an instrument for Logic / GarageBand;
 VST3 is an instrument for Ableton Live, Cubase, REAPER and other VST3 hosts.
 Restart the DAW and rescan its plugins. The supplied local builds use an ad-hoc
-signature; there is no Developer ID notarization.
+signature; the PKG is unsigned unless an Installer identity is configured.
+There is no Developer ID notarization.
 
 **Windows 10/11 x64:** unzip `Rustias-Windows-VST3.zip` and copy the entire
 `Rustias.vst3` directory to `C:\Program Files\Common Files\VST3\`.
@@ -80,9 +87,21 @@ Windows additionally requires Visual Studio 2022 C++ desktop build tools:
 ./scripts/build-plugin-windows.ps1
 ```
 
-Archives appear in `output/plugin/packages/`. The `plugins.yml` workflow builds
-macOS universal AU/VST3 and Windows x64 VST3 on every shared engine/UI change.
+Archives and the macOS `.pkg` appear in `output/plugin/packages/`. The `plugins.yml`
+workflow builds macOS universal AU/VST3/CLAP, its Installer package and Windows
+x64 VST3 on every shared engine/UI change.
 SDK versions and hashes are pinned in `plugin/CMakeLists.txt`.
+
+To package validated Mac bundles without rebuilding audio:
+
+```sh
+python3 scripts/package-plugin-pkg.py --bundles output/plugin/packages/Rustias-macOS
+```
+
+Set `RUSTIAS_INSTALLER_IDENTITY` to an available **Developer ID Installer**
+identity to sign the PKG. The builder verifies the expanded payload, signatures,
+architectures, user installation domain, selectable formats and upgrade behavior.
+The installer has English and Russian screens and executes no install scripts.
 
 `ctest` compares 100 native PCM/state scenarios with the actual browser build,
 including 21 modulation scenarios executed directly through the Rust ABI with

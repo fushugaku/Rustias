@@ -102,5 +102,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Rustias-${{ matrix.name }}-AU-VST3
-          path: output/plugin/packages/*.zip
+          path: |
+            output/plugin/packages/*.zip
+            output/plugin/packages/*.pkg
           retention-days: 30

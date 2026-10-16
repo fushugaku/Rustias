@@ -15,13 +15,20 @@ OSC 3, модульные соединения и цепочки эффекто�
 
 ## Установка
 
-**macOS 12+, Apple Silicon и Intel:** распакуйте `Rustias-macOS-AU-VST3.zip`
-и запустите `Install.command`. Можно установить вручную: `Rustias.component`
+**macOS 12+, Apple Silicon и Intel:** откройте `Rustias-macOS-<версия>.pkg`.
+В установщике можно выбрать AU, VST3 и CLAP. Плагины установятся для вашей
+учётной записи в `~/Library/Audio/Plug-Ins/`, пароль администратора не нужен.
+Старые версии атомарно заменяются вместе с ресурсами. Перед установкой закройте
+DAW, затем откройте её заново и обновите список плагинов.
+
+ZIP также доступен: распакуйте `Rustias-macOS-AU-VST3.zip` и запустите
+`Install.command`. Можно установить вручную: `Rustias.component`
 в `~/Library/Audio/Plug-Ins/Components/`, `Rustias.vst3` в
 `~/Library/Audio/Plug-Ins/VST3/`. AU — инструмент для Logic и GarageBand,
 VST3 — для Ableton Live, Cubase, REAPER и других совместимых DAW.
 Перезапустите DAW и пересканируйте плагины. Локальные сборки подписаны ad-hoc;
-нотариализации Apple Developer ID пока нет.
+PKG не подписан, если не настроен сертификат установщика. Нотариализации
+Apple Developer ID пока нет.
 
 **Windows 10/11 x64:** распакуйте `Rustias-Windows-VST3.zip` и скопируйте
 папку `Rustias.vst3` целиком в `C:\Program Files\Common Files\VST3\`.
@@ -79,9 +86,21 @@ bash scripts/build-plugin.sh
 ./scripts/build-plugin-windows.ps1
 ```
 
-Архивы появятся в `output/plugin/packages/`. Workflow `plugins.yml` собирает
-универсальные AU/VST3 для Mac и VST3 x64 для Windows при изменении общего
+Архивы и macOS `.pkg` появятся в `output/plugin/packages/`. Workflow `plugins.yml`
+собирает универсальные AU/VST3/CLAP и установщик для Mac, VST3 x64 для Windows
+при изменении общего
 движка или интерфейса. Версии SDK и контрольные суммы закреплены в CMake.
+
+Готовые проверенные плагины Mac можно упаковать без повторной сборки звука:
+
+```sh
+python3 scripts/package-plugin-pkg.py --bundles output/plugin/packages/Rustias-macOS
+```
+
+Для подписи PKG задайте `RUSTIAS_INSTALLER_IDENTITY` — имя доступного сертификата
+**Developer ID Installer**. Сборка проверяет распакованный payload, подписи,
+архитектуры, установку в домашнюю папку, выбор форматов и замену старых версий.
+Установщик содержит русский и английский тексты и не запускает install-скрипты.
 
 `ctest` сравнивает 100 сценариев PCM и состояния с реальной браузерной сборкой,
 включая 21 сценарий модуляции напрямую через Rust ABI, без JavaScript-рантайма:

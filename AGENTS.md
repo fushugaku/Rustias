@@ -91,3 +91,7 @@ storage. Never introduce a hardware AudioContext in a plugin. All plugin checks
 render into discarded memory; rustias-plugin-preview is a silent UI host.
 Run CTest (including native/browser PCM/state parity) and strict Apple auval when
 changing host code. CI builds macOS universal and Windows x64 plugin archives.
+Mac packaging also builds a selectable AU/VST3/CLAP `.pkg` for the current user,
+with no install scripts. Disable bundle relocation and use atomic bundle upgrades;
+never let Installer replace a development checkout or merge stale resources.
+`scripts/verify-plugin-pkg.py` inspects the real payload and Installer choices.
