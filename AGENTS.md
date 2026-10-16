@@ -52,6 +52,10 @@ must never be intercepted by imported browser note patterns. Preserve those
 patterns as inert program data for browser interchange. Sequencer Gate targets
 are unavailable in plugins; DAW note lengths are owned by the host.
 Never save playback offsets into program values or Macro base positions.
+Native MIDI events keep their host timestamps. Coalesce editor state snapshots to
+at most 30 Hz; never serialize the complete program per CC/pitch event or feed a
+MIDI display refresh back as a full modulation configuration. Preserve the final
+values and per-channel CC7 updates, and flush pending display state on Stop.
 
 The Pages workflow builds these sources on every push to `main`. Verify the real
 WASM with `node scripts/verify-web.mjs` and check UI changes in a browser, including
@@ -95,3 +99,5 @@ Mac packaging also builds a selectable AU/VST3/CLAP `.pkg` for the current user,
 with no install scripts. Disable bundle relocation and use atomic bundle upgrades;
 never let Installer replace a development checkout or merge stale resources.
 `scripts/verify-plugin-pkg.py` inspects the real payload and Installer choices.
+AU registration belongs to `plugin/Info-AU.plist.in`; a POST_BUILD-only plist copy
+is insufficient because a later CMake reconfigure can overwrite it without a relink.

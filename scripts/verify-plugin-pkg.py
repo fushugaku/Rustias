@@ -31,6 +31,13 @@ def verify(package):
             with (bundle / 'Contents/Info.plist').open('rb') as f:
                 metadata = plistlib.load(f)
             assert metadata['CFBundleShortVersionString'] == version
+            if name == 'au':
+                registrations = metadata.get('AudioComponents', [])
+                assert len(registrations) == 1, 'AU registration missing from the packaged Info.plist'
+                registration = registrations[0]
+                for key, value in {'type': 'aumu', 'subtype': 'Rsts', 'manufacturer': 'Fshg',
+                                   'factoryFunction': 'wrapAsAUV2_inst0Factory'}.items():
+                    assert registration.get(key) == value, f'AU registration {key}: {registration}'
             relocations = info.findall('.//relocate/bundle')
             assert not relocations, 'Plugins must stay at their standard path, not in development checkouts'
             upgrades = info.findall('.//upgrade-bundle/bundle')

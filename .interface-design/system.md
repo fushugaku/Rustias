@@ -40,6 +40,13 @@ Sequence views: Steps keeps all lanes; Piano roll and Samples edit the selected 
 
 At ≤800px use a sticky three-row header, a timbre dropdown plus Add, and aligned 44px transport controls. Keep page width within the viewport; grid scrolling stays internal. Macros default folded with a separate phone preference, effects can fold, and the inspector stacks below the pattern and scrolls into view below the header. Sound section shortcuts must not scroll the whole page. Build owns a flex viewport with Fit, selected cable emphasis and a minimap inside the canvas workspace, never overlapping its toolbar. Preserve readable native units, dependency states and original dial interaction throughout.
 
+Native plugins use Sound / Mod sequencer workspace tabs beside the global timbre
+selector. Sound owns macros, the synthesis rack and FX; Mod sequencer fills the
+available editor area and follows the same timbre selector. It never reserves a
+bottom dock in Sound. Switching tabs changes presentation only. A small resize
+corner at the bottom right sends resize requests through the DAW; host size changes
+reflow the shared editor. The browser retains its resizable note-sequencer dock.
+
 ## Classic interface
 
 Quiet olive-charcoal modules, smooth value-arc knobs, inset choices and lime active pads are the signature. All 155 implemented native parameters plus twenty-four browser controls share one full-width rack; only timbre selection changes its editing context. Signal flow: oscillators/mixer/filters/Drive, envelopes and LFOs, eight virtual patches, then voice/pitch/amplifier/MIDI/tuning/drums. Up to eight sequencer lanes and a folding keyboard sit below. Do not replace the complete rack with category tabs.

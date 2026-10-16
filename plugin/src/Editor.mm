@@ -55,7 +55,7 @@ struct Editor::Impl {
 };
 Editor::Editor(Instrument& s):impl(std::make_unique<Impl>(s)){auto owner=this;impl->timer=[NSTimer scheduledTimerWithTimeInterval:1./30 repeats:YES block:^(NSTimer*){owner->poll();}];}
 Editor::~Editor()=default;
-bool Editor::parent(void* parent){if(!parent)return false;auto p=(__bridge NSView*)parent;[impl->web removeFromSuperview];[p addSubview:impl->web];return true;}
+bool Editor::parent(void* parent){if(!parent)return false;auto p=(__bridge NSView*)parent;[impl->web removeFromSuperview];impl->web.frame=p.bounds;[p addSubview:impl->web];return true;}
 void Editor::size(unsigned w,unsigned h){[impl->web setFrameSize:NSMakeSize(w,h)];}
 void Editor::show(bool visible){impl->web.hidden=!visible;if(!visible)[impl->web removeFromSuperview];}
 void Editor::poll(){auto messages=impl->instrument.pull();if(messages.empty())return;std::string script="[";for(auto& s:messages){if(script.size()>1)script+=",";script+=s;}script+="].forEach(data=>window.__rustiasPluginReceive?.(data))";[impl->web evaluateJavaScript:string(script) completionHandler:nil];}

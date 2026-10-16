@@ -5,8 +5,15 @@
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
+#include <cstring>
 using Json=nlohmann::json;
 static void require(bool b,const char* m){if(!b)throw std::runtime_error(m);}
+struct ResizeRequest {unsigned width=0,height=0,count=0;bool accept=true;};
+static const clap_host_gui_t hostGui={
+  [](const clap_host_t*){},
+  [](const clap_host_t* h,uint32_t w,uint32_t v){auto& r=*static_cast<ResizeRequest*>(h->host_data);r.width=w;r.height=v;r.count++;return r.accept;},
+  [](const clap_host_t*){return false;},[](const clap_host_t*){return false;},[](const clap_host_t*,bool){}
+};
 static float render(Instrument& synth,bool note=false,const clap_event_transport_t* transport=nullptr){
   float l[257]{},r[257]{};float* channels[]={l,r};clap_audio_buffer_t out{};out.data32=channels;out.channel_count=2;
   clap_event_midi_t midi{};midi.header={sizeof midi,17,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_MIDI,0};midi.data[0]=0x90;midi.data[1]=69;midi.data[2]=100;
@@ -16,8 +23,16 @@ static float render(Instrument& synth,bool note=false,const clap_event_transport
 }
 int main(int argc,char** argv){try{
   require(argc==2,"Resource path required");
-  clap_host_t host={CLAP_VERSION,nullptr,"Offline regression","Rustias","","0.1.0",[](const clap_host_t*,const char*)->const void*{return nullptr;},[](const clap_host_t*){},[](const clap_host_t*){},[](const clap_host_t*){}};
+  ResizeRequest resize;
+  clap_host_t host={CLAP_VERSION,&resize,"Offline regression","Rustias","","0.1.0",[](const clap_host_t*,const char* id)->const void*{return !std::strcmp(id,CLAP_EXT_GUI)?&hostGui:nullptr;},[](const clap_host_t*){},[](const clap_host_t*){},[](const clap_host_t*){}};
   Instrument a(&host,argv[1]);
+  a.uiMessage(R"({"kind":"editor-resize","width":1360,"height":900})");
+  require(resize.count==1&&resize.width==1360&&resize.height==900,"Editor resize reaches the DAW host");
+  require(a.resizeEditor(-10,10)&&resize.width==640&&resize.height==480,"Editor resize respects minimum dimensions");
+  require(a.resizeEditor(10000,10000)&&resize.width==3840&&resize.height==2160,"Editor resize respects maximum dimensions");
+  resize.accept=false;require(!a.resizeEditor(1200,700)&&a.width==1100&&a.height==800,"Rejected resize never changes the editor behind the host");
+  const auto requests=resize.count;a.uiMessage(R"({"kind":"editor-resize","width":"bad","height":800})");
+  require(!a.resizeEditor(NAN,700)&&resize.count==requests,"Malformed resize does not reach the host");
   a.queue(R"({"type":"control","timbre":0,"parameter":9,"value":127})");
   Json track={{"enabled",true},{"length",128},{"resolution","1/16"},{"steps",Json::array()}};
   for(int i=0;i<128;i++)track["steps"].push_back({{"notes",i?Json::array():Json::array({60,64,67})},{"velocity",100},{"gate",75}});

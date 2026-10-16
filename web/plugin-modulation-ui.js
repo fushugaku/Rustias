@@ -9,6 +9,7 @@ export function createPluginModulationRack({inline,onSelectTimbre}){
   root.classList.add('plugin-modulation-rack');root.setAttribute('aria-label','Modulation sequencers');heading.className='sequence-heading';title.textContent='Mod sequencer';tabs.className='plugin-modulation-tabs';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Modulation timbre');body.className='plugin-modulation-panels';heading.append(title,tabs);root.replaceChildren(heading,body);
   const panels=[],buttons=[];
   function render(){
+    title.textContent='Timbre '+(selected+1)+' · Mod sequencer';
     buttons.forEach((button,t)=>{button.hidden=t>=count;button.setAttribute('aria-selected',t===selected);button.tabIndex=t===selected?0:-1;panels[t].hidden=t!==selected;});
     panels[selected].dispatchEvent(new Event('modulation-open'));
   }

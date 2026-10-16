@@ -10,6 +10,10 @@ static void check(OSStatus status,const char* message){if(status)throw std::runt
 int main(int argc,char** argv){try{
   require(argc==2,"AU bundle path required");auto path=CFStringCreateWithCString(nullptr,argv[1],kCFStringEncodingUTF8);auto url=CFURLCreateWithFileSystemPath(nullptr,path,kCFURLPOSIXPathStyle,true);CFRelease(path);
   auto bundle=CFBundleCreate(nullptr,url);CFRelease(url);require(bundle&&CFBundleLoadExecutable(bundle),"Load the actual AU bundle");
+  auto entries=CFBundleGetValueForInfoDictionaryKey(bundle,CFSTR("AudioComponents"));
+  require(entries&&CFGetTypeID(entries)==CFArrayGetTypeID()&&CFArrayGetCount(static_cast<CFArrayRef>(entries))==1,"AU registration survives CMake reconfiguration");
+  auto registration=static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(static_cast<CFArrayRef>(entries),0));
+  for(auto pair:{std::pair{CFSTR("type"),CFSTR("aumu")},std::pair{CFSTR("subtype"),CFSTR("Rsts")},std::pair{CFSTR("manufacturer"),CFSTR("Fshg")},std::pair{CFSTR("factoryFunction"),CFSTR("wrapAsAUV2_inst0Factory")}}){auto value=CFDictionaryGetValue(registration,pair.first);require(value&&CFEqual(value,pair.second),"AU registration identifies its exported factory");}
   auto factory=reinterpret_cast<AudioComponentFactoryFunction>(CFBundleGetFunctionPointerForName(bundle,CFSTR("wrapAsAUV2_inst0Factory")));require(factory,"Exported AU factory");
   AudioComponentDescription desc{'aumu','Rsts','Fshg',0,0};auto component=AudioComponentRegister(&desc,CFSTR("Rustias: direct validation"),256,factory);require(component,"Register the AU inside the offline host");
   for(auto rate:{48000.,44100.}){

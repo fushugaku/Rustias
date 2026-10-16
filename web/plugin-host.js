@@ -19,7 +19,26 @@ function createHost(){
     .new-interface.native-plugin #new-sequence-dock{overflow:auto}
     .new-interface.native-plugin .plugin-modulation-rack{padding:8px 12px}
     .new-interface.native-plugin .plugin-modulation-rack>.sequence-heading{margin:0 0 8px}
+    .new-interface.native-plugin .plugin-workspace .nw-transport{flex-wrap:wrap}
+    .plugin-workspace-tabs{display:flex;align-items:center;gap:4px;padding:2px;background:var(--control-inset);border:1px solid var(--line-subtle);border-radius:6px;flex:none}
+    .new-interface .plugin-workspace-tabs button{height:32px;min-height:32px;border:0;background:transparent;color:var(--text-secondary);padding:0 12px}
+    .plugin-workspace-tabs button[aria-selected="true"]{background:var(--accent-dim);color:var(--accent-text)}
+    .plugin-workspace-tabs button:hover{background:var(--control-hover);color:var(--text)}
+    .plugin-sound-page{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+    .new-interface .plugin-workspace #new-sequence-dock{flex:1;height:auto;min-height:0;margin:8px 16px;overflow:auto;border-radius:8px}
+    .new-interface .plugin-workspace .plugin-modulation-rack{flex:1;overflow:visible}
+    .plugin-workspace .plugin-modulation-tabs{display:none}
+    .plugin-editor-resize{position:fixed;right:0;bottom:0;width:24px;height:24px;min-height:24px;padding:0;border:0;border-radius:0;background:transparent;color:var(--text-tertiary);cursor:nwse-resize;touch-action:none;z-index:20}
+    .plugin-editor-resize::after{content:'';position:absolute;right:5px;bottom:5px;width:10px;height:10px;border-right:2px solid currentColor;border-bottom:2px solid currentColor}
+    .plugin-editor-resize:hover,.plugin-editor-resize:focus-visible{color:var(--accent);background:var(--control-hover)}
+    .native-plugin .performance-footer{padding-right:32px}
     @media(max-width:800px){.plugin-modulation-rack>.sequence-heading{align-items:flex-start;gap:8px}.plugin-modulation-tabs button{min-height:44px;min-width:44px}}
+    @media(max-width:800px){
+      .new-interface .plugin-workspace-tabs{grid-column:1/-1;width:100%}
+      .new-interface .plugin-workspace-tabs button{flex:1;height:44px;min-height:44px}
+      .new-interface .plugin-workspace #new-sequence-dock{margin:8px;min-height:320px}
+      .new-interface .plugin-workspace .plugin-sound-page{flex:none;overflow:visible}
+    }
   `;document.head.append(style);
   const NativeWorker=window.Worker;
   window.Worker=class extends NativeWorker{
@@ -31,6 +50,14 @@ function createHost(){
   let port,restore,parameter,context,request=0;const pending=new Map();
   const send=value=>native.postMessage(serialize(value));
   const host={initial:window.__RUSTIAS_PLUGIN__,applyingAutomation:false,onRestore:fn=>restore=fn,onParameter:fn=>parameter=fn,saveSession:data=>send({kind:'session',data})};
+  const resize=document.createElement('button');resize.type='button';resize.className='plugin-editor-resize';resize.setAttribute('aria-label','Resize plugin window');resize.title='Resize window';document.body.append(resize);
+  let drag,resizeFrame=0,requested;
+  const requestSize=(width,height)=>{requested={kind:'editor-resize',width:Math.round(width),height:Math.round(height)};if(!resizeFrame)resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;send(requested);});};
+  resize.addEventListener('pointerdown',event=>{if(event.button!==0)return;resize.focus();drag={id:event.pointerId,x:event.screenX,y:event.screenY,width:innerWidth,height:innerHeight};resize.setPointerCapture(event.pointerId);event.preventDefault();});
+  resize.addEventListener('pointermove',event=>{if(drag?.id===event.pointerId)requestSize(Math.max(640,drag.width+event.screenX-drag.x),Math.max(480,drag.height+event.screenY-drag.y));});
+  for(const type of ['pointerup','pointercancel','lostpointercapture'])resize.addEventListener(type,()=>{drag=null;});
+  window.addEventListener('blur',()=>{drag=null;});
+  resize.addEventListener('keydown',event=>{const delta=event.shiftKey?64:16;if(['ArrowRight','ArrowLeft','ArrowUp','ArrowDown'].includes(event.key)){event.preventDefault();requestSize(innerWidth+(event.key==='ArrowRight'?delta:event.key==='ArrowLeft'?-delta:0),innerHeight+(event.key==='ArrowDown'?delta:event.key==='ArrowUp'?-delta:0));}});
   window.__rustiasPluginReceive=data=>{
     if(data.type==='host-rate'){host.initial.sampleRate=data.sampleRate;context?.onstatechange?.();return;}
     if(data.type==='digest'){pending.get(data.request)?.(new Uint8Array(data.bytes).buffer);pending.delete(data.request);return;}

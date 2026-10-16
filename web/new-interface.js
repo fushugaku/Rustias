@@ -95,6 +95,29 @@ export function prepareNewInterface(){
   const editorObserver=new MutationObserver(()=>{const open=$('#step-editor').open;inspector.hidden=!open;dock.classList.toggle('has-inspector',open);if(narrow)(open?inspector:dock).scrollIntoView({block:'start',behavior:'smooth'});});editorObserver.observe($('#step-editor'),{attributes:true,attributeFilter:['open']});
 
   const expanded=new Map();
+  function pluginWorkspace(){
+    const tabs=element('nav','plugin-workspace-tabs'),soundPage=element('section','plugin-sound-page');
+    tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Workspace');
+    soundPage.id='plugin-sound-page';soundPage.setAttribute('role','tabpanel');
+    instrument.insertBefore(soundPage,macros);soundPage.append(macros,stage);
+    dock.setAttribute('role','tabpanel');grip.hidden=true;
+    const pages=[soundPage,dock],buttons=pages.map((page,index)=>{
+      const tab=button(index?'Mod sequencer':'Sound');tab.id='plugin-workspace-tab-'+index;
+      tab.setAttribute('role','tab');tab.setAttribute('aria-controls',page.id);page.setAttribute('aria-labelledby',tab.id);
+      tab.addEventListener('click',()=>select(index));
+      tab.addEventListener('keydown',event=>{
+        const next=event.key==='ArrowRight'||event.key==='ArrowLeft'?1-index:event.key==='Home'?0:event.key==='End'?1:null;
+        if(next!=null){event.preventDefault();buttons[next].click();buttons[next].focus();}
+      });tabs.append(tab);return tab;
+    });
+    function select(index){
+      pages.forEach((page,i)=>{page.hidden=i!==index;buttons[i].setAttribute('aria-selected',i===index);buttons[i].tabIndex=i===index?0:-1;});
+      macroToggle.hidden=index===1;
+    }
+    transport.prepend(tabs);instrument.classList.add('plugin-workspace');select(0);
+    $('#build').addEventListener('click',()=>select(0),true);
+    $('#recordings-toggle').addEventListener('click',()=>select(0),true);
+  }
   function refreshEffects(){if(!api)return;const modules=[...$('#effects').querySelectorAll('.fx-module')];modules.forEach(module=>{
     const effect=module.dataset.effectId?api.fxUI.getChainEffect(Number(module.dataset.effectTimbre),module.dataset.effectId):api.fxUI.getSlot(Number(module.dataset.effectSlot));if(!effect)return;const key=module.dataset.effectKey,empty=effect.kind===0;module.classList.toggle('fx-empty',empty);module.classList.toggle('fx-shared',module.dataset.effectShared==='true');
     let toggle=module.querySelector('.nw-fx-expand');if(!toggle){toggle=button('−');toggle.className='nw-fx-expand';module.querySelector('.module-heading').append(toggle);toggle.addEventListener('click',()=>{expanded.set(module.dataset.effectKey,toggle.getAttribute('aria-expanded')!=='true');refreshEffects();});}
@@ -110,6 +133,7 @@ export function prepareNewInterface(){
       sequenceWorkspace?.setContext(next.selected,next.timbreCount);refreshEffects();refreshMacros();
     },
     connect(next){api=next;sequenceWorkspace=api.sequenceUI.nativeModulation?api.sequenceUI:createSequenceWorkspace({sequenceUI:api.sequenceUI,dock,prefs,onPreference:()=>{if(prefs.mode!=='steps')setHeight(Math.max(prefs.height,320));persist();}});
+      if(api.sequenceUI.nativeModulation)pluginWorkspace();
       const fxObserver=new MutationObserver(refreshEffects);fxObserver.observe($('#effects'),{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['aria-pressed']});
       refreshEffects();refreshMacros();setHeight(prefs.height);
     }

@@ -52,6 +52,23 @@ int main(int argc,char** argv){
       require(status["running"]==false&&status["values"].empty(),"Host Stop restores temporary modulation and stops its Rust clock");
       require(a.stats().find("\"backend\":\"native-rust\"")!=std::string::npos,"AOT native Rust backend");
       require(a.stats().find("\"capacity\":128")!=std::string::npos,"Same expanded 128-voice engine");
+      Runtime controls(argv[1],rate);controls.takeMessages();
+      controls.message(R"({"type":"control","timbre":0,"parameter":116,"value":1})");
+      for(int i=0;i<64;i++){controls.midi(0xb0,1,i);controls.midi(0xe0,0,96);}
+      require(controls.takeMessages().empty(),"MIDI bursts never serialize full state per event");
+      int refreshes=0;Json latest;
+      for(int i=0;i<40;i++){
+        controls.render(l,r,128);
+        for(const auto& text:controls.takeMessages()){auto message=Json::parse(text);if(message["type"]=="state"){refreshes++;latest=message;}}
+      }
+      require(refreshes==1&&latest["program"]["timbres"][0][138]==63&&latest["program"]["timbres"][0][137]==4096,"Coalesced UI state retains the last wheel and pitch values");
+      require(!latest["program"].contains("effects"),"MIDI refresh does not rebuild effect controls");
+      controls.midi(0xb0,7,41);controls.midi(0xb1,7,73);controls.message(R"({"type":"stop"})");
+      bool final=false;for(const auto& text:controls.takeMessages()){auto message=Json::parse(text);if(message["type"]=="state"){require(message["midiBatch"].size()==2,"Coalescing preserves CC7 on different channels");final=true;}}
+      require(final,"Stopping flushes pending controller values for saving");
+      controls.midi(0xb0,1,99);controls.message(Json{{"type","load"},{"program",latest["program"]}}.dump());
+      controls.takeMessages();for(int i=0;i<20;i++)controls.render(l,r,128);
+      for(const auto& text:controls.takeMessages())require(Json::parse(text)["type"]!="state","Loading a program clears obsolete MIDI UI updates");
       std::cout<<"Native Rust DSP / shared controls: "<<rate<<" Hz, MIDI, variable blocks and instance isolation passed; peak "<<peak<<"\n";
     }
   }catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;}

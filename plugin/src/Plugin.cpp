@@ -24,7 +24,7 @@ static Instrument& self(const clap_plugin_t* p){return *static_cast<Instrument*>
 #endif
 static std::string bundleResources;
 static const char* features[]={CLAP_PLUGIN_FEATURE_INSTRUMENT,CLAP_PLUGIN_FEATURE_SYNTHESIZER,CLAP_PLUGIN_FEATURE_STEREO,nullptr};
-static const clap_plugin_descriptor_t descriptor={CLAP_VERSION,"io.github.fushugaku.rustias","Rustias","Rustias","https://github.com/fushugaku/Rustias","","","0.1.2","The shared firmware-free Rustias engine",features};
+static const clap_plugin_descriptor_t descriptor={CLAP_VERSION,"io.github.fushugaku.rustias","Rustias","Rustias","https://github.com/fushugaku/Rustias","","","0.1.3","The shared firmware-free Rustias engine",features};
 
 Instrument::Instrument(const clap_host_t* h,std::string r):host(h),resources(std::move(r)){parameters[8]=30;}
 Instrument::~Instrument()=default;
@@ -67,6 +67,7 @@ void Instrument::uiMessage(const std::string& message){
   auto d=parse(message);if(!d.is_object())return;auto kind=d.value("kind",std::string());
   if(kind=="audio"&&d.contains("data"))queue(d["data"].dump());
   else if(kind=="editor-ready")editorReady=true;
+  else if(kind=="editor-resize"&&d.contains("width")&&d["width"].is_number()&&d.contains("height")&&d["height"].is_number())resizeEditor(d["width"].get<double>(),d["height"].get<double>());
   else if(kind=="session"&&d.contains("data")){
     {std::lock_guard lock(stateMutex);session=d["data"].dump();}
     auto snapshot=d["data"].value("snapshot",Json::object());auto macros=snapshot.value("macros",Json());auto knobs=macros.is_object()?macros.value("knobs",Json::array()):Json::array();
@@ -74,6 +75,11 @@ void Instrument::uiMessage(const std::string& message){
     if(snapshot.contains("volume"))parameter(8,snapshot["volume"].get<double>(),true);
     if(auto state=static_cast<const clap_host_state_t*>(host->get_extension(host,CLAP_EXT_STATE)))state->mark_dirty(host);
   }else if(kind=="power"){enabled=d.value("enabled",true);if(!enabled)queue("{\"type\":\"stop\"}",false);}
+}
+bool Instrument::resizeEditor(double w,double h){
+  if(!std::isfinite(w)||!std::isfinite(h))return false;
+  auto gui=static_cast<const clap_host_gui_t*>(host->get_extension(host,CLAP_EXT_GUI));
+  return gui&&gui->request_resize&&gui->request_resize(host,unsigned(std::lround(std::clamp(w,640.,3840.))),unsigned(std::lround(std::clamp(h,480.,2160.))));
 }
 std::string Instrument::save(){
   Json events=Json::array(),values=Json::array();std::vector<std::pair<uint64_t,std::string>> sorted;std::string ui;
@@ -162,7 +168,7 @@ static const clap_plugin_gui_t gui={
   [](const clap_plugin_t* p,uint32_t* w,uint32_t* h){*w=self(p).width;*h=self(p).height;return true;},
   [](const clap_plugin_t*){return true;},
   [](const clap_plugin_t*,clap_gui_resize_hints_t* hints){*hints={true,true,false,0,0};return true;},
-  [](const clap_plugin_t*,uint32_t* w,uint32_t* h){*w=std::clamp(*w,800u,2400u);*h=std::clamp(*h,600u,1800u);return true;},
+  [](const clap_plugin_t*,uint32_t* w,uint32_t* h){*w=std::clamp(*w,640u,3840u);*h=std::clamp(*h,480u,2160u);return true;},
   [](const clap_plugin_t* p,uint32_t w,uint32_t h){auto& s=self(p);s.width=w;s.height=h;if(s.editor)s.editor->size(w,h);return true;},
   [](const clap_plugin_t* p,const clap_window_t* window){return self(p).editor&&window->api&&!std::strcmp(window->api,RUSTIAS_WINDOW_API)&&self(p).editor->parent(RUSTIAS_WINDOW_HANDLE(window));},
   [](const clap_plugin_t*,const clap_window_t*){return false;},

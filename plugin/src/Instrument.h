@@ -39,6 +39,7 @@ struct Instrument {
   void publish(std::string);
   std::vector<std::string> pull();
   void uiMessage(const std::string&);
+  bool resizeEditor(double,double);
   void parameter(unsigned,double,bool fromUI);
   std::string save();
   bool restore(const std::string&);

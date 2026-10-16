@@ -222,7 +222,7 @@ function setControl(id, value, fromUser = true) {
   if(id===30)circuitUI?.positionDrive(value);
   macroUI?.rebase(parameterTarget(id));updateControls(); updateKeys(); scheduleSession();
 }
-function updateControls() {
+function updateControls(sync=true) {
   document.querySelectorAll('[data-timbre]').forEach(button=>{button.hidden=Number(button.dataset.timbre)>=timbreCount;button.setAttribute('aria-selected',Number(button.dataset.timbre)===selected);});
   $('#add-timbre').disabled=timbreCount===MAX_TIMBRES;
   const v = values();
@@ -244,7 +244,7 @@ function updateControls() {
   macroUI?.refresh();
   const sound=timbres[selected],saved=timbreStore.list().find(p=>p.id===sound.savedId);
   timbrePicker?.render(saved?`saved:${sound.savedId}`:factorySounds.some(p=>p.value===sound.preset)?sound.preset:'custom',sound.name+(sound.modified?' *':''));
-  modulationUI?.refreshTargets();syncAutomation();
+  modulationUI?.refreshTargets();if(sync)syncAutomation();
   newUI?.refreshContext({selected,timbreCount,values:v});
 }
 function displayValue(p, value) { return p.id === 89 ? value / 10 : [72, 148, 141, 142].includes(p.id) ? value + 1 : value - (p.center ?? 0); }
@@ -277,14 +277,16 @@ function applyPreset(preset){
   try{loadTimbre(sound,factorySounds.find(s=>s.value===preset).label,null,preset);}catch(error){showError(error);}
 }
 function state() { return {version: 1, timbres: timbres.map(t => [...t.values]), drums: drums.map(v => [...v]),effects:fxUI?.getConfig()??emptyEffects()}; }
-function acceptState(program) {
+function acceptState(program,nativeMidi=false) {
   const changed=[];for(let t=0;t<MAX_TIMBRES;t++)for(const p of parameters)if(timbres[t].values[p.id]!==program.timbres[t][p.id])changed.push({kind:p.scope==='global'?'global':'synth',...(p.scope==='global'?{}:{timbre:t}),parameter:p.id});
   for(let instrument=0;instrument<16;instrument++)for(const p of parameters)if(drums[instrument][p.id]!==program.drums[instrument][p.id])changed.push({kind:'drum',instrument,parameter:p.id});
   for (let i = 0; i < MAX_TIMBRES; i++) timbres[i].values = [...program.timbres[i]];
   for (let i = 0; i < 16; i++) drums[i] = [...program.drums[i]];
   if(program.effects)fxUI?.setConfig(program.effects);
   for(const target of changed)macroUI?.rebase(target);
-  updateControls(); updateKeys();
+  // Native MIDI already rebases Rust modulation. Feeding its display update
+  // back as a complete modulation configuration would rebuild it at MIDI rate.
+  updateControls(!nativeMidi); updateKeys();
 }
 function normalizeEngine(value){return checkEngine(value,parameters);}
 function snapshot(){return {kind:'rustias-program',version:2,timbreCount,macros:macroUI?.getConfig()??null,modulation:modulationUI?.getConfig()??null,engine:state(),sequencer:sequenceUI.getConfig(),samples:sampleUI?.getConfig?.()??null,circuits:circuitUI?.getConfig()??emptyCircuits(timbres.map(t=>t.values)),timbreInfo:timbres.map(({name,preset,savedId,modified})=>({name,preset,savedId,modified})),volume:Number($('#volume').value),...(rdlSource?{rdl:structuredClone(rdlSource)}:{})};}
@@ -429,7 +431,7 @@ async function setupAudio() {
         if(recorder?.handleMessage(data))return;
         if (data.type === "ready") { clearTimeout(timeout); resolve(); }
         else if (data.type === "error") { clearTimeout(timeout); reject(new Error(data.message)); showError(new Error(data.message)); recorder?.stop(); }
-        else if (data.type === "state") {const changed=(data.libraryVolumes??[]).filter(p=>sampleUI.findProfile(p.timbre,p.source)?.values[117]!==p.value);sampleUI.acceptVolumes(data.libraryVolumes,data.program,data.midi);for(const p of changed)macroUI.rebase({kind:'sample',timbre:p.timbre,source:p.source,parameter:117});acceptState(data.program);scheduleSession();}
+        else if (data.type === "state") {const changed=(data.libraryVolumes??[]).filter(p=>sampleUI.findProfile(p.timbre,p.source)?.values[117]!==p.value);sampleUI.acceptVolumes(data.libraryVolumes,data.program,data.midi);for(const midi of data.midiBatch??[])sampleUI.acceptVolumes([],data.program,midi);for(const p of changed)macroUI.rebase({kind:'sample',timbre:p.timbre,source:p.source,parameter:117});acceptState(data.program,!!(pluginHost&&data.midi));scheduleSession();}
         else if (data.type === "warning") showError(new Error(data.message));
         else if (data.type === "stats") {
           if(data.sequence)sequenceUI.setStatus(data.sequence);

@@ -21,21 +21,46 @@ class NativeModulation {
 // No note clock is constructed or restored in a native plugin. Browser pattern
 // data can remain in imported programs without ever generating plugin notes.
 const dawNotes={setConfig(){},setTempo(){},play(){},stop(){},reset(){},beforeRender(){},trigger(){return false;},status(){return null;}};
-let processor,outputs,left,right;const buffers=new Map();
+let processor,outputs,left,right,pendingMidi,snapshotFrames=0,snapshot;const buffers=new Map(),pendingVolumes=new Map();
+function flushMidiSnapshot(){
+  if(!pendingMidi)return;
+  const midi=pendingMidi;pendingMidi=null;snapshotFrames=0;snapshot(midi);pendingVolumes.clear();
+}
 globalThis.pluginBoot=(engine,rate)=>{
   globalThis.sampleRate=rate;
   processor=new globalThis.PluginProcessor({processorOptions:{engine,gain:.3,nativeModulation:new NativeModulation(engine),sequencer:dawNotes}});
+  // MIDI must never serialize a complete program per event on the audio thread.
+  // Apply every event immediately; coalesce editor refreshes to at most 30 Hz.
+  snapshot=processor.snapshot.bind(processor);pendingMidi=null;snapshotFrames=0;pendingVolumes.clear();
+  processor.snapshot=midi=>{
+    if(!midi){snapshot();return;}
+    pendingMidi=midi;
+    if((midi[0]&240)===176&&midi[1]===7)pendingVolumes.set(midi[0]&15,midi);
+  };
+  const post=processor.port.postMessage;
+  processor.port.postMessage=data=>{
+    if(data.type==='state'&&data.midi){
+      data.midiBatch=[...pendingVolumes.values()];
+      // MIDI changes control values, not the FX topology. Preserve the editor's
+      // existing FX controls instead of reconstructing them on each wheel move.
+      delete data.program.effects;
+    }
+    post(data);
+  };
   left=new Float32Array(128);right=new Float32Array(128);outputs=[[left,right]];
 };
 globalThis.pluginMessage=message=>{
   if(message.type==='transport'){processor.modulation.transport(message);return;}
   if(['sequencer','sequence-play','sequence-stop','sequence-reset'].includes(message.type))return;
+  if(message.type==='load'){pendingMidi=null;pendingVolumes.clear();snapshotFrames=0;}
   processor.port.onmessage({data:message});
+  if(message.type==='stop')flushMidiSnapshot();
 };
 globalThis.pluginMidi=(a,b,c)=>pluginMessage({type:'midi',bytes:[a,b,c]});
 globalThis.pluginRender=frames=>{
   if(frames!==left.length){let pair=buffers.get(frames);if(!pair){pair=[new Float32Array(frames),new Float32Array(frames)];buffers.set(frames,pair);}[left,right]=pair;outputs=[pair];}
-  processor.process([],outputs);if(processor.failed)throw new Error('The shared audio worklet rejected a message.');return [left,right];
+  processor.process([],outputs);if(processor.failed)throw new Error('The shared audio worklet rejected a message.');
+  snapshotFrames=Math.min(sampleRate/30,snapshotFrames+frames);if(snapshotFrames>=sampleRate/30)flushMidiSnapshot();return [left,right];
 };
 globalThis.pluginParameter=(index,value)=>{
   processor.modulation.parameter(index,value);

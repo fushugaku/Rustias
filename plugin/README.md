@@ -48,12 +48,16 @@ Create an instrument track, load Rustias and send it MIDI. The plugin's **DAW**
 status means its output goes to that track; it does not open a separate audio
 device. Notes use each timbre's MIDI channel and receive settings. Compose notes
 in the DAW: the plugin has no internal note sequencer or pattern Play button.
-The **Mod sequencer** panel provides up to six independent lanes per timbre,
+The **Sound** and **Mod sequencer** tabs use the full editor workspace. Drag the
+bottom-right corner to resize the plugin window; the request goes through the DAW.
+The **Mod sequencer** tab provides up to six independent lanes per timbre,
 with 1–128 steps, independent divisions, Step/Slide, directions, Loop/OneShot and
 Key Sync. It can modulate synthesis, samples, effects, modules and macros.
 DAW tempo, Play/Stop and song position synchronize its native Rust clock;
 seek and loop jumps restart it at the corresponding song position. Live MIDI
 also starts modulation, including while the transport is stopped.
+MIDI events retain their host timestamps; controller display updates are combined
+at up to 30 Hz so wheel and CC bursts do not serialize a full program per event.
 The existing web controls, program/timbre save, RDL import, sample upload,
 recordings and WAV/MP3 exports remain available.
 
@@ -112,6 +116,8 @@ instance isolation, complete state round trips and sample-rate changes. macOS
 packaging also runs Apple's strict `auval` check. These checks render into memory
 and never open audio output. The optional `rustias-plugin-preview` target is a
 silent UI validation host that discards every output buffer.
+The actual AU Cocoa editor is also checked for host-driven and plugin-requested
+window resizing, separately from the direct editor host.
 
 CI also runs Steinberg's VST3 validator against the actual packaged VST3 module.
 The AU check loads its exported factory directly and verifies MIDI, stereo output
