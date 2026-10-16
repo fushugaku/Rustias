@@ -22,7 +22,7 @@ int main(int argc,char** argv){
       a.parameter(0,100);a.render(l,r,257);for(int i=0;i<4;i++)a.render(l,r,257);require(std::any_of(l,l+257,[](float v){return std::abs(v)>.001f;}),"DAW macro reaches a bound sound parameter");
       a.parameter(0,0);for(int i=0;i<40;i++)a.render(l,r,257);require(std::all_of(l,l+257,[](float v){return std::abs(v)<.00001f;}),"DAW macro can close its bound level");
       b.render(l,r,257);require(std::all_of(l,l+257,[](float v){return v==0;}),"Plugin instances are isolated");
-      std::exception_ptr threadError;std::thread audioThread([&]{try{a.render(l,r,257);}catch(...){threadError=std::current_exception();}});audioThread.join();if(threadError)std::rethrow_exception(threadError);
+      std::exception_ptr threadError;std::thread audioThread([&]{try{a.render(l,r,257);a.message("{\"type\":\"stop\"}");}catch(...){threadError=std::current_exception();}});audioThread.join();if(threadError)std::rethrow_exception(threadError);
       a.midi(0x80,69,0);a.message("{\"type\":\"stop\"}");
       require(a.stats().find("\"backend\":\"native-rust\"")!=std::string::npos,"AOT native Rust backend");
       require(a.stats().find("\"capacity\":128")!=std::string::npos,"Same expanded 128-voice engine");

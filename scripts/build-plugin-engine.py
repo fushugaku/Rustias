@@ -45,4 +45,4 @@ if len(libraries) > 1:
     subprocess.run(['lipo', '-create', *map(str, libraries), '-output', str(output)], check=True)
 else:
     shutil.copyfile(libraries[0], output)
-print('Native Rust DSP:', ', '.join(targets), '→', output)
+print('Native Rust DSP:', ', '.join(targets), '->', output)

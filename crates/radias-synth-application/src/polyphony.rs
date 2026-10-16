@@ -2128,7 +2128,16 @@ impl PolyphonicRenderer {
         for slot in 0..VOICE_COUNT {
             self.cache_retired_voice(slot);
         }
-        self.voices = core::array::from_fn(|_| None);
+        // The expanded native pool exceeds a DAW worker's typical 512 KiB
+        // stack if materialized as a temporary array. Drop actors in place.
+        #[cfg(rustias_plugin)]
+        for voice in &mut self.voices {
+            *voice = None;
+        }
+        #[cfg(not(rustias_plugin))]
+        {
+            self.voices = core::array::from_fn(|_| None);
+        }
         self.controller_flags.fill(0);
         self.initial_controller_serviced.fill(false);
         self.secondary_sync_targets.fill(None);
