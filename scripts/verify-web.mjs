@@ -1,5 +1,6 @@
 import {engineWrite,engineBytes,engineFloats} from '../web/engine-io.js';
 import {writeWasmJson} from '../web/wasm-json.js';
+import './verify-plugin-controls.mjs';
 import {MAX_TIMBRES,INITIAL_TIMBRES,OSC3_BASE,PARAMETER_COUNT,MASTER_EFFECT_SLOT,timbreArray} from '../web/limits.js';
 import {webParameters} from '../web/parameters.js';
 import {verifyExpanded} from './verify-expanded.mjs';

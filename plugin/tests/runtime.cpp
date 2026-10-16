@@ -66,6 +66,26 @@ int main(int argc,char** argv){
       controls.midi(0xb0,7,41);controls.midi(0xb1,7,73);controls.message(R"({"type":"stop"})");
       bool final=false;for(const auto& text:controls.takeMessages()){auto message=Json::parse(text);if(message["type"]=="state"){require(message["midiBatch"].size()==2,"Coalescing preserves CC7 on different channels");final=true;}}
       require(final,"Stopping flushes pending controller values for saving");
+      // A manual knob only sends a scalar message. Its base must update without
+      // rebuilding the rack, resetting its clock or saving a playback offset.
+      Runtime live(argv[1],rate);lane["length"]=1;lane["values"]=Json::array();for(int i=0;i<128;i++)lane["values"].push_back(20);
+      live.message(Json{{"type","modulation"},{"state",{{"config",{{"version",1},{"tracks",Json::array({Json::array({lane}),Json::array(),Json::array(),Json::array()})}}},{"macros",{{"version",1},{"knobs",knobs},{"bases",Json::array()}}},{"targets",Json::array({{{"target",cutoff},{"min",0},{"max",127},{"base",80},{"available",true}}})}}}}.dump());
+      // At 96 kHz one 128-frame host buffer spans only half a native DSP block.
+      live.midi(0x90,69,100);live.render(l,r,257);
+      require(Json::parse(live.stats())["modulation"]["values"][0]["value"]==100,"Native modulation starts from the configured knob base");
+      for(int base:{50,60,40,70}){
+        live.message(Json{{"type","control"},{"timbre",0},{"parameter",1},{"value",base}}.dump());live.render(l,r,257);
+        auto mod=Json::parse(live.stats())["modulation"];
+        require(mod["running"]==true&&mod["positions"][0][0]==0&&mod["values"][0]["value"]==base+20,"Scalar knob edits rebase the running Rust modulation without a full configuration");
+      }
+      live.message(R"({"type":"stop"})");live.takeMessages();live.message(R"({"type":"control","timbre":0,"parameter":999,"value":0})");
+      bool savedBase=false;for(const auto& text:live.takeMessages()){auto message=Json::parse(text);if(message["type"]=="state")savedBase=message["program"]["timbres"][0][1]==70;}
+      require(savedBase,"Stopping retains the manually edited base, not its temporary modulation offset");
+      knobs[0]["value"]=25;knobs[0]["bindings"]=Json::array({{{"target",cutoff},{"amount",100}}});
+      live.message(Json{{"type","modulation"},{"state",{{"config",{{"version",1},{"tracks",Json::array({Json::array(),Json::array(),Json::array(),Json::array()})}}},{"macros",{{"version",1},{"knobs",knobs},{"bases",Json::array({{{"target",cutoff},{"value",48.25}}})}}},{"targets",Json::array({{{"target",cutoff},{"min",0},{"max",127},{"base",80},{"available",true}}})}}}}.dump());
+      live.message(R"({"type":"control","timbre":0,"parameter":1,"value":50})");live.parameter(0,50);live.takeMessages();live.message(R"({"type":"control","timbre":0,"parameter":999,"value":0})");
+      bool rebased=false;for(const auto& text:live.takeMessages()){auto message=Json::parse(text);if(message["type"]=="state")rebased=message["program"]["timbres"][0][1]==82;}
+      require(rebased,"DAW macros use the new manual base after a scalar knob edit");
       controls.midi(0xb0,1,99);controls.message(Json{{"type","load"},{"program",latest["program"]}}.dump());
       controls.takeMessages();for(int i=0;i<20;i++)controls.render(l,r,128);
       for(const auto& text:controls.takeMessages())require(Json::parse(text)["type"]!="state","Loading a program clears obsolete MIDI UI updates");

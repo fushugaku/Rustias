@@ -24,7 +24,7 @@ static Instrument& self(const clap_plugin_t* p){return *static_cast<Instrument*>
 #endif
 static std::string bundleResources;
 static const char* features[]={CLAP_PLUGIN_FEATURE_INSTRUMENT,CLAP_PLUGIN_FEATURE_SYNTHESIZER,CLAP_PLUGIN_FEATURE_STEREO,nullptr};
-static const clap_plugin_descriptor_t descriptor={CLAP_VERSION,"io.github.fushugaku.rustias","Rustias","Rustias","https://github.com/fushugaku/Rustias","","","0.1.4","The shared firmware-free Rustias engine",features};
+static const clap_plugin_descriptor_t descriptor={CLAP_VERSION,"io.github.fushugaku.rustias","Rustias","Rustias","https://github.com/fushugaku/Rustias","","","0.1.5","The shared firmware-free Rustias engine",features};
 
 Instrument::Instrument(const clap_host_t* h,std::string r):host(h),resources(std::move(r)){parameters[8]=30;}
 Instrument::~Instrument()=default;

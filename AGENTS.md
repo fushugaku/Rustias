@@ -56,6 +56,12 @@ Native MIDI events keep their host timestamps. Coalesce editor state snapshots t
 at most 30 Hz; never serialize the complete program per CC/pitch event or feed a
 MIDI display refresh back as a full modulation configuration. Preserve the final
 values and per-channel CC7 updates, and flush pending display state on Stop.
+Native editor knob gestures send scalar controls, never a complete modulation
+configuration. `web/plugin-automation.js` resends only topology/binding changes
+and includes only referenced FX/circuit programs. After restoring temporary
+offsets and applying a scalar control, `rustias_modulation_accept_values` updates
+the Rust bases without resetting clocks. Keep manual rebasing, macros and Stop
+restoration checked at 44.1/48/96 kHz and verify real editor gestures stay scalar.
 
 The Pages workflow builds these sources on every push to `main`. Verify the real
 WASM with `node scripts/verify-web.mjs` and check UI changes in a browser, including

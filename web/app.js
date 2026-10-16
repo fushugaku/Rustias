@@ -22,6 +22,7 @@ import {createPanel,makePicker,isChoosing} from "./panel.js";
 import {setupInterfaceNavigation,prepareNewInterface} from './new-interface.js';
 import {pluginHost} from './plugin-host.js';
 import {createPluginModulationRack} from './plugin-modulation-ui.js';
+import {createPluginAutomationSync} from './plugin-automation.js';
 const newInterface=setupInterfaceNavigation();
 const $ = selector => document.querySelector(selector);
 function showError(error) { $("#error").textContent = error.message ?? String(error); $("#error").hidden = false; }
@@ -60,6 +61,7 @@ function markTimbre(t=selected){timbres[t].modified=true;markProgram();}
 const send = message => node?.port.postMessage(message.type==='control'&&message.parameter>=OSC3_BASE
   ? {type:'osc3-control',timbre:message.timbre,control:message.parameter-OSC3_BASE,value:message.value}
   : message);
+const pluginAutomation=pluginHost?createPluginAutomationSync(send):null;
 const global = id => timbres[0].values[id];
 const isDrum = () => global(140) !== 0 && global(141) === selected;
 const isSample = () => !!editingSample || isDrum() && sampleUI?.assigned(global(142));
@@ -69,7 +71,7 @@ const values = () => parameters.map(p => p.id === 118 ? (isSample() ? 0 : timbre
 function unavailableSource(){if(editingSample)return;return rdlSource?.unavailable.find(s=>isDrum()?s.drum===global(142):s.drum==null&&s.timbre===selected);}
 function muteMasks(){const masks=rdlMasks(rdlSource);for(let i=0;i<16;i++)if(sampleUI?.assigned(i))masks.drums&=~(1<<i);return masks;}
 function syncRdlMasks(){if(!node)return;const masks=muteMasks(),key=`${masks.timbres}:${masks.drums}`;if(key!==lastRdlMasks){send({type:'rdl-muted',...masks});lastRdlMasks=key;}}
-function loadEngine(program=state()){const unavailable=muteMasks();send({type:'load',program,unavailable});sendCircuits();lastRdlMasks=`${unavailable.timbres}:${unavailable.drums}`;}
+function loadEngine(program=state()){pluginAutomation?.reset();const unavailable=muteMasks();send({type:'load',program,unavailable});sendCircuits();lastRdlMasks=`${unavailable.timbres}:${unavailable.drums}`;}
 function sendCircuits(timbre){if(!circuitUI)return;const config=circuitUI.getConfig();for(const [t,circuit]of config.tracks.entries())if(timbre==null||t===timbre)send({type:'circuit',timbre:t,circuit:audioCircuit(circuit)});}
 function replaceSource(timbre,drum){if(rdlSource)rdlSource.unavailable=rdlSource.unavailable.filter(s=>drum==null?s.drum!=null||s.timbre!==timbre:s.drum!==drum);}
 function format(id, value) {
@@ -172,7 +174,9 @@ function syncAutomation(){
     for(const lane of config.tracks.flat())if(lane.target&&lane.target.kind!=='macro')targets.set(modulationKey(lane.target),lane.target);
     for(const knob of macros.knobs)for(const binding of knob.bindings)targets.set(targetKey(binding.target),binding.target);
     const specs=[];for(const target of targets.values()){const spec=resolveMacro(target);if(spec)specs.push({target,min:spec.min,max:spec.max,step:spec.step,values:spec.values,base:spec.read(),available:spec.available!==false});}
-    send({type:'modulation',state:{config,macros,targets:specs,engine:state(),effects:fxUI.getConfig(),circuits:circuitUI.getConfig().tracks.map(audioCircuit)}});
+    const automation={config,macros,targets:specs,effects:fxUI.getConfig(),circuits:circuitUI.getConfig().tracks.map(audioCircuit)};
+    if(pluginAutomation)pluginAutomation.send(automation);
+    else send({type:'modulation',state:{...automation,engine:state()}});
   });
 }
 function writeMacros(changes){

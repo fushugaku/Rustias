@@ -15,6 +15,7 @@ class NativeModulation {
   parameter(index,value){this.engine.rustias_modulation_parameter(index,value);}
   transport(data){this.engine.rustias_modulation_transport(+data.playing,data.tempo,data.beat??0,+data.seek);}
   acceptValues(){}
+  acceptControls(){this.engine.rustias_modulation_accept_values();}
   beforeRender(){}
   status(){const n=this.engine.rustias_modulation_status(),bytes=engineBytes(this.engine,this.engine.rustias_preset_buffer(),n);let json='';for(const b of bytes)json+=String.fromCharCode(b);return JSON.parse(json);}
 }
@@ -54,6 +55,7 @@ globalThis.pluginMessage=message=>{
   if(['sequencer','sequence-play','sequence-stop','sequence-reset'].includes(message.type))return;
   if(message.type==='load'){pendingMidi=null;pendingVolumes.clear();snapshotFrames=0;}
   processor.port.onmessage({data:message});
+  if(['control','osc3-control','drum-control','library-control'].includes(message.type))processor.modulation.acceptControls();
   if(message.type==='stop')flushMidiSnapshot();
 };
 globalThis.pluginMidi=(a,b,c)=>pluginMessage({type:'midi',bytes:[a,b,c]});

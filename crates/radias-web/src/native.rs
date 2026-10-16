@@ -159,6 +159,7 @@ pub static METHODS: &[Method] = &[
     number!(rustias_modulation_gain()),
     number!(rustias_modulation_profile(timbre: u32, id: u32, length: u32)),
     number!(rustias_modulation_status()),
+    action!(rustias_modulation_accept_values()),
 ];
 
 fn with_modulation<R>(f: impl FnOnce(&mut Modulation) -> R) -> R {
@@ -173,6 +174,9 @@ fn rustias_modulation_state(length: u32) -> u32 {
 }
 fn rustias_modulation_restore() {
     with_modulation(Modulation::restore);
+}
+fn rustias_modulation_accept_values() {
+    with_modulation(Modulation::accept_values);
 }
 fn rustias_modulation_play() {
     with_modulation(Modulation::play);

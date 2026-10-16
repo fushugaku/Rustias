@@ -58,6 +58,9 @@ seek and loop jumps restart it at the corresponding song position. Live MIDI
 also starts modulation, including while the transport is stopped.
 MIDI events retain their host timestamps; controller display updates are combined
 at up to 30 Hz so wheel and CC bursts do not serialize a full program per event.
+Moving a synth knob sends a scalar control; Rust updates its modulation base
+without rebuilding the rack or resetting its clocks. Changes to bindings,
+sequencer settings and referenced FX/module programs resynchronize the rack.
 The existing web controls, program/timbre save, RDL import, sample upload,
 recordings and WAV/MP3 exports remain available.
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(RustiasPlugin VERSION 0.1.4 LANGUAGES C CXX)
+project(RustiasPlugin VERSION 0.1.5 LANGUAGES C CXX)
 if(APPLE)
   enable_language(OBJC OBJCXX)
   set(CMAKE_OSX_DEPLOYMENT_TARGET 12.0)
