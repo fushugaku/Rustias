@@ -19,6 +19,13 @@ Exact shared arithmetic optimizations must retain staged rounding and saturation
 Q31 needs the high-half MIN16*MIN16 correction even with nonzero low halves.
 Only exactly zero inactive stereo caches may skip decay; nonzero tails and bus
 accumulation order must remain unchanged. Compare native PCM/WASM before/after.
+Browser oscillator caches contain compiled controls only; phase, Sine feedback,
+Sync/Ring and four-frame smoothing continue every sample. FX coefficient keys
+include exact argument bits and sample rate. Browser FX scratch is type-sized:
+no ring for delay-free algorithms, complete rings for delays, retained on bypass.
+Native racks keep all nine preallocated rings and the strict processor API.
+Active FX plans preserve paired-insert skips even when the first insert is
+bypassed, and the global active predicate still counts the skipped odd insert.
 OSC 3 replaces browser Noise using the shared OSC 1 controller and OSC 2 tuning;
 stored IDs 171–178 and Virtual Patch destinations 43–51 append to the old schema.
 Ring/Sync observes native OSC 1/2 phase/audio taps without altering their states

@@ -25,7 +25,9 @@ jobs:
           --skip instrument_vocoder_replaces_its_pair_and_keeps_other_timbres
           --skip vocoder_source_command_updates_targets_without_resetting_histories
       - name: Verify exact fixed-point arithmetic and inactive tails
-        run: cargo test --locked -p radias-synth-domain --test fixed_optimizations
+        run: cargo test --locked -p radias-synth-domain --lib --test fixed_optimizations
+      - name: Verify cached browser oscillator controls
+        run: cargo test --locked -p radias-synth-infrastructure --lib --features web-modular circuit::primary::cache_tests
       - uses: actions/setup-node@v4
         with:
           node-version: 22

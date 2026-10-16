@@ -9,7 +9,11 @@ import {readEffectCatalog} from './verify-effects.mjs';
 import {defaultEffect} from '../web/effects.js';
 import {webParameters} from '../web/parameters.js';
 
-const paths=process.argv.slice(2);
+const args=process.argv.slice(2),paths=args.filter(arg=>!arg.startsWith('--'));
+const verifyOnly=args.includes('--verify-only');
+const rounds=Number(args.find(arg=>arg.startsWith('--rounds='))?.split('=')[1]??7);
+assert.ok(Number.isInteger(rounds)&&rounds>=1&&rounds<=21,'Rounds must be 1…21.');
+const selected=args.find(arg=>arg.startsWith('--bench='))?.slice('--bench='.length).split(',');
 assert.ok(paths.length>=2,'Provide a baseline and one or more candidate WASM files.');
 const builds=await Promise.all(paths.map(async path=>{
   const bytes=fs.readFileSync(path),module=await WebAssembly.compile(bytes);
@@ -27,6 +31,11 @@ function fixture(api,scene){
     for(const [id,value]of scene.controls??[])control(api,id,value,t);
   }
   if(scene.effect){const [slot,kind]=scene.effect;jsonCall(api,'rustias_effect',[slot],defaultEffect(kind,slot===16));}
+  if(scene.pairedIgnored){
+    jsonCall(api,'rustias_effect',[0],{...defaultEffect(29,false),enabled:false});
+    jsonCall(api,'rustias_effect',[1],defaultEffect(14,false));
+    api.rustias_drum_gain(24);
+  }
   if(scene.chain)jsonCall(api,'rustias_effect_chain',[0],scene.chain.map((kind,i)=>({...defaultEffect(kind,true),id:'chain-'+i})));
   if(scene.pcm!=null){
     control(api,140,1);const length=4800,pointer=api.rustias_sample_buffer(0,length);
@@ -34,6 +43,7 @@ function fixture(api,scene){
     for(let i=0;i<length;i++)samples[i]=.25*Math.sin(i*2*Math.PI*220/48000);
     assert.equal(api.rustias_sample_commit(0,length,scene.pcm),1);
     assert.equal(api.rustias_drum_pad(0,100),1);
+    if(scene.pairedIgnored)for(let t=1;t<8;t++)api.rustias_note(t,40+t,127);
   }else for(let i=0;i<scene.voices;i++)assert.equal(api.rustias_note(i%8,36+Math.floor(i/8),100),1);
 }
 const scenes=[{name:'idle',voices:0}];
@@ -53,6 +63,7 @@ add('extra-fx',[],{chain:[6,14,7,11]});
 add('eight-timbres-128',[],{voices:128});
 add('mono-retrigger',[[62,0]],{voices:16});
 add('unison',[[67,1],[68,4],[69,43],[70,99]],{voices:16});
+add('paired-insert-clipped-pcm',[[7,127]],{voices:0,pcm:0,pairedIgnored:true});
 
 let comparedFrames=0;
 const audioHash=createHash('sha256');
@@ -77,18 +88,25 @@ for(const scene of scenes){
     audioHash.update(buffers[0]);comparedFrames+=128;
   }
 }
-process.stderr.write(`Exact PCM: ${scenes.length} scenes, ${comparedFrames} stereo frames. Timing separately.\n`);
+process.stderr.write(`Exact PCM: ${scenes.length} scenes, ${comparedFrames} stereo frames. ${verifyOnly?'Verification only.':'Timing separately.'}\n`);
 const benchmark=[
   {name:'idle',voices:0},{name:'saw1',voices:1},{name:'saw8',voices:8},
   {name:'saw48',voices:48},{name:'saw128',voices:128},
   {name:'comb24',voices:24,controls:[[20,1],[21,3],[22,75],[23,40]]},
   {name:'shaper24',voices:24,controls:[[29,2],[154,8],[31,87],[30,1]]},
   {name:'fx-chain',voices:8,chain:[6,14,7,11]},
+  {name:'osc3-sine128',voices:128,controls:[[17,0],[19,127],[171,3]]},
+  {name:'osc3-unison48',voices:48,controls:[[17,0],[19,127],[171,0],[172,2],[173,70],[174,40]]},
+  {name:'reverb',voices:8,chain:[11]},
+  {name:'delay',voices:8,chain:[14]},
+  {name:'tube',voices:8,chain:[9]},
+  {name:'early',voices:8,chain:[12]},
 ];
 const timings=[];
-for(const scene of benchmark){
+if(selected)for(const name of selected)assert.ok(benchmark.some(scene=>scene.name===name),`Unknown benchmark: ${name}`);
+for(const scene of verifyOnly?[]:benchmark.filter(scene=>!selected||selected.includes(scene.name))){
   const samples=builds.map(()=>[]);
-  for(let round=0;round<7;round++){
+  for(let round=0;round<rounds;round++){
     // Alternate order to avoid giving one build a systematic thermal advantage.
     const order=builds.map((_,i)=>i);if(round%2)order.reverse();
     for(const i of order){
@@ -99,7 +117,7 @@ for(const scene of benchmark){
       samples[i].push(performance.now()-start);
     }
   }
-  const medians=samples.map(values=>[...values].sort((a,b)=>a-b)[3]);
+  const medians=samples.map(values=>[...values].sort((a,b)=>a-b)[Math.floor(rounds/2)]);
   timings.push({scene:scene.name,voices:scene.voices,frames:65536,median_ms:medians,saved_percent:medians.map(value=>(1-value/medians[0])*100),samples_ms:samples});
   process.stderr.write(`${scene.name}: ${medians.map(x=>x.toFixed(2)).join(' / ')} ms\n`);
 }

@@ -9,6 +9,15 @@ use crate::{Sample, pan::StereoFrame};
 pub const ORIGINAL_AUDIO_PARITY_QUALIFIED: bool = false;
 pub const DELAY_FRAMES: usize = 131_072;
 pub const DELAY_WORDS: usize = DELAY_FRAMES * 2;
+/// Scratch used by the current reconstructed algorithms, not firmware RAM.
+/// Dynamics, EQ, filters and modulation without delay keep their own state.
+pub const fn delay_storage_words(kind: u8) -> usize {
+    if matches!(kind, 11..=22 | 26..=29) {
+        DELAY_WORDS
+    } else {
+        0
+    }
+}
 const MASK: usize = DELAY_FRAMES - 1;
 const TAU: f32 = core::f32::consts::TAU;
 
@@ -155,6 +164,21 @@ impl BiquadHistory {
 }
 
 /// Small persistent sample state. Delay storage belongs to the application.
+#[derive(Clone, Copy, Default)]
+struct CoefficientCache {
+    key: Option<(u32, u32)>,
+    value: f32,
+}
+impl CoefficientCache {
+    fn get(&mut self, first: f32, second: f32, compile: impl FnOnce() -> f32) -> f32 {
+        let key = (first.to_bits(), second.to_bits());
+        if self.key != Some(key) {
+            self.value = compile();
+            self.key = Some(key);
+        }
+        self.value
+    }
+}
 pub struct EffectAudioProcessor {
     settings: EffectAudioSettings,
     cursor: usize,
@@ -181,6 +205,9 @@ pub struct EffectAudioProcessor {
     eq: [[BiquadHistory; 4]; 2],
     reverb_low: [f32; 8],
     current_mix: [f32; 2],
+    lowpass_coefficients: [[CoefficientCache; 8]; 2],
+    svf_coefficients: [CoefficientCache; 2],
+    powers: [CoefficientCache; 32],
 }
 impl EffectAudioProcessor {
     pub fn new(settings: EffectAudioSettings) -> Self {
@@ -210,6 +237,9 @@ impl EffectAudioProcessor {
             eq: [[Default::default(); 4]; 2],
             reverb_low: [0.0; 8],
             current_mix: [settings.dry, settings.wet],
+            lowpass_coefficients: Default::default(),
+            svf_coefficients: Default::default(),
+            powers: Default::default(),
         }
     }
     pub fn settings(&self) -> &EffectAudioSettings {
@@ -339,23 +369,28 @@ impl EffectAudioProcessor {
         self.envelope[c]
     }
     fn lowpass(&mut self, c: usize, index: usize, x: f32, hz: f32) -> f32 {
-        let a = 1.0
-            - libm::expf(
-                -TAU * hz.clamp(5.0, self.settings.sample_rate * 0.45) / self.settings.sample_rate,
-            );
+        let rate = self.settings.sample_rate;
+        let a = self.lowpass_coefficients[c][index].get(hz, rate, || {
+            1.0 - libm::expf(-TAU * hz.clamp(5.0, rate * 0.45) / rate)
+        });
         self.low[c][index] += a * (x - self.low[c][index]);
         self.low[c][index]
     }
+    fn power(&mut self, slot: usize, base: f32, exponent: f32) -> f32 {
+        self.powers[slot].get(base, exponent, || libm::powf(base, exponent))
+    }
     fn damp(&mut self, c: usize, x: f32, high: f32, low: f32) -> f32 {
-        let x = self.lowpass(c, 6, x, 18_000.0 * libm::powf(0.018, high.clamp(0.0, 1.0)));
+        let cutoff = 18_000.0 * self.power(0, 0.018, high.clamp(0.0, 1.0));
+        let x = self.lowpass(c, 6, x, cutoff);
         let bass = self.lowpass(c, 7, x, 20.0 + 780.0 * low);
         x - bass * low
     }
     fn state_filter(&mut self, c: usize, x: f32, hz: f32, resonance: f32, mode: u8) -> f32 {
         // Topology-preserving SVF; equations are reconstructed, not FXD opcodes.
-        let g = libm::tanf(
-            core::f32::consts::PI * hz.clamp(20.0, 17_000.0) / self.settings.sample_rate,
-        );
+        let rate = self.settings.sample_rate;
+        let g = self.svf_coefficients[c].get(hz, rate, || {
+            libm::tanf(core::f32::consts::PI * hz.clamp(20.0, 17_000.0) / rate)
+        });
         let k = 2.0 - 1.92 * resonance.clamp(0.0, 1.0);
         let a = 1.0 / (1.0 + g * (g + k));
         let v1 = a * (self.band[c] + g * (x - self.low[c][0]));
@@ -447,7 +482,9 @@ impl EffectAudioProcessor {
         let mean = y.iter().sum::<f32>() * 0.25;
         for i in 0..8 {
             let seconds = lengths[i] * size / 48_000.0;
-            let feedback = libm::powf(0.001, seconds / rt60.max(0.1)).min(0.998);
+            let feedback = self
+                .power(10 + i, 0.001, seconds / rt60.max(0.1))
+                .min(0.998);
             let sign = if i & 1 == 0 { 1.0 } else { -1.0 };
             memory[i * 8192 + at] =
                 finite(excitation * 0.15 * sign + (mean - y[i]) * feedback).clamp(-8.0, 8.0);
@@ -464,8 +501,8 @@ impl EffectAudioProcessor {
     fn tone(&mut self, c: usize, x: f32, low_db: f32, high_db: f32) -> f32 {
         let low = self.lowpass(c, 4, x, 300.0);
         let high = x - self.lowpass(c, 5, x, 3500.0);
-        x + low * (libm::powf(10.0, low_db / 20.0) - 1.0)
-            + high * (libm::powf(10.0, high_db / 20.0) - 1.0)
+        x + low * (self.power(1, 10.0, low_db / 20.0) - 1.0)
+            + high * (self.power(2, 10.0, high_db / 20.0) - 1.0)
     }
     fn delay(
         &mut self,
@@ -712,9 +749,23 @@ impl EffectAudioProcessor {
         if memory.len() != DELAY_WORDS {
             return Err("Effect delay storage length");
         }
+        self.process_compact(input, memory, context)
+    }
+    /// Compact browser scratch. The original `process` contract remains strict.
+    /// Delay-free algorithms accept empty storage; delay algorithms retain the
+    /// complete original ring. Validation precedes every state update.
+    pub fn process_compact(
+        &mut self,
+        input: StereoFrame,
+        memory: &mut [f32],
+        context: &EffectAudioContext,
+    ) -> Result<StereoFrame, &'static str> {
         let kind = self.settings.program.kind;
         if kind > 30 {
             return Err("Invalid effect type");
+        }
+        if memory.len() < delay_storage_words(kind) || !matches!(memory.len(), 0 | DELAY_WORDS) {
+            return Err("Effect delay storage length");
         }
         if !self.settings.program.enabled || kind == 0 {
             return Ok(input);
@@ -733,7 +784,7 @@ impl EffectAudioProcessor {
                     (5, 0) => {
                         let env = self.detect(c, x[c], 0.01, 0.0001) * (1.0 + 15.0 * self.n(7));
                         let env = env.clamp(0.0, 1.0);
-                        libm::powf(env, libm::powf(4.0, -self.signed(8))) * 2.0 - 1.0
+                        libm::powf(env, self.power(7, 4.0, -self.signed(8))) * 2.0 - 1.0
                     }
                     _ => {
                         context.controllers
@@ -819,13 +870,9 @@ impl EffectAudioProcessor {
                     let b = if stage == 0 { 1 } else { 7 };
                     let lo = self.lowpass(c, stage * 2, v, 20.0 + self.n(b) * 1000.0);
                     v -= lo * self.n(b);
-                    v = self.lowpass(
-                        c,
-                        stage * 2 + 1,
-                        v,
-                        20_000.0 * libm::powf(0.025, self.n(b + 1)),
-                    );
-                    let drive = libm::powf(10.0, (self.p(b + 2) - 64.0) / 20.0);
+                    let cutoff = 20_000.0 * self.power(3 + stage, 0.025, self.n(b + 1));
+                    v = self.lowpass(c, stage * 2 + 1, v, cutoff);
+                    let drive = self.power(5 + stage, 10.0, (self.p(b + 2) - 64.0) / 20.0);
                     let bias = (self.p(b + 3) / 100.0 - 0.5) * self.p(b + 4) / 100.0;
                     let saturation = 1.0 + 8.0 * self.p(b + 4) / 100.0;
                     v = (soft(v * drive * saturation + bias) - soft(bias))
@@ -860,9 +907,9 @@ impl EffectAudioProcessor {
                     let mut value = 0.0;
                     for i in 0..16 {
                         let gain = match self.p(1) as u8 {
-                            0 => libm::powf(0.75, i as f32),
-                            3 => libm::powf(0.8, (15 - i) as f32),
-                            _ => libm::powf(0.9, i as f32),
+                            0 => self.power(16 + i, 0.75, i as f32),
+                            3 => self.power(16 + i, 0.8, (15 - i) as f32),
+                            _ => self.power(16 + i, 0.9, i as f32),
                         };
                         let sign = if (i + c) % 3 == 0 { -1.0 } else { 1.0 };
                         let delay = self.settings.early_taps[i]
@@ -902,10 +949,11 @@ impl EffectAudioProcessor {
             }
             25 => {
                 let freq = if self.p(1) == 0.0 {
-                    10.0 * libm::powf(2000.0, self.n(2))
+                    10.0 * self.power(8, 2000.0, self.n(2))
                 } else {
                     440.0
-                        * libm::powf(
+                        * self.power(
+                            8,
                             2.0,
                             (f32::from(context.note) - 69.0 + self.p(3) - 64.0
                                 + (self.p(4) - 64.0) / 100.0)
@@ -929,7 +977,8 @@ impl EffectAudioProcessor {
                     _ => libm::sinf(TAU * self.oscillator_phase),
                 };
                 core::array::from_fn(|c| {
-                    self.lowpass(c, 1, x[c], 20_000.0 * libm::powf(0.01, self.n(14))) * carrier
+                    let cutoff = 20_000.0 * self.power(9, 0.01, self.n(14));
+                    self.lowpass(c, 1, x[c], cutoff) * carrier
                 })
             }
             26 => self.pitch_shift(x, memory, context),
@@ -963,8 +1012,10 @@ impl EffectAudioProcessor {
                     0 => {
                         let envelope = self.detect(0, (x[0] + x[1]) * 0.5, 0.01, 0.0001)
                             * (1.0 + 15.0 * self.n(10));
-                        libm::powf(envelope.clamp(0.0, 1.0), libm::powf(4.0, -self.signed(11)))
-                            * 2.0
+                        libm::powf(
+                            envelope.clamp(0.0, 1.0),
+                            self.power(7, 4.0, -self.signed(11)),
+                        ) * 2.0
                             - 1.0
                     }
                     1 => self.lfo_value(0),
@@ -1041,5 +1092,116 @@ fn bandpass(hz: f32, q: f32, rate: f32) -> BiquadCoefficients {
             f64::from(2.0 * libm::cosf(omega) / a0),
             f64::from(-(1.0 - alpha) / a0),
         ],
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    extern crate std;
+    use super::*;
+
+    #[test]
+    fn coefficient_keys_distinguish_signed_zero_and_all_argument_bits() {
+        let mut cache = CoefficientCache::default();
+        let mut calls = 0;
+        for (a, b) in [
+            (0.0f32, 1.0f32),
+            (0.0, 1.0),
+            (-0.0, 1.0),
+            (-0.0, 2.0),
+            (-0.0, 2.0),
+        ] {
+            let value = cache.get(a, b, || {
+                calls += 1;
+                a + b
+            });
+            assert_eq!(value.to_bits(), (a + b).to_bits());
+        }
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn caches_keep_all_effects_exact_with_live_controls_rate_and_bypass() {
+        for kind in 1..=30 {
+            let mut settings = EffectAudioSettings::default();
+            settings.program = EffectAudioProgram {
+                kind,
+                enabled: true,
+                master: true,
+                parameters: [64; 20],
+            };
+            settings.program.parameters[1] = 0;
+            settings.dry = 0.25;
+            settings.wet = 0.75;
+            settings.delay = [2400.0, 3600.0, 4800.0];
+            let mut cached = EffectAudioProcessor::new(settings);
+            let mut uncached = EffectAudioProcessor::new(settings);
+            let mut full = std::vec![0.0;DELAY_WORDS];
+            let mut compact = std::vec![0.0;delay_storage_words(kind)];
+            let mut context = EffectAudioContext::default();
+            for frame in 0..8192usize {
+                if frame % 257 == 0 {
+                    settings.sample_rate = [48000.0, 44100.0, 96000.0][frame / 257 % 3];
+                    settings.program.parameters[3] = ((frame / 257 * 7) % 100) as u8;
+                    settings.program.parameters[7] = ((frame / 257 * 13) % 100) as u8;
+                    settings.program.parameters[9] = ((frame / 257 * 17) % 100) as u8;
+                    settings.reverb_seconds = 0.1 + (frame / 257 % 10) as f32;
+                    assert!(!cached.configure(settings));
+                    assert!(!uncached.configure(settings));
+                }
+                if matches!(frame, 2048 | 2304) {
+                    settings.program.enabled = frame == 2304;
+                    assert!(!cached.configure(settings));
+                    assert!(!uncached.configure(settings));
+                }
+                context.note = (36 + frame / 521 % 48) as u8;
+                context.tempo_tenths = 800 + (frame / 389 % 20) as u16 * 50;
+                context.controllers[2] = (frame % 100) as f32 / 100.0;
+                uncached.lowpass_coefficients = Default::default();
+                uncached.svf_coefficients = Default::default();
+                uncached.powers = Default::default();
+                let input = StereoFrame {
+                    left: Sample((frame as i32).wrapping_mul(0x137abc)),
+                    right: Sample((frame as i32).wrapping_mul(-0x1723ab)),
+                };
+                let a = cached
+                    .process_compact(input, &mut compact, &context)
+                    .unwrap();
+                let b = uncached.process(input, &mut full, &context).unwrap();
+                assert_eq!(a, b, "effect {kind}, frame {frame}");
+                assert_eq!(cached.cursor, uncached.cursor);
+                assert_eq!(cached.phase.to_bits(), uncached.phase.to_bits());
+            }
+            if !compact.is_empty() {
+                assert_eq!(compact, full, "delay history {kind}");
+            }
+        }
+    }
+
+    #[test]
+    fn strict_scratch_contract_and_compact_validation_precede_state_updates() {
+        let mut settings = EffectAudioSettings::default();
+        let input = StereoFrame {
+            left: Sample(12345),
+            right: Sample(-54213),
+        };
+        let context = EffectAudioContext::default();
+        let mut full = std::vec![0.0;DELAY_WORDS];
+        for kind in 0..=30 {
+            settings.program.kind = kind;
+            settings.program.enabled = true;
+            let mut actual = EffectAudioProcessor::new(settings);
+            let mut original = EffectAudioProcessor::new(settings);
+            assert!(actual.process(input, &mut [], &context).is_err());
+            let result = actual.process_compact(input, &mut [], &context);
+            assert_eq!(result.is_ok(), delay_storage_words(kind) == 0);
+            if result.is_err() {
+                assert_eq!(
+                    actual.process(input, &mut full, &context),
+                    original.process(input, &mut std::vec![0.0;DELAY_WORDS], &context)
+                );
+            }
+            full.fill(0.0);
+        }
     }
 }

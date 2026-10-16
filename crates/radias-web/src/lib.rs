@@ -514,6 +514,17 @@ pub extern "C" fn rustias_peak() -> f32 {
     ENGINE.with(|state| state.borrow().as_ref().map_or(0.0, |e| e.peak))
 }
 
+/// Owned effect scratch only; WebAssembly linear-memory high-water is separate.
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_effect_delay_bytes() -> u32 {
+    ENGINE.with(|state| {
+        state
+            .borrow()
+            .as_ref()
+            .map_or(0, |e| e.effects.delay_storage_bytes() as u32)
+    })
+}
+
 impl WebEngine {
     fn effect_state(&self) -> effects::State {
         #[cfg(target_arch = "wasm32")]
