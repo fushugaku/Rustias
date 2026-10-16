@@ -61,3 +61,15 @@ IDs 13–16 and verify its Wave/Semi/Fine cannot retune isolated Wave/Normal OSC
 instrument UI in the shared crates/web; Android-specific file dialogs, lifecycle
 and fullscreen live in the shell. `bash scripts/build-android.sh` builds the web
 assets, APK, export unit tests and Android lint. Do not start audible device tests.
+
+`plugin/` hosts that exact WASM and unchanged `web/worklet.js` as AUv2/VST3/CLAP.
+macOS uses system JavaScriptCore + WKWebView; Windows uses pinned QuickJS-NG +
+Wasmtime + WebView2. Keep all instrument logic in the shared Rust/web sources;
+only DAW lifecycle, MIDI/transport, automation, state and editor bridges belong in
+this shell. Native reference profiles must remain unchanged. Editor initialization
+must adopt restored sample/profile IDs without resetting a playing instance.
+DAW state includes loaded sample PCM, full session and sequencer/modulation data.
+Web libraries/recordings use persistent editor storage. Never introduce a second
+hardware AudioContext in a plugin. All plugin checks render into discarded memory;
+`rustias-plugin-preview` is a silent UI host. Run CTest and strict Apple auval when
+changing host code. CI builds macOS universal and Windows x64 plugin archives.

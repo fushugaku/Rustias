@@ -13,6 +13,10 @@ Rustias — Rust-часть проекта эмуляции Korg RADIAS: нат�
 
 Desktop использует нативный режим, когда доступны необходимые файлы и аудиоустройство. CLI работает с интерпретатором прошивки.
 
+## Плагины AU / VST3
+
+Полный браузерный инструмент также собирается в универсальные AU/VST3 для macOS и VST3 x64 для Windows. Движок WASM и worklet общие. Проект DAW сохраняет все тембры, секвенсоры, модуляции, эффекты и загруженные PCM-сэмплы. [Установка и сборка](plugin/README.ru.md); архивы публикуются в [workflow плагинов](https://github.com/fushugaku/Rustias/actions/workflows/plugins.yml).
+
 ## WebAssembly
 
 [Открыть синтезатор](https://fushugaku.github.io/Rustias/) · [New interface](https://fushugaku.github.io/Rustias/?interface=new).

@@ -1,0 +1,6 @@
+{
+  "name": "rustias-plugin-assets",
+  "private": true,
+  "type": "module",
+  "dependencies": { "esbuild": "0.28.2" }
+}

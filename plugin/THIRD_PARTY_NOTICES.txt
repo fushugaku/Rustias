@@ -1,0 +1,29 @@
+Rustias plugin uses the canonical Rustias WASM engine and web application.
+No Korg firmware, factory PCM or commercial SDK binaries are included.
+
+Native shell dependencies:
+- CLAP and clap-wrapper v0.16.0: MIT License
+  https://github.com/free-audio/clap
+  https://github.com/free-audio/clap-wrapper
+- Steinberg VST 3 SDK 3.8.0: MIT License
+  https://github.com/steinbergmedia/vst3sdk
+- Apple AudioUnitSDK (macOS build): Apache License 2.0
+  https://github.com/apple/AudioUnitSDK
+- nlohmann/json 3.12.0: MIT License, Copyright Niels Lohmann
+  https://github.com/nlohmann/json
+- QuickJS-NG 0.17.0 (Windows): MIT License
+  Copyright Fabrice Bellard, Charlie Gordon and QuickJS-NG contributors
+  https://github.com/quickjs-ng/quickjs
+- Wasmtime 49.0.3 (Windows): Apache License 2.0 with LLVM exception
+  Copyright the Bytecode Alliance contributors
+  https://github.com/bytecodealliance/wasmtime/blob/v49.0.3/LICENSE
+- Microsoft.Web.WebView2 1.0.3856.49 (Windows build): Microsoft package license
+  https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3856.49
+  The separately installed Microsoft Edge WebView2 Runtime is used for the editor.
+
+Bundled web dependencies and samples:
+- lamejs: LGPL v3.0; source and license in web/vendor/lamejs/.
+- Drum sample licenses and attribution: web/samples/LICENSE.txt and
+  web/samples/tr-909/LICENSE.txt. Their original notices remain in the bundle.
+
+Full dependency license texts are included in the bundle's licenses directory.

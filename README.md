@@ -6,6 +6,10 @@ Rustias is the Rust implementation of a Korg RADIAS emulation project: a direct 
 
 The project is under development. Individual algorithms and recorded scenarios are compared with the C++ reference emulator. These comparisons do not establish complete equivalence with physical RADIAS hardware.
 
+## AU / VST3 plugins
+
+The complete browser instrument also builds as universal macOS AU/VST3 and Windows x64 VST3, using the same WASM engine and worklet. Project state includes all timbres, sequencers, modulation, FX and loaded sample PCM. See [installation and builds](plugin/README.md); the [plugin workflow](https://github.com/fushugaku/Rustias/actions/workflows/plugins.yml) provides archives.
+
 ## WebAssembly
 
 [Play the synthesizer](https://fushugaku.github.io/Rustias/) · [New interface](https://fushugaku.github.io/Rustias/?interface=new).

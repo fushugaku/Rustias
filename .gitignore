@@ -9,6 +9,7 @@
 /build/
 /output/
 /tmp/
+/plugin/node_modules/
 *.bin
 *.rdl
 *.wav

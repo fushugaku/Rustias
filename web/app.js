@@ -20,6 +20,7 @@ import {normalizeEngine as checkEngine,normalizeProgram,captureTimbre,normalizeT
 import {MAX_RDL_BYTES,readRdl,rdlPatches,validateRdlSource,rdlMasks} from './rdl.js';
 import {createPanel,makePicker,isChoosing} from "./panel.js";
 import {setupInterfaceNavigation,prepareNewInterface} from './new-interface.js';
+import {pluginHost} from './plugin-host.js';
 const newInterface=setupInterfaceNavigation();
 const $ = selector => document.querySelector(selector);
 function showError(error) { $("#error").textContent = error.message ?? String(error); $("#error").hidden = false; }
@@ -296,8 +297,9 @@ function loadSnapshot(value){
   const samplesReady=sampleUI?.setConfig(samples);loadEngine(program);send({type:'sequencer',config:sequence});
   samplesReady?.then(updateControls).catch(showError);
 }
-function scheduleSession(){clearTimeout(autosaveTimer);autosaveTimer=setTimeout(saveSession,300);}
-function saveSession(){try{patchStore.saveSession({snapshot:snapshot(),activeSavedPatch,programState,programDirty,selected,volume:Number($("#volume").value)});}catch(error){showError(new Error(`Could not save this patch in the browser: ${error.message}`));}}
+function currentSession(){return {snapshot:snapshot(),activeSavedPatch,programState,programDirty,selected,volume:Number($("#volume").value)};}
+function scheduleSession(){pluginHost?.saveSession(currentSession());clearTimeout(autosaveTimer);autosaveTimer=setTimeout(saveSession,300);}
+function saveSession(){try{const session=currentSession();pluginHost?.saveSession(session);patchStore.saveSession(session);}catch(error){showError(new Error(`Could not save this patch in the browser: ${error.message}`));}}
 function refreshLibrary(){
   programPicker.options=[{value:'init',label:'New program'},{value:'custom',label:'Unsaved'},...patchStore.list().map(p=>({value:`saved:${p.id}`,label:p.snapshot.rdl?`${String(p.snapshot.rdl.slot+1).padStart(3,'0')} · ${p.name}`:p.name}))];
   timbrePicker.options=[...factorySounds,...timbreStore.list().map(p=>({value:`saved:${p.id}`,label:p.name}))];updateControls();
@@ -374,7 +376,7 @@ $("#program-file").addEventListener("change", async event => {
     if(file.size>MAX_RDL_BYTES)throw new Error('Choose a file up to 8 MiB.');
     button.disabled=true;button.textContent='Importing…';$('#error').hidden=true;const buffer=await file.arrayBuffer(),magic=new TextDecoder().decode(buffer.slice(0,4));
     if(/\.rdl$/i.test(file.name)||['316B','316P','316p'].includes(magic)){
-      const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',buffer))].map(b=>b.toString(16).padStart(2,'0')).join('');
+      const digest=[...new Uint8Array(await (pluginHost?pluginHost.digest(buffer):crypto.subtle.digest('SHA-256',buffer)))].map(b=>b.toString(16).padStart(2,'0')).join('');
       const library=await readRdl(module,buffer),imported=rdlPatches(library,file.name.slice(0,256),digest);
       // Validate every patch before the one atomic library write or any UI change.
       for(const patch of imported)normalizeProgram(patch.snapshot,parameters);
@@ -413,11 +415,11 @@ async function setupAudio() {
   $("#error").hidden = true;
   if (context) { await context.resume(); updatePower(); return; }
   const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
-  if (!AudioContextClass || !window.AudioWorkletNode) throw new Error("This browser does not support AudioWorklet. Try a current browser over HTTPS.");
-  context = new AudioContextClass({sampleRate: 48000, latencyHint: "interactive"}); const pendingContext = context;
+  if (!pluginHost&&(!AudioContextClass || !window.AudioWorkletNode)) throw new Error("This browser does not support AudioWorklet. Try a current browser over HTTPS.");
+  context = pluginHost?pluginHost.context():new AudioContextClass({sampleRate: 48000, latencyHint: "interactive"}); const pendingContext = context;
   try {
     await context.audioWorklet.addModule(new URL("./worklet.js", import.meta.url));
-    const pendingNode = new AudioWorkletNode(context, "rustias", {numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: {module, gain: Number($("#volume").value) / 100}});
+    const pendingNode = pluginHost?pluginHost.node():new AudioWorkletNode(context, "rustias", {numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: {module, gain: Number($("#volume").value) / 100}});
     const ready = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("The Rust audio engine did not start.")), 10000);
       pendingNode.onprocessorerror = () => { clearTimeout(timeout); reject(new Error("The audio engine stopped unexpectedly.")); showError(new Error("The audio engine stopped unexpectedly.")); recorder?.stop(); };
@@ -436,14 +438,15 @@ async function setupAudio() {
         }
       };
     });
-    pendingNode.connect(context.destination); node = pendingNode;lastRdlMasks=null;loadEngine();send({type:"sequencer",config:sequenceUI.getConfig()});
-    await context.resume(); await ready; await sampleUI.attach(pendingNode,context);syncAutomation(); context.onstatechange = updatePower; updatePower();
+    const restored=pluginHost?.initial.audioState;
+    pendingNode.connect(context.destination); node = pendingNode;if(!restored){lastRdlMasks=null;loadEngine();send({type:"sequencer",config:sequenceUI.getConfig()});}
+    await context.resume(); await ready; await sampleUI.attach(pendingNode,context,restored);if(!restored)syncAutomation(); context.onstatechange = updatePower; updatePower();
   } catch (error) { sampleUI?.detach(); node?.disconnect(); node = null; context = null; await pendingContext.close(); throw error; }
 }
 function updatePower() {
   const playing = context?.state === "running";
   $("#power").textContent = playing ? "Pause audio" : "Start audio"; $("#power").setAttribute("aria-pressed", !!playing);
-  $("#status").textContent = playing ? `Native engine · ${context.sampleRate / 1000} kHz` : "Ready · no firmware required"; $("#led").classList.toggle("live", !!playing);
+  $("#status").textContent = playing ? `${pluginHost?'DAW':'Native engine'} · ${context.sampleRate / 1000} kHz` : "Ready · no firmware required"; $("#led").classList.toggle("live", !!playing);
 }
 async function down(source, note, instrument) {
   if (held.has(source) || !module) return;
@@ -481,7 +484,7 @@ document.addEventListener("keydown", event => {
   const key = event.key.toLowerCase(), index = computerKeys.indexOf(key); if (index >= 0) { event.preventDefault(); down(`key-${key}`, (octave + 1) * 12 + index, index); } if (event.key === "Escape") stop();
 });
 document.addEventListener("keyup", event => up(`key-${event.key.toLowerCase()}`)); window.addEventListener("blur", releaseAll);
-document.addEventListener("visibilitychange", () => { if (document.hidden) stop(); });
+document.addEventListener("visibilitychange", () => { if (!pluginHost&&document.hidden) stop(); });
 $("#octave-down").addEventListener("click", () => { releaseAll(); octave = Math.max(0, octave - 1); updateKeys(); });
 $("#octave-up").addEventListener("click", () => { releaseAll(); octave = Math.min(7, octave + 1); updateKeys(); });
 $("#volume").addEventListener("input", event => {send({type: "gain", value: Number(event.target.value) / 100});macroUI?.rebase({kind:'volume'});markProgram();updateControls();scheduleSession();});
@@ -522,7 +525,7 @@ macroUI=createMacrosPanel({resolve:resolveMacro,write:writeMacros,onError:showEr
 recorder=createRecorder({ensureAudio:startAudio,getAudio:()=>context,send,onError:showError,getProgram:()=>{const saved=patchStore.list().find(p=>p.id===activeSavedPatch);return {key:saved?`program:${saved.id}`:'unsaved',name:saved?.name??'Unsaved program'};}});
 newUI?.connect({sequenceUI,fxUI,circuitUI,macroUI,resolveMacro,releaseAll});
 refreshLibrary();
-try{const session=patchStore.session();if(session?.snapshot){loadSnapshot(session.snapshot);activeSavedPatch=session.activeSavedPatch??null;programState=session.programState??"custom";programDirty=session.programDirty??false;if(Number.isInteger(session.selected)&&session.selected>=0&&session.selected<timbreCount)$(`[data-timbre="${session.selected}"]`).click();if(Number.isFinite(session.volume))$("#volume").value=session.volume;}}catch(error){showError(new Error(`Could not restore the saved session: ${error.message}`));}
+try{const session=pluginHost?pluginHost.initial.session:patchStore.session();if(session?.snapshot){loadSnapshot(session.snapshot);activeSavedPatch=session.activeSavedPatch??null;programState=session.programState??"custom";programDirty=session.programDirty??false;if(Number.isInteger(session.selected)&&session.selected>=0&&session.selected<timbreCount)$(`[data-timbre="${session.selected}"]`).click();if(Number.isFinite(session.volume))$("#volume").value=session.volume;}}catch(error){showError(new Error(`Could not restore the saved session: ${error.message}`));}
 updateControls(); updateKeys(); document.body.dataset.parameterCount = parameters.length;
 try {
   const response = await fetch(new URL("./rustias.wasm", import.meta.url)); if (!response.ok) throw new Error(`Could not load the Rust engine (${response.status}).`);
@@ -530,4 +533,9 @@ try {
   const api=new WebAssembly.Instance(compiled,{}).exports;
   if(api.rustias_parameter_count()!==parameters.length||typeof api.rustias_osc3_control!=='function'||typeof api.rustias_effect_chain!=='function'||typeof api.rustias_preset_reserve!=='function')throw new Error('The instrument needs to reload after an update. Reload this page.');
   module=compiled;sequenceUI.setReady(true);recorder.setReady(true); $("#power").disabled = false;$('#load-program').disabled=false;updatePower(); document.body.dataset.engine = "ready";
+  if(pluginHost){
+    pluginHost.onRestore(session=>{if(session?.snapshot){loadSnapshot(session.snapshot);updateControls();}});
+    pluginHost.onParameter((id,value)=>{if(id===8){$('#volume').value=value;return;}const config=macroUI.getConfig();if(config.knobs[id]){config.knobs[id].value=value;macroUI.setConfig(config);}});
+    await startAudio();pluginHost.saveSession(currentSession());
+  }
 } catch (error) { $("#status").textContent = "Engine unavailable"; showError(error); }

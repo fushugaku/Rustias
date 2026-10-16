@@ -149,7 +149,19 @@ export function createDrumSamples({getInstrument,isDrum,onAssign,onKit,onChange,
     },
     instrumentNames:()=>config.slots.map((slot,i)=>slot.source==='synth'?`Drum ${String(i+1).padStart(2,'0')}`:sampleName(slot.source)),
     async setConfig(value){config=validateSamples(value,parameters);resetLibrary();for(let i=0;i<16;i++)versions[i]++;pruneDecoded();rebuildOptions();render();if(connection){connection.node.port.postMessage({type:'drum-gain',value:config.kitGain});await Promise.all(config.slots.map((_,i)=>loadSlot(i)));}},
-    async attach(node,context){connection={node,context};loaded.clear();resetLibrary();await ready;connection.node.port.postMessage({type:'drum-gain',value:config.kitGain});await Promise.all(config.slots.map((_,i)=>loadSlot(i)));},
+    async attach(node,context,restored){connection={node,context};loaded.clear();
+      // The DAW has already restored PCM and profile IDs before the editor opens.
+      // Adopt those IDs without resetting the playing engine or re-decoding files.
+      if(restored){await ready;assets.clear();profiles.clear();nextAsset=nextProfile=0;const pcm=new Map();
+        for(const message of restored){
+          if(message.type==='library-sample')pcm.set(message.asset,message.data);
+          if(message.type==='sample'){const source=config.slots[message.instrument]?.source;if(source)decoded.set(source,Promise.resolve(Float32Array.from(message.data)));}
+          if(message.type==='library-profile'){assets.set(message.source,message.asset);profiles.set(keyFor(message.timbre,message.source),{id:message.id});nextAsset=Math.max(nextAsset,message.asset);nextProfile=Math.max(nextProfile,message.id);}
+        }
+        for(const [source,id] of assets)if(pcm.has(id))decoded.set(source,Promise.resolve(Float32Array.from(pcm.get(id))));
+        config.slots.forEach((slot,i)=>loaded.set(i,slot.source));return;
+      }
+      resetLibrary();await ready;connection.node.port.postMessage({type:'drum-gain',value:config.kitGain});await Promise.all(config.slots.map((_,i)=>loadSlot(i)));},
     async waitReady(){await ready;if(connection)await Promise.all(config.slots.map((_,i)=>loadSlot(i)));},
     detach(){connection=undefined;loaded.clear();resetLibrary();for(const request of pending.values()){clearTimeout(request.timer);request.reject(new Error("The audio connection closed."));}pending.clear();},
     handleMessage(data){if(data.type!=="sample-ready")return false;const request=pending.get(data.request);if(request){clearTimeout(request.timer);pending.delete(data.request);if(data.ok)request.resolve();else request.reject(new Error(data.message??"The Rust engine rejected this sample."));}return true;}

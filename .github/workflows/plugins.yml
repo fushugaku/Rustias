@@ -1,0 +1,72 @@
+name: Build AU and VST3 plugins
+on:
+  push:
+    branches: [main]
+    paths: ['plugin/**', 'web/**', 'crates/**', 'scripts/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/plugins.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: plugins-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  resources:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bash scripts/build-web.sh
+      - run: npm ci --prefix plugin
+      - run: node plugin/build-assets.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-resources
+          path: output/plugin/resources
+          retention-days: 3
+  plugins:
+    needs: resources
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macOS-universal
+          - os: windows-latest
+            name: Windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-resources
+          path: output/plugin/resources
+      - name: Configure macOS universal
+        if: runner.os == 'macOS'
+        run: cmake -S plugin -B output/plugin/build -DCMAKE_BUILD_TYPE=Release '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64'
+      - name: Configure Windows x64
+        if: runner.os == 'Windows'
+        run: cmake -S plugin -B output/plugin/build -A x64
+      - name: Build instruments and offline checks
+        run: cmake --build output/plugin/build --config Release --target rustias_clap rustias_vst3 rustias-runtime-check rustias-host-check --parallel 4
+      - name: Build AU
+        if: runner.os == 'macOS'
+        run: cmake --build output/plugin/build --target rustias_au --parallel 4
+      - name: Verify shared engine and project state silently
+        run: ctest --test-dir output/plugin/build -C Release --output-on-failure
+      - name: Package and validate macOS
+        if: runner.os == 'macOS'
+        run: bash scripts/package-plugin-mac.sh
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/package-plugin-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rustias-${{ matrix.name }}-AU-VST3
+          path: output/plugin/packages/*
+          retention-days: 30
