@@ -30,7 +30,7 @@ if [[ "${CI:-}" == true ]]; then
   auval -a > output/plugin/au-list.log 2>&1
 fi
 if ! auval -v aumu Rsts Fshg -strict > output/plugin/auval.log 2>&1; then
-  if [[ "${CI:-}" == true ]] && rg -q "didn't find the component" output/plugin/auval.log; then
+  if [[ "${CI:-}" == true && "$(<output/plugin/auval.log)" == *"didn't find the component"* ]]; then
     # No login session is required for the documented in-process factory API.
     # This checks the signed AU itself, including MIDI, stereo audio and state.
     echo 'AU registry did not discover this bundle; validating its exported factory directly.'
