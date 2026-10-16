@@ -72,6 +72,8 @@ packaging also runs Apple's strict `auval` check. These checks render into memor
 and never open audio output. The optional `rustias-plugin-preview` target is a
 silent UI validation host that discards every output buffer.
 
+CI also runs Steinberg's VST3 validator against the actual packaged VST3 module.
+
 ## Implementation
 
 The macOS shell runs the unchanged worklet in system JavaScriptCore and embeds

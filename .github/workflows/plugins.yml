@@ -65,6 +65,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/package-plugin-windows.ps1
+      - name: Build Steinberg validator (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cmake -S output/plugin/build/cpm/vst3sdk -B output/plugin/validator -DCMAKE_BUILD_TYPE=Release -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF
+          cmake --build output/plugin/validator --target validator --parallel 4
+          output/plugin/validator/bin/Release/validator output/plugin/build/Rustias.vst3
+      - name: Build Steinberg validator (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cmake -S output/plugin/build/cpm/vst3sdk -B output/plugin/validator -A x64 -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build output/plugin/validator --target validator --config Release --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & output/plugin/validator/bin/Release/validator.exe output/plugin/build/Release/Rustias.vst3
       - uses: actions/upload-artifact@v4
         with:
           name: Rustias-${{ matrix.name }}-AU-VST3

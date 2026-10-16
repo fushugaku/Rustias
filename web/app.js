@@ -536,6 +536,7 @@ try {
   if(pluginHost){
     pluginHost.onRestore(session=>{if(session?.snapshot){loadSnapshot(session.snapshot);updateControls();}});
     pluginHost.onParameter((id,value)=>{if(id===8){$('#volume').value=value;return;}if(id>=0&&id<8)macroUI.setHostValue(id,value);});
+    pluginHost.syncParameters();
     await startAudio();await pluginHost.ready(module);pluginHost.saveSession(currentSession());
   }
 } catch (error) { $("#status").textContent = "Engine unavailable"; showError(error); }

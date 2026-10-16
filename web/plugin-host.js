@@ -19,7 +19,8 @@ function createHost(){
     if(data.type==='record-chunk'&&Array.isArray(data.pcm))data.pcm=Int16Array.from(data.pcm);
     port?.onmessage?.({data});
   };
-  window.__rustiasPluginRestore=data=>{host.initial=data;restore?.(data.session);};
+  host.syncParameters=()=>host.initial.parameters?.forEach((value,id)=>window.__rustiasPluginReceive({type:'host-parameter',id,value}));
+  window.__rustiasPluginRestore=data=>{host.initial=data;restore?.(data.session);host.syncParameters();};
   host.digest=async buffer=>{
     if(crypto.subtle)return crypto.subtle.digest('SHA-256',buffer);
     const id=++request,bytes=await base64(new Blob([buffer]));return new Promise(resolve=>{pending.set(id,resolve);send({kind:'digest',request:id,bytes});});

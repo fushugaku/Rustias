@@ -54,8 +54,8 @@ void Instrument::queue(const std::string& message,bool remember){
 }
 void Instrument::drain(){
   std::deque<std::string> work;{std::unique_lock lock(incomingMutex,std::try_to_lock);if(lock.owns_lock())work.swap(incoming);}
-  for(auto& s:work)runtime->message(s);
-  if(restoredParameters.exchange(false))for(unsigned i=0;i<9;i++)runtime->parameter(i,parameters[i]);
+  bool configuration=false;for(auto& s:work){runtime->message(s);configuration|=s.find("\"type\":\"modulation\"")!=std::string::npos||s.find("\"type\":\"load\"")!=std::string::npos;}
+  if(restoredParameters.exchange(false)||configuration)for(unsigned i=0;i<9;i++)runtime->parameter(i,parameters[i]);
 }
 void Instrument::parameter(unsigned id,double value,bool fromUI){
   if(id>=9||!std::isfinite(value))return;value=std::clamp(value,0.,100.);if(id<8)value=std::round(value);auto previous=parameters[id].exchange(value);if(previous==value)return;
@@ -92,7 +92,7 @@ bool Instrument::restore(const std::string& saved){
   restoredParameters=true;hostPlaying=false;haveTransport=false;
   if(editor)editor->restore();return true;
 }
-std::string Instrument::initialState(){std::lock_guard lock(stateMutex);Json events=Json::array();for(auto& [_,value]:remembered){auto event=parse(value.second);if(!event.is_discarded())events.push_back(std::move(event));}return Json{{"session",parse(session)},{"sampleRate",rate},{"audioState",session!="null"&&!events.empty()?events:Json()}}.dump();}
+std::string Instrument::initialState(){std::lock_guard lock(stateMutex);Json events=Json::array(),values=Json::array();for(auto& v:parameters)values.push_back(v.load());for(auto& [_,value]:remembered){auto event=parse(value.second);if(!event.is_discarded())events.push_back(std::move(event));}return Json{{"session",parse(session)},{"sampleRate",rate},{"parameters",values},{"audioState",session!="null"&&!events.empty()?events:Json()}}.dump();}
 void Instrument::processEvents(const clap_input_events_t* input,const clap_output_events_t* output){
   if(input)for(unsigned i=0;i<input->size(input);i++){auto h=input->get(input,i);if(h->space_id==CLAP_CORE_EVENT_SPACE_ID&&h->type==CLAP_EVENT_PARAM_VALUE){auto e=reinterpret_cast<const clap_event_param_value_t*>(h);parameter(e->param_id,e->value,false);}}
   auto mask=uiParameters.exchange(0);for(unsigned i=0;i<9;i++)if(mask&(1u<<i)){
