@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: plugins-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   resources:
     runs-on: ubuntu-latest

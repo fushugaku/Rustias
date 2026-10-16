@@ -95,6 +95,9 @@ is no copied DSP implementation. `scripts/build-plugin-engine.py` enables the
 explicit `rustias_plugin` compiler cfg in an isolated Cargo build. Ordinary native
 builds, including `--all-features`, retain their original reference capacities.
 Each plugin instance owns its engine and can move between DAW threads.
+Expanded voice storage is allocated on the heap. Initialization and whole-program
+loading use a Rust preparation thread with an 8 MiB stack; rendering calls the
+native engine directly on the DAW thread.
 
 The shared sequencing, modulation, macros and output adapter run in system
 JavaScriptCore on macOS and QuickJS-NG on Windows, calling that native library.

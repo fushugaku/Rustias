@@ -50,7 +50,36 @@ pub unsafe extern "C" fn rustias_native_call(
     } else {
         unsafe { std::slice::from_raw_parts(args, count as usize) }
     };
-    let Some(result) = (unsafe { &mut *host }).call(method as usize, args) else {
+    // Native hosts can provide a 512 KiB / 1 MiB thread stack. Preparing the
+    // complete instrument builds several large recovered tables by value.
+    // Only initialization and whole-program loading use this preparation stack;
+    // notes, modulation, effects controls and PCM rendering stay on the caller.
+    let preparation = METHODS
+        .get(method as usize)
+        .is_some_and(|m| m.name == b"rustias_init\0" || m.name == b"rustias_load\0");
+    let value = if preparation {
+        let address = host as usize;
+        let owned_args = args.to_vec();
+        let Ok(thread) = std::thread::Builder::new()
+            .name("Rustias prepare".into())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || {
+                // FFI guarantees exclusive access until this call returns. All
+                // Rc/sample owners move together with this opaque instance; no
+                // other thread touches them while the caller waits for join.
+                unsafe { &mut *(address as *mut NativeHost) }.call(method as usize, &owned_args)
+            })
+        else {
+            return false;
+        };
+        let Ok(value) = thread.join() else {
+            return false;
+        };
+        value
+    } else {
+        (unsafe { &mut *host }).call(method as usize, args)
+    };
+    let Some(result) = value else {
         return false;
     };
     unsafe {
