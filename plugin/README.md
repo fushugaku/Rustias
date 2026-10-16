@@ -75,6 +75,10 @@ and never open audio output. The optional `rustias-plugin-preview` target is a
 silent UI validation host that discards every output buffer.
 
 CI also runs Steinberg's VST3 validator against the actual packaged VST3 module.
+The AU check loads its exported factory directly and verifies MIDI, stereo output
+and saved automation at 44.1/48 kHz. Hosted runners without a working AU registry
+use this check when `auval` cannot discover the bundle; local packaging requires
+strict `auval` validation. Both macOS architectures can run the direct check.
 
 ## Implementation
 

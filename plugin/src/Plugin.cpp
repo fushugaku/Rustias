@@ -91,6 +91,7 @@ bool Instrument::restore(const std::string& saved){
   for(unsigned i=0;i<9;i++)parameters[i]=std::clamp(values[i].get<double>(),0.,100.);
   for(auto& event:events)queue(event.dump());
   restoredParameters=true;hostPlaying=false;haveTransport=false;
+  if(auto params=static_cast<const clap_host_params_t*>(host->get_extension(host,CLAP_EXT_PARAMS)))params->rescan(host,CLAP_PARAM_RESCAN_VALUES);
   if(editor)editor->restore();return true;
 }
 std::string Instrument::initialState(){std::lock_guard lock(stateMutex);Json events=Json::array(),values=Json::array();for(auto& v:parameters)values.push_back(v.load());for(auto& [_,value]:remembered){auto event=parse(value.second);if(!event.is_discarded())events.push_back(std::move(event));}return Json{{"session",parse(session)},{"sampleRate",rate},{"parameters",values},{"audioState",session!="null"&&!events.empty()?events:Json()}}.dump();}

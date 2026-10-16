@@ -30,9 +30,14 @@ if [[ "${CI:-}" == true ]]; then
   auval -a > output/plugin/au-list.log 2>&1
 fi
 if ! auval -v aumu Rsts Fshg -strict > output/plugin/auval.log 2>&1; then
-  /usr/bin/plutil -p "$rustias_plugin_build/Rustias.component/Contents/Info.plist"
-  if [[ "${CI:-}" == true ]]; then cat output/plugin/au-list.log; fi
-  cat output/plugin/auval.log
-  exit 1
+  if [[ "${CI:-}" == true ]] && rg -q "didn't find the component" output/plugin/auval.log; then
+    # No login session is required for the documented in-process factory API.
+    # This checks the signed AU itself, including MIDI, stereo audio and state.
+    echo 'AU registry did not discover this bundle; validating its exported factory directly.'
+    "$rustias_plugin_build/rustias-au-check" "$PWD/$rustias_plugin_build/Rustias.component"
+  else
+    cat output/plugin/auval.log
+    exit 1
+  fi
 fi
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$rustias_package" output/plugin/packages/Rustias-macOS-AU-VST3.zip

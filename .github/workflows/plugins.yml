@@ -55,7 +55,7 @@ jobs:
         run: cmake --build output/plugin/build --config Release --target rustias_clap rustias_vst3 rustias-runtime-check rustias-host-check rustias-editor-check --parallel 4
       - name: Build AU
         if: runner.os == 'macOS'
-        run: cmake --build output/plugin/build --target rustias_au --parallel 4
+        run: cmake --build output/plugin/build --target rustias_au rustias-au-check --parallel 4
       - name: Verify shared engine and project state silently
         run: ctest --test-dir output/plugin/build -C Release --output-on-failure
       - name: Package and validate macOS
