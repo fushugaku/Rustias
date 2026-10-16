@@ -1,0 +1,228 @@
+/* Shared instrument skin, from the Sad Pet plugin family. Layouts live separately. */
+:root {
+  color-scheme: dark;
+  --canvas: #141715;
+  --surface: #181d18;
+  --surface-raised: #1e251e;
+  --surface-overlay: #252e24;
+  --control: #232923;
+  --control-hover: #2d372b;
+  --control-inset: #151a15;
+  --text: #e6ebe5;
+  --text-secondary: #b4c0af;
+  --text-tertiary: #91a18b;
+  --text-muted: #64735f;
+  --line-subtle: #293128;
+  --line: #364132;
+  --line-strong: #52634a;
+  --accent: #cff68d;
+  --accent-text: #cee8b0;
+  --accent-dim: #354b2c;
+  --accent-wash: #cff68d18;
+  --accent-ink: #202c18;
+  --modulation: #8cdcd1;
+  --danger: #ed9a91;
+  --danger-dim: #4b2d29;
+  --overlay: #0b100cd1;
+  --shadow: #080d0860;
+  --pad-idle: #293326;
+  /* Existing layout vocabulary aliases. */
+  --plate: var(--surface);
+  --plate-inset: var(--control);
+  --plate-border: var(--line);
+  --ink: var(--text);
+  --secondary: var(--text-secondary);
+  --tertiary: var(--text-tertiary);
+  --muted: var(--text-muted);
+  --chrome: var(--canvas);
+  --lcd: #202b1c;
+  --lcd-ink: var(--accent-text);
+  --pad: var(--danger);
+  --focus: var(--accent);
+  --radius: 6px;
+  --unit: 4px;
+  --dial-size: 44px;
+}
+
+html { background: var(--canvas); scrollbar-color: var(--line-strong) var(--canvas); }
+body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+::selection { background: var(--accent-dim); color: var(--text); }
+button, a, input { transition: background-color .12s ease-out, border-color .12s ease-out, color .12s ease-out; }
+button:disabled, .tool-button[aria-disabled=true] { opacity: .4; }
+button[aria-pressed=true] { background: var(--accent-dim); border-color: var(--line-strong); color: var(--accent); }
+input { accent-color: var(--accent); }
+.toolbar { background: var(--canvas); border-bottom: 1px solid var(--line); color: var(--text); }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 23px; font-weight: 850; letter-spacing: -.8px; }
+.brand-mark { width: 36px; height: 36px; flex: none; color: var(--accent); }
+.brand-wordmark { display: flex; flex-direction: column; gap: 4px; }
+.brand .brand-wordmark > span { color: var(--text-tertiary); font-size: 8px; letter-spacing: 1.4px; font-weight: 500; margin: 0; }
+.brand .brand-wordmark { font: inherit; letter-spacing: inherit; color: inherit; margin: 0; }
+.interface-navigation { gap: 12px; }
+.interface-navigation a { color: var(--text-tertiary); font-family: inherit; border-bottom-width: 1px; }
+.interface-navigation a[aria-current=page] { color: var(--accent); border-bottom-color: var(--accent); }
+.interface-navigation a:hover { color: var(--text); }
+.tool-button, .nw-button, .lcd-choice, .lcd-readout, .switch-control { border-radius: var(--radius); box-shadow: none; }
+.tool-button, .nw-button { color: var(--text-secondary); background: var(--control); }
+.tool-button:hover:not(:disabled), .nw-button:hover:not(:disabled) { color: var(--text); background: var(--control-hover); }
+.lcd-choice { background: var(--control-inset); color: var(--text); font-family: inherit; }
+.lcd-choice:hover:not(:disabled) { background: var(--control); border-color: var(--line-strong); }
+.choice-arrow { color: var(--text-tertiary); }
+.choice-popup, .new-interface .nw-popover { background: var(--surface-overlay); border-color: var(--line-strong); border-radius: 8px; box-shadow: 0 12px 36px var(--shadow); }
+.choice-popup button { font-family: inherit; color: var(--text-secondary); border-radius: 4px; }
+.choice-popup button[aria-selected=true] { background: var(--accent-dim); color: var(--accent); }
+.choice-popup button:hover, .choice-popup button:focus { background: var(--control-hover); color: var(--text); }
+.choice-popup button[aria-selected=true]:hover { background: var(--accent-dim); color: var(--accent); }
+.choice-search, .editor-dialog input, .recordings-library input { background: var(--control-inset); border-color: var(--line); color: var(--text); border-radius: var(--radius); }
+.editor-dialog { background: var(--surface-raised); border-radius: 8px; border-color: var(--line-strong); box-shadow: 0 16px 56px var(--shadow); }
+.dialog-heading h2 { font-weight: 650; }
+.module h2, .new-interface #rack .module h2 { color: var(--text-secondary); font-weight: 650; letter-spacing: 1.4px; font-size: 10px; }
+.module-heading svg { background: var(--control-inset); border-color: var(--line); border-radius: 4px; }
+.module-heading path { stroke: var(--accent); stroke-width: 2; }
+.parameter > label { color: var(--text-secondary); }
+.dial-value { color: var(--text); font-variant-numeric: tabular-nums; }
+.dial-value:hover:not(:disabled), .dial-value:focus { background: var(--control); color: var(--accent); }
+.parameter:not(.macro-control):has(> .knob) > label { order: 1; }
+.parameter:not(.macro-control):has(> .knob) > :is(.dial-value,.dial-choice) { order: 2; }
+.parameter:not(.macro-control):has(> .knob) > .knob { order: 0; }
+.parameter.inactive { opacity: .43; }
+.parameter.inactive :disabled { opacity: 1; }
+
+/* Value arcs use the very same --angle as pointer, keyboard and wheel controls. */
+.knob, .performance .knob, .new-interface .nw-popover .performance .knob {
+  background: transparent; border: 0; box-shadow: none; position: relative; isolation: isolate;
+}
+.knob::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(from 225deg, var(--accent) 0deg, var(--accent) clamp(0deg, calc(var(--angle, -135deg) + 135deg), 270deg), var(--line) 0deg, var(--line) 270deg, transparent 270deg);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+}
+.knob-face {
+  background: linear-gradient(135deg, var(--control-hover), var(--control-inset));
+  border: 1px solid var(--line-strong); box-shadow: inset 0 0 0 2px var(--surface), 0 1px 3px var(--shadow);
+}
+.knob-face::after { top: 4px; width: 2px; height: 10px; background: var(--text); left: calc(50% - 1px); }
+.knob:hover:not(:disabled) { background: transparent; border: 0; }
+.knob:hover:not(:disabled) .knob-face { border-color: var(--accent); }
+.knob:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+.knob-modulation { z-index: 1; }
+.knob-modulation::after { background: var(--modulation); box-shadow: 0 0 0 1px var(--surface); }
+.switch-control[aria-pressed=true] { background: var(--accent-dim); color: var(--accent); }
+.switch-control[aria-pressed=true] .switch-led, .track-enable[aria-pressed=true] .switch-led, .led.live { background: var(--accent); box-shadow: none; }
+.timbres button { border-radius: var(--radius); color: var(--text-tertiary); }
+.timbres button[aria-selected=true] { background: var(--accent-dim); color: var(--accent); border-color: var(--line-strong); }
+.power, .power:hover:not(:disabled), #seq-play, .sequence-transport #seq-play, .new-interface #seq-play { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 650; }
+.power[aria-pressed=true], .new-interface #seq-play[aria-pressed=true] { background: var(--accent-dim); color: var(--accent); border-color: var(--line-strong); }
+.new-interface #record-toggle, .new-interface #seq-reset { background: var(--control); color: var(--text-secondary); border-color: var(--line); }
+.new-interface body[data-recording=recording] #record-toggle { background: var(--danger-dim); color: var(--danger); border-color: var(--danger); }
+.key, .chord-note { background: var(--control); border-color: var(--line); color: var(--text-secondary); box-shadow: none; border-radius: 4px; }
+.key.black, .chord-note.black { background: var(--control-inset); color: var(--text-tertiary); }
+.key:hover:not(:disabled), .chord-note:hover:not(:disabled) { background: var(--control-hover); border-color: var(--line-strong); }
+.key[aria-pressed=true], .chord-note[aria-pressed=true], .chord-note[aria-pressed=true]:hover:not(:disabled) { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); box-shadow: none; }
+.key.editing { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.sequence-step { border-radius: 4px; background: var(--control); color: var(--text-secondary); }
+.sequence-step.filled { background: var(--accent-dim); color: var(--accent-text); border-color: var(--line-strong); }
+.sequence-step.selected { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.sequence-step.editing { border-color: var(--accent); background: var(--accent-dim); outline: 1px solid var(--accent); }
+.sequence-step.current, .sequence-step.editing.current { box-shadow: inset 0 -3px 0 var(--pad); }
+.error { background: var(--danger-dim); color: var(--danger); border-color: var(--danger); }
+.volume input { accent-color: var(--accent); }
+meter::-webkit-meter-bar { background: var(--line); }
+meter::-webkit-meter-optimum-value { background: var(--accent); }
+
+.new-interface .toolbar { padding: 12px 16px 8px; }
+.new-interface .interface-identity { width: 164px; gap: 6px; }
+.new-interface .brand { font-size: 23px; }
+.new-interface .brand .brand-mark { display: block; }
+.new-interface .brand .brand-wordmark { display: flex; }
+.new-interface .brand .brand-wordmark > span { display: none; }
+.new-interface .program-caption, .new-interface .program #edit-context { color: var(--text-tertiary); font-size: 9px; letter-spacing: 1px; }
+.new-interface .nw-transport { padding-top: 8px; margin-top: 8px; border-top: 1px solid var(--line-subtle); }
+.new-interface .nw-transport .dial-value { background: var(--control-inset); border: 1px solid var(--line); color: var(--accent); border-radius: var(--radius); }
+.new-interface .nw-transport .parameter > label { order: 0; color: var(--text-tertiary); }
+.new-interface .nw-transport .dial-value { order: 0; }
+.new-interface .nw-header-tools .nw-button { color: var(--text-secondary); background: var(--control); }
+.new-interface .nw-view-tools button { border-color: var(--line); }
+.new-interface .nw-view-tools button[aria-pressed=true] { background: var(--accent-dim); border-color: var(--line-strong); color: var(--accent); }
+.new-interface .macros-rack { background: var(--canvas); padding: 8px 16px; border-bottom-color: var(--line); }
+.new-interface .macro-control { grid-template-columns: minmax(0,1fr); grid-template-rows: 40px 16px 20px 20px auto; gap: 0; }
+.new-interface .macro-control > label { grid-column: 1; grid-row: 2; height: 16px; line-height: 16px; }
+.new-interface .macro-control .knob { grid-column: 1; grid-row: 1; }
+.new-interface .macro-control .dial-value { grid-column: 1; grid-row: 3; }
+.new-interface .macro-control .macro-edit { grid-column: 1; grid-row: 4; }
+.new-interface .macro-control .nw-macro-targets { grid-column: 1; grid-row: 5; }
+.new-interface .macro-control .nw-macro-targets:empty { display: none; }
+.new-interface .macro-control > label { color: var(--text-secondary); font-size: 10px; font-weight: 500; letter-spacing: .6px; }
+.new-interface .macro-control .dial-value { color: var(--text); }
+.new-interface .nw-macro-targets { color: var(--text-tertiary); }
+.new-interface .nw-stage { padding: 12px 16px; gap: 12px; background: var(--canvas); }
+.new-interface .nw-sound, .new-interface .nw-fx { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.new-interface .nw-stage-heading { background: var(--surface-raised); border-color: var(--line); padding: 4px 12px; }
+.new-interface .nw-stage-heading h2 { color: var(--text-secondary); font-size: 11px; font-weight: 600; letter-spacing: .6px; }
+.new-interface .nw-section-jumps button { font-size: 11px; color: var(--text-tertiary); }
+.new-interface .nw-section-jumps button:hover { background: var(--accent-dim); color: var(--accent); }
+.new-interface .nw-signal-flow { background: var(--surface); border-color: var(--line-subtle); color: var(--text-tertiary); font-size: 10px; padding: 4px 12px; }
+.new-interface #rack { padding: 0 12px 16px; }
+.new-interface #rack .module { padding: 12px 8px; border-bottom-color: var(--line); }
+.new-interface #rack .module-heading { margin-bottom: 12px; }
+.new-interface #rack .module-controls { gap: 8px; }
+.new-interface .parameter > label { color: var(--text-secondary); font-size: 10px; letter-spacing: .1px; }
+.new-interface .dial-parameter > label { font-size: 9px; letter-spacing: .6px; text-transform: uppercase; }
+.new-interface .dial-value { color: var(--text); font-size: 12px; }
+.new-interface .nw-primary > label { color: var(--text-secondary); font-weight: 500; }
+.new-interface .nw-rack-divider { color: var(--text-tertiary); font-size: 10px; letter-spacing: 1.6px; padding-top: 20px; }
+.new-interface #rack .module:is(.module-eg1,.module-eg2,.module-eg3,.module-lfo1,.module-lfo2,.module-lfo3) { border-color: var(--line); }
+.new-interface .nw-fx #effects { background: var(--surface); }
+.new-interface .fx-module { border-color: var(--line); }
+.new-interface .fx-module.fx-shared { border-top-color: var(--line-strong); }
+.new-interface .nw-dock { margin: 0 16px; border: 1px solid var(--line); border-radius: 8px 8px 0 0; background: var(--surface); }
+.new-interface .nw-dock-grip { background: var(--surface); }
+.new-interface .nw-dock-grip::after { background: var(--line-strong); height: 2px; top: 3px; }
+.new-interface .nw-pattern-overview, .new-interface .sequence-track .track-head { background: var(--surface); }
+.new-interface .nw-bank { background: var(--control-inset); border-color: var(--line); border-radius: 4px; }
+.new-interface .nw-bank[aria-pressed=true] { background: var(--accent-dim); color: var(--accent); border-color: var(--line-strong); box-shadow: none; }
+.new-interface .nw-sequence-modes button[aria-pressed=true], .new-interface .sequence-lane[data-active=true] .track-select { background: var(--accent-dim); color: var(--accent); border-color: var(--line-strong); }
+.new-interface .nw-inspector { background: var(--surface-raised); }
+.new-interface .nw-row-label, .new-interface .nw-grid-time { background: var(--surface-raised); }
+.new-interface .nw-row-label.black { background: var(--control-inset); }
+.new-interface .nw-grid-event, .new-interface .nw-grid-event[aria-pressed=true] { background: var(--surface); }
+.new-interface .nw-event-marker { background: var(--accent); border-color: var(--accent); }
+.new-interface .nw-grid-event.selected, .new-interface .nw-grid-time.selected { background: var(--accent-dim); }
+.new-interface .nw-grid-event:hover:not(:disabled) { background: var(--control-hover); }
+.new-interface .performance-footer { background: var(--canvas); border-color: var(--line); padding: 8px 16px; box-shadow: none; }
+.new-interface .circuit-map { background: var(--surface-overlay); border-color: var(--line-strong); }
+.cable.cv { stroke: var(--modulation); }
+.circuit-port.cv { color: var(--modulation); }
+.circuit-port.cv.connected .port-dot, .circuit-port.cv[aria-pressed=true] .port-dot { background: var(--modulation); border-color: var(--modulation); }
+
+@media (min-width:1400px) {
+  html:not(.new-interface) .rack-row-0 { grid-template-columns: repeat(28,minmax(0,1fr)); }
+}
+@media (max-width:1100px) and (min-width:801px) {
+  .new-interface .nw-stage { padding: 8px; gap: 8px; }
+  .new-interface .nw-dock { margin: 0 8px; }
+}
+@media (max-width:800px) {
+  html:not(.new-interface) .rack-row-0 .module-osc3 { grid-column: 1/-1; border-right: 0; }
+  .new-interface .toolbar { padding: 8px; }
+  .new-interface .interface-identity { width: auto; }
+  .new-interface .interface-identity .brand { display: flex; font-size: 18px; gap: 6px; }
+  .new-interface .interface-identity .brand-mark { width: 24px; height: 24px; }
+  .new-interface .interface-navigation { font-size: 10px; gap: 8px; }
+  .new-interface .nw-transport { margin-top: 8px; padding-top: 8px; }
+  .new-interface .nw-stage { padding: 8px; gap: 8px; }
+  .new-interface .nw-sound { height: min(70dvh,600px); min-height: 400px; }
+  .new-interface .nw-sound > .nw-stage-heading { padding: 4px 8px; }
+  .new-interface .nw-stage-heading .nw-view-tools button { background: var(--control); border-color: var(--line); color: var(--text-secondary); }
+  .new-interface .nw-stage-heading .nw-view-tools button[aria-pressed=true] { background: var(--accent-dim); color: var(--accent); }
+  .new-interface .nw-section-jumps button { font-size: 11px; padding: 0 4px; }
+  .new-interface #rack { padding: 0 8px 12px; }
+  .new-interface #rack .module { padding: 12px 4px; }
+  .new-interface .parameter > label, .new-interface .dial-parameter > label { font-size: 10px; }
+  .new-interface .macros-rack { padding: 8px; }
+  .new-interface .macro-control { grid-template-rows: 44px 16px 24px 44px auto; }
+  .new-interface .nw-dock { margin: 0 8px; }
+  .new-interface .performance-footer { padding: 8px; }
+  .new-interface .nw-transport .parameter > label { font-size: 9px; color: var(--text-tertiary); }
+  .new-interface .nw-transport .dial-value { padding-top: 12px; }
+}
+@media (prefers-reduced-motion:reduce) { button, a, input { transition: none; } }

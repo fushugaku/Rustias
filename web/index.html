@@ -3,19 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#cbd0d5">
+  <meta name="theme-color" content="#141715">
   <meta name="description" content="The complete Rustias native synthesis engine. A full-screen instrument, no firmware required.">
   <title>Rustias · Native synthesizer</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./new-interface.css">
+  <link rel="stylesheet" href="./theme.css">
   <script type="module" src="./app.js"></script>
 </head>
 <body>
   <main class="instrument">
     <header class="toolbar">
       <div class="workspace">
-        <a class="brand" href="https://github.com/fushugaku/Rustias" aria-label="Rustias source on GitHub">RUSTIAS<span>NATIVE SYNTHESIZER</span></a>
+        <a class="brand" href="https://github.com/fushugaku/Rustias" aria-label="Rustias source on GitHub"><svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="1" y="1" width="38" height="38" rx="8" stroke="currentColor" stroke-width="1.5"/><path d="M7 24h5l4-12 8 17 4-12h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="brand-wordmark">RUSTIAS<span>POLYPHONIC SYNTH</span></span></a>
         <div class="timbre-bank"><div class="timbres" role="tablist" aria-label="Timbre"><button role="tab" aria-selected="true" data-timbre="0">01</button><button role="tab" aria-selected="false" data-timbre="1">02</button><button role="tab" aria-selected="false" data-timbre="2">03</button><button role="tab" aria-selected="false" data-timbre="3">04</button></div><button id="add-timbre" class="tool-button" aria-label="Add timbre" title="Add timbre">+</button></div>
         <div class="program program-select"><div id="preset"></div><span class="program-caption">PROGRAM</span></div><div class="program sound-select"><div id="timbre-preset"></div><span id="edit-context">Timbre 01</span></div>
         <div class="program-files"><div class="patch-save"><button id="save-patch" class="tool-button" aria-label="Save program">Save</button><button id="patch-save-options" class="tool-button" aria-label="Save options" aria-haspopup="menu" aria-expanded="false" aria-controls="patch-save-menu">⌄</button></div><a id="save-program" class="tool-button" role="button" href="#" download="rustias-program.json">Export</a><button id="load-program" class="tool-button" title="Import a Rustias program, timbre or RADIAS RDL backup" disabled>Import</button><button id="rdl-details" class="tool-button" aria-label="RDL patch details" hidden>RDL</button><input id="program-file" type="file" accept=".json,.rdl,application/json" hidden></div>
