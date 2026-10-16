@@ -24,7 +24,7 @@ static Instrument& self(const clap_plugin_t* p){return *static_cast<Instrument*>
 #endif
 static std::string bundleResources;
 static const char* features[]={CLAP_PLUGIN_FEATURE_INSTRUMENT,CLAP_PLUGIN_FEATURE_SYNTHESIZER,CLAP_PLUGIN_FEATURE_STEREO,nullptr};
-static const clap_plugin_descriptor_t descriptor={CLAP_VERSION,"io.github.fushugaku.rustias","Rustias","Rustias","https://github.com/fushugaku/Rustias","","","0.1.1","The shared firmware-free Rustias engine",features};
+static const clap_plugin_descriptor_t descriptor={CLAP_VERSION,"io.github.fushugaku.rustias","Rustias","Rustias","https://github.com/fushugaku/Rustias","","","0.1.2","The shared firmware-free Rustias engine",features};
 
 Instrument::Instrument(const clap_host_t* h,std::string r):host(h),resources(std::move(r)){parameters[8]=30;}
 Instrument::~Instrument()=default;
@@ -107,13 +107,17 @@ clap_process_status Instrument::process(const clap_process_t* p){
   auto left=p->audio_outputs[0].data32[0],right=p->audio_outputs[0].data32[1];
   try{
     drain();
-    if(p->transport){auto t=p->transport;bool play=t->flags&CLAP_TRANSPORT_IS_PLAYING;
-      if((t->flags&CLAP_TRANSPORT_HAS_TEMPO)&&std::isfinite(t->tempo)&&t->tempo>0&&(!haveTransport||t->tempo!=previousTempo)){runtime->message("{\"type\":\"control\",\"timbre\":0,\"parameter\":89,\"value\":"+std::to_string(std::clamp(int(std::round(t->tempo*10)),100,3000))+"}");previousTempo=t->tempo;}
-      if(play&&!hostPlaying)runtime->message("{\"type\":\"sequence-play\"}");
+    auto transport=[&](const clap_event_transport_t* t,unsigned frames){
+      const bool play=t->flags&CLAP_TRANSPORT_IS_PLAYING;
+      const double tempo=(t->flags&CLAP_TRANSPORT_HAS_TEMPO)&&std::isfinite(t->tempo)&&t->tempo>0?t->tempo:previousTempo;
+      const double beat=(t->flags&CLAP_TRANSPORT_HAS_BEATS_TIMELINE)?double(t->song_pos_beats)/CLAP_BEATTIME_FACTOR:previousBeat+previousFrames/rate*previousTempo/60;
+      const bool seek=!haveTransport||!hostPlaying||((t->flags&CLAP_TRANSPORT_HAS_BEATS_TIMELINE)&&std::abs(beat-previousBeat-previousFrames/rate*previousTempo/60)>.1);
+      if(!haveTransport||tempo!=previousTempo)runtime->message(Json{{"type","control"},{"timbre",0},{"parameter",89},{"value",std::clamp(int(std::round(tempo*10)),100,3000)}}.dump());
+      if(play&&(seek||tempo!=previousTempo))runtime->message(Json{{"type","transport"},{"playing",true},{"tempo",tempo},{"beat",beat},{"seek",seek}}.dump());
       if(!play&&hostPlaying)runtime->message("{\"type\":\"stop\"}");
-      if(play&&haveTransport&&(t->flags&CLAP_TRANSPORT_HAS_BEATS_TIMELINE)){double beat=double(t->song_pos_beats)/CLAP_BEATTIME_FACTOR;if(std::abs(beat-previousBeat-previousFrames/rate*previousTempo/60)>.1)runtime->message("{\"type\":\"sequence-reset\"}");}
-      previousBeat=double(t->song_pos_beats)/CLAP_BEATTIME_FACTOR;previousFrames=p->frames_count;haveTransport=true;hostPlaying=play;
-    }
+      previousBeat=beat;previousFrames=frames;previousTempo=tempo;haveTransport=true;hostPlaying=play;
+    };
+    if(p->transport)transport(p->transport,p->frames_count);
     processEvents(nullptr,p->out_events);
     unsigned cursor=0;
     auto render=[&](unsigned end){while(cursor<end){auto n=std::min(128u,end-cursor);if(enabled)runtime->render(left+cursor,right+cursor,n);else{std::fill_n(left+cursor,n,0);std::fill_n(right+cursor,n,0);}cursor+=n;}};
@@ -123,6 +127,7 @@ clap_process_status Instrument::process(const clap_process_t* p){
       else if(h->type==CLAP_EVENT_NOTE_ON||h->type==CLAP_EVENT_NOTE_OFF){auto e=reinterpret_cast<const clap_event_note_t*>(h);runtime->midi((h->type==CLAP_EVENT_NOTE_ON?0x90:0x80)|std::max<int16_t>(0,e->channel),e->key,std::clamp(int(std::round(e->velocity*127)),0,127));}
       else if(h->type==CLAP_EVENT_PARAM_VALUE){auto e=reinterpret_cast<const clap_event_param_value_t*>(h);parameter(e->param_id,e->value,false);}
       else if(h->type==CLAP_EVENT_NOTE_CHOKE)runtime->message("{\"type\":\"stop\"}");
+      else if(h->type==CLAP_EVENT_TRANSPORT)transport(reinterpret_cast<const clap_event_transport_t*>(h),p->frames_count-cursor);
     }
     render(p->frames_count);for(auto& m:runtime->takeMessages())publish(std::move(m));return CLAP_PROCESS_CONTINUE;
   }catch(const std::exception& e){lastError=e.what();std::fill_n(left,p->frames_count,0);std::fill_n(right,p->frames_count,0);publish("{\"type\":\"error\",\"message\":\"Plugin audio stopped; reopen the project to reload its engine.\"}");return CLAP_PROCESS_ERROR;}

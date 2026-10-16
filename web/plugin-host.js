@@ -7,7 +7,20 @@ function createHost(){
   installPluginCrypto();
   // A DAW owns one editor window; browser-only links that open another interface
   // tab do not belong in that window.
-  const style=document.createElement('style');style.textContent='.interface-navigation{display:none}';document.head.append(style);
+  document.documentElement.classList.add('native-plugin');
+  const style=document.createElement('style');style.textContent=`
+    .interface-navigation,#seq-play,#seq-reset,#midi{display:none!important}
+    .plugin-modulation-tabs{display:flex;gap:4px;flex-wrap:wrap}
+    .plugin-modulation-tabs button{min-width:38px}
+    .plugin-modulation-tabs [aria-selected="true"]{color:var(--accent);border-color:currentColor}
+    .plugin-modulation-panels{min-width:0}
+    .plugin-modulation-rack .modulation-panel{border-top:0}
+    .plugin-modulation-rack .modulation-heading h3{display:none}
+    .new-interface.native-plugin #new-sequence-dock{overflow:auto}
+    .new-interface.native-plugin .plugin-modulation-rack{padding:8px 12px}
+    .new-interface.native-plugin .plugin-modulation-rack>.sequence-heading{margin:0 0 8px}
+    @media(max-width:800px){.plugin-modulation-rack>.sequence-heading{align-items:flex-start;gap:8px}.plugin-modulation-tabs button{min-height:44px;min-width:44px}}
+  `;document.head.append(style);
   const NativeWorker=window.Worker;
   window.Worker=class extends NativeWorker{
     constructor(url,options){const name=new URL(url,location.href).pathname.split('/').at(-1),source=window.__RUSTIAS_PLUGIN_WORKERS__?.[name];

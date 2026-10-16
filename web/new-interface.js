@@ -109,7 +109,7 @@ export function prepareNewInterface(){
       const chain=v[30]===0?[source,'Mixer',drive,filter,'Amp']:[source,'Mixer',filter,drive,'Amp'];$('.nw-signal-flow').textContent=custom?'Custom routing':chain.filter(Boolean).join(' → ');
       sequenceWorkspace?.setContext(next.selected,next.timbreCount);refreshEffects();refreshMacros();
     },
-    connect(next){api=next;sequenceWorkspace=createSequenceWorkspace({sequenceUI:api.sequenceUI,dock,prefs,onPreference:()=>{if(prefs.mode!=='steps')setHeight(Math.max(prefs.height,320));persist();}});
+    connect(next){api=next;sequenceWorkspace=api.sequenceUI.nativeModulation?api.sequenceUI:createSequenceWorkspace({sequenceUI:api.sequenceUI,dock,prefs,onPreference:()=>{if(prefs.mode!=='steps')setHeight(Math.max(prefs.height,320));persist();}});
       const fxObserver=new MutationObserver(refreshEffects);fxObserver.observe($('#effects'),{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['aria-pressed']});
       refreshEffects();refreshMacros();setHeight(prefs.height);
     }

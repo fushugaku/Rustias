@@ -3,6 +3,7 @@
 import fs from 'node:fs/promises';
 import {setEffectCatalog,defaultEffect} from '../web/effects.js';
 import {defaultCircuit,audioCircuit} from '../web/circuit.js';
+import {modulationFixtures} from './plugin-modulation-fixtures.mjs';
 const root=new URL('../',import.meta.url);
 setEffectCatalog(JSON.parse(await fs.readFile(new URL('dist/effects.json',root),'utf8')));
 const module=await WebAssembly.compile(await fs.readFile(new URL('dist/rustias.wasm',root)));
@@ -29,6 +30,7 @@ const sample=Float32Array.from({length:4800},(_,i)=>.3*Math.sin(i*2*Math.PI*440/
 scenario('Kit PCM with amplifier, filter and drum gain',()=>{control(140,1);pcm('rustias_sample_buffer',[0],sample);call('rustias_sample_commit',0,sample.length,2);call('rustias_drum_control',0,9,100);call('rustias_drum_control',0,114,32);call('rustias_drum_gain',12);call('rustias_drum_pad',0,100);render();call('rustias_drum_control',0,9,0);render();call('rustias_drum_pad',0,0);});
 scenario('Sample library in timbre eight',()=>{control(71,1,7);control(141,7);control(140,1);pcm('rustias_library_sample_buffer',[77],sample);call('rustias_library_sample_commit',77,sample.length);call('rustias_library_profile',77,77,7,2);call('rustias_library_control',77,9,110);call('rustias_library_sync');call('rustias_library_note',7,77,100);render();call('rustias_library_control',77,9,0);call('rustias_library_sync');});
 for(let kind=1;kind<=30;kind++)scenario(`Native FX ${kind}`,()=>{source({wave:3});json('rustias_effect',[0],defaultEffect(kind));json('rustias_effect',[17],defaultEffect(kind,true));json('rustias_effect_chain',[0],[{...defaultEffect(kind,true),id:'native-chain'}]);call('rustias_note',0,69,100);render();control(89,1350);render();call('rustias_note',0,69,0);});
+cases.push(...modulationFixtures(module));
 await fs.mkdir(new URL('output/plugin/',root),{recursive:true});
 await fs.writeFile(new URL('output/plugin/native-parity.json',root),JSON.stringify({version:1,cases}));
 console.log(`Captured ${cases.length} browser PCM/state scenarios for native parity.`);

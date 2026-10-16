@@ -61,6 +61,7 @@ export function createModulationEditor({panels,getTargets,onChange,onError,onCou
     });
   }
   panels.forEach((panel,t)=>panel.addEventListener('modulation-open',()=>render(t)));
+  panels.forEach((panel,t)=>{if(!panel.hidden)render(t);});
   return {
     getConfig:()=>validateModulation(config),
     setConfig(raw){config=validateModulation(raw);views.forEach(view=>view.records=[]);for(let t=0;t<panels.length;t++)render(t);onCounts(config.tracks.map(lanes=>lanes.length));},

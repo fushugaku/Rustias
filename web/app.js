@@ -21,6 +21,7 @@ import {MAX_RDL_BYTES,readRdl,rdlPatches,validateRdlSource,rdlMasks} from './rdl
 import {createPanel,makePicker,isChoosing} from "./panel.js";
 import {setupInterfaceNavigation,prepareNewInterface} from './new-interface.js';
 import {pluginHost} from './plugin-host.js';
+import {createPluginModulationRack} from './plugin-modulation-ui.js';
 const newInterface=setupInterfaceNavigation();
 const $ = selector => document.querySelector(selector);
 function showError(error) { $("#error").textContent = error.message ?? String(error); $("#error").hidden = false; }
@@ -121,7 +122,7 @@ function parameterTarget(id){
   return {kind:'synth',timbre:selected,parameter:id};
 }
 function resolveMacro(target){
-  if(target.kind==='sequence-gate')return {label:`T${target.timbre+1} · Sequencer · Gate`,min:-100,max:100,read:()=>0,available:target.timbre<timbreCount};
+  if(target.kind==='sequence-gate')return {label:`T${target.timbre+1} · Sequencer · Gate`,min:-100,max:100,read:()=>0,available:!pluginHost&&target.timbre<timbreCount};
   if(target.kind==='chain-effect'){
     const fx=fxUI?.getChainEffect(target.timbre,target.id),p=effectDefinitions(true)[target.effectKind]?.properties[target.parameter],index=fxUI?.getChain(target.timbre).findIndex(f=>f.id===target.id);if(!p)return null;
     return {label:`T${target.timbre+1} · FX ${index>=0?index+5:'removed'} · ${p.name}`,min:p.min+p.zero,max:p.max+p.zero,read:()=>fx?.parameters[target.parameter]??p.default,available:fx?.kind===target.effectKind&&target.timbre<timbreCount};
@@ -304,7 +305,7 @@ function refreshLibrary(){
   programPicker.options=[{value:'init',label:'New program'},{value:'custom',label:'Unsaved'},...patchStore.list().map(p=>({value:`saved:${p.id}`,label:p.snapshot.rdl?`${String(p.snapshot.rdl.slot+1).padStart(3,'0')} · ${p.name}`:p.name}))];
   timbrePicker.options=[...factorySounds,...timbreStore.list().map(p=>({value:`saved:${p.id}`,label:p.name}))];updateControls();
 }
-sequenceUI=createSequencer({inline:newInterface,onChange:configureSequence,onPlay:playSequence,onStop:stopSequence,onReset:()=>send({type:"sequence-reset"}),onSelectTimbre:t=>{$(`[data-timbre="${t}"]`).click();},onSelectDrum:(instrument,timbre)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();setControl(142,instrument,false);},onAudition:auditionStep,onError:showError,
+sequenceUI=(pluginHost?createPluginModulationRack:createSequencer)({inline:newInterface,onChange:configureSequence,onPlay:playSequence,onStop:stopSequence,onReset:()=>send({type:"sequence-reset"}),onSelectTimbre:t=>{$(`[data-timbre="${t}"]`).click();},onSelectDrum:(instrument,timbre)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();setControl(142,instrument,false);},onAudition:auditionStep,onError:showError,
   onSample:(timbre,source)=>sampleUI.ensureLibrary(timbre,source),onEditSample:(timbre,source)=>{if(selected!==timbre)$(`[data-timbre="${timbre}"]`).click();sampleUI.editProfile(timbre,source);editingSample={timbre,source};updateControls();scheduleSession();},
   onCopySamples:(from,to,sources)=>sampleUI.copyProfiles(from,to,sources),onUploadSample:(timbre,onReady)=>sampleUI.uploadForSequence(timbre,onReady)});
 sequenceUI.setReady(false);

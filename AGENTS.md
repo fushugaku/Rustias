@@ -43,8 +43,14 @@ OSC 3 uses OSC 1's selection-dependent mixer scale in the web/plugin profile; re
 unchanged. Sequencer Gate modulation is a temporary percentage-point offset,
 including current note releases, and never overwrites the saved step Gate.
 Program macros, their bipolar bindings and added-timbre count are browser data.
-Modulation sequencers also belong to the browser: their audio-clock adapter applies
-temporary offsets through the existing Rust C ABI and restores the base values.
+Browser modulation sequencers use their JS audio-clock adapter. Native plugins
+execute their modulation clocks, Step/Slide, KeySync, macro arithmetic and temporary
+offsets in `crates/radias-web/src/native/modulation.rs`, under `rustias_plugin` only.
+Keep native behavior checked against browser modulation/PCM fixtures. Native
+plugins have no internal note sequencer: DAW Play starts modulation only, DAW MIDI
+must never be intercepted by imported browser note patterns. Preserve those
+patterns as inert program data for browser interchange. Sequencer Gate targets
+are unavailable in plugins; DAW note lengths are owned by the host.
 Never save playback offsets into program values or Macro base positions.
 
 The Pages workflow builds these sources on every push to `main`. Verify the real
@@ -70,9 +76,12 @@ assets, APK, export unit tests and Android lint. Do not start audible device tes
 reference builds, even under --all-features. Keep synthesis in these shared crates,
 not copied into the shell. NativeHost owns per-instance state; never rely on one
 thread-local singleton for multiple DAW instances or for thread migration.
-The JS control/sequencing/output adapter remains shared with web/worklet.js:
+The JS editor/control/output adapter remains shared with web/worklet.js:
 JavaScriptCore on macOS, QuickJS-NG on Windows. WebAssembly is disabled in that
-context; do not reintroduce a WASM audio fallback or Wasmtime. WKWebView/WebView2
+context; do not reintroduce a WASM audio fallback, JS modulation clock or Wasmtime.
+DAW transport supplies native modulation tempo and PPQ on start/seek/loop;
+live MIDI runs it with the configured KeySync even while transport is stopped.
+WKWebView/WebView2
 only host the editor; its WASM resource is for RDL parsing and metadata.
 Only DAW lifecycle, MIDI/transport, automation, state and editor bridges belong in
 the shell. Editor initialization must adopt restored sample/profile IDs without

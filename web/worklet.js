@@ -22,10 +22,11 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.recording = new RecordingTap((data, transfer) => this.port.postMessage(data, transfer ?? []), sampleRate);
     this.libraryProfiles=new Map();
     this.manualNotes=new Set();this.sequenceNotes=new Map();this.auditionNotes=new Set();
-    this.sequencer=new SequenceClock((t,n,v)=>this.ownedNote(t,n,v,true));
+    this.nativeModulation=options.processorOptions.nativeModulation;
+    this.sequencer=options.processorOptions.sequencer??new SequenceClock((t,n,v)=>this.ownedNote(t,n,v,true));
     this.audition=new StepAudition((t,n,v)=>this.ownedNote(t,n,v,"audition"));
-    this.modulationHost=new ModulationHost(this);
-    this.modulation=new ModulationAutomation(changes=>this.modulationHost.write(changes));
+    this.modulationHost=this.nativeModulation?null:new ModulationHost(this);
+    this.modulation=this.nativeModulation??new ModulationAutomation(changes=>this.modulationHost.write(changes));
     this.port.onmessage = ({ data }) => {
       try {
         if(['control','osc3-control','drum-control','library-control','effect','effect-chain','chain-effect','circuit','gain','drum-gain','midi','load'].includes(data.type))this.modulation.restore();
@@ -70,11 +71,13 @@ class RustiasProcessor extends AudioWorkletProcessor {
           if(!this.wasm.rustias_library_profile(data.id,data.asset,data.timbre,data.mode))throw new Error('The sample profile could not be loaded.');
           for(let id=0;id<data.values.length;id++)if(!this.wasm.rustias_library_control(data.id,id,data.values[id]))throw new Error('Invalid sample sound parameters.');
           this.wasm.rustias_library_sync();this.libraryProfiles.set(`${data.timbre}:${data.source}`,{id:data.id,timbre:data.timbre,source:data.source});
+          this.nativeModulation?.profile(data);
         }
         else if(data.type==='library-control'){this.wasm.rustias_library_control(data.id,data.parameter,data.value);this.wasm.rustias_library_sync();}
         else if (data.type === "drum-control") this.wasm.rustias_drum_control(data.instrument,data.parameter,data.value);
-        else if (data.type === "drum") {if(data.velocity&&!this.modulation.clock.running)this.modulation.clock.play();this.wasm.rustias_drum_pad(data.instrument, data.velocity);}
+        else if (data.type === "drum") {if(data.velocity&&!this.nativeModulation&&!this.modulation.clock.running)this.modulation.clock.play();this.wasm.rustias_drum_pad(data.instrument, data.velocity);}
         else if (data.type === "load") {
+          if(this.nativeModulation)this.modulation.stop();
           const length = writeWasmJson(this.wasm,data.program);
           if (!this.wasm.rustias_load(length)) {
             this.port.postMessage({type: "warning", message: "The Rust engine rejected this program."}); this.snapshot();
@@ -94,7 +97,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
         }
         else if(data.type==="audition")this.audition.play(data.timbre,data.step,this.wasm.rustias_value(0,89)/10,data.resolution);
         else if(data.type==="sequencer")this.sequencer.setConfig(data.config);
-        else if(data.type==='modulation'){this.modulation.setState(data.state);this.modulationHost.setState(data.state);}
+        else if(data.type==='modulation'){this.modulation.setState(data.state);this.modulationHost?.setState(data.state);}
         else if(data.type==="sequence-play"){this.sequencer.play();this.modulation.clock.play();}
         else if(data.type==="sequence-stop"){this.sequencer.stop();this.modulation.stop();}
         else if(data.type==="sequence-reset"){this.sequencer.reset();this.modulation.clock.reset();}
@@ -107,7 +110,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
         }
         else if(data.type==="sample-clear")this.wasm.rustias_sample_clear(data.instrument);
         else if(data.type==="sample-mode")this.wasm.rustias_sample_mode(data.instrument,data.mode);
-        else if (data.type === "gain") this.gain = Math.max(0, Math.min(1, data.value));
+        else if (data.type === "gain") {this.gain = Math.max(0, Math.min(1, data.value));this.nativeModulation?.parameter(8,this.gain*100);}
       } catch (error) { this.fail(error); }
     };
     this.port.postMessage({ type: "ready", sampleRate });
@@ -124,6 +127,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
     if(velocity&&!before){this.modulation.clock.note(timbre,note,velocity);emit(velocity);}else if(!after&&before){this.modulation.clock.note(timbre,note,0);emit(0);}
   }
   midiSequence(bytes){
+    if(this.nativeModulation)return false;
     const command=bytes[0]&240;if(command!==128&&command!==144)return false;
     const channel=bytes[0]&15,note=bytes[1],velocity=command===144?bytes[2]:0,global=this.wasm.rustias_value(0,148),matched=[];
     const triggers=t=>{const track=this.sequencer.config.tracks[t];return track.enabled&&(track.keyTriggered||track.runMode==='Step')&&note>=(track.scanBottom??0)&&note<=(track.scanTop??127);};
@@ -152,13 +156,15 @@ class RustiasProcessor extends AudioWorkletProcessor {
   nativeSample() {
     if(this.wasm.memory&&this.block&&this.block.buffer!==this.wasm.memory.buffer)this.block=engineFloats(this.wasm,this.pointer,256);
     if (this.nativeIndex === 128) {
-      const tempo=this.wasm.rustias_value(0,89)/10;this.modulation.clock.setTempo(tempo);this.modulation.beforeRender(128);
+      if(!this.nativeModulation){const tempo=this.wasm.rustias_value(0,89)/10;this.modulation.clock.setTempo(tempo);this.modulation.beforeRender(128);}
       const sequenceTempo=this.wasm.rustias_value(0,89)/10;if(sequenceTempo!==this.sequencer.tempo)this.sequencer.setTempo(sequenceTempo);
       this.sequencer.beforeRender(128);this.audition.beforeRender(128);
       const pointer = this.wasm.rustias_render();
+      // Copy the render token before another native ABI call invalidates it.
       if (this.wasm.readBuffer || this.pointer !== pointer || this.block?.buffer !== this.wasm.memory.buffer) {
         this.pointer = pointer; this.block = engineFloats(this.wasm,pointer,256);
       }
+      if(this.nativeModulation)this.gain=this.wasm.rustias_modulation_gain();
       this.nativeIndex = 0;
     }
     const index = this.nativeIndex++ * 2;

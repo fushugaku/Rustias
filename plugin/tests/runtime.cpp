@@ -27,6 +27,29 @@ int main(int argc,char** argv){
         Runtime fresh(argv[1],rate);fresh.midi(0x90,60,100);fresh.render(l,r,257);fresh.message("{\"type\":\"stop\"}");
       }catch(...){threadError=std::current_exception();}});audioThread.join();if(threadError)std::rethrow_exception(threadError);
       a.midi(0x80,69,0);a.message("{\"type\":\"stop\"}");
+      // Imported browser patterns must neither emit notes on DAW Play nor
+      // intercept incoming MIDI. Modulation remains native and follows PPQ.
+      Runtime daw(argv[1],rate);Json track={{"enabled",true},{"length",16},{"resolution","1/16"},{"keyTriggered",true},{"steps",Json::array()}};
+      for(unsigned i=0;i<128;i++)track["steps"].push_back({{"notes",Json::array({60,64,67})},{"velocity",100},{"gate",75}});
+      daw.message(Json{{"type","sequencer"},{"config",{{"version",1},{"tracks",Json::array({track,track,track,track})}}}}.dump());
+      daw.message(R"({"type":"sequence-play"})");daw.message(R"({"type":"transport","playing":true,"tempo":120,"beat":2,"seek":true})");
+      for(int i=0;i<10;i++)daw.render(l,r,257);
+      require(Json::parse(daw.stats())["voices"]==0&&std::all_of(l,l+257,[](float v){return v==0;}),"DAW Play cannot generate internal pattern notes");
+      const Json cutoff={{"kind","synth"},{"timbre",0},{"parameter",1}};
+      Json steps=Json::array();for(unsigned i=0;i<128;i++)steps.push_back(i%3==0?-30:i%3==1?0:30);
+      Json lane={{"id","native-clock"},{"enabled",true},{"target",cutoff},{"amount",100},{"length",3},{"resolution","1/16"},{"motion","Step"},{"direction","Forward"},{"runMode","Loop"},{"values",steps}};
+      for(auto& knob:knobs)knob["bindings"]=Json::array();
+      daw.message(Json{{"type","modulation"},{"state",{{"config",{{"version",1},{"tracks",Json::array({Json::array({lane}),Json::array(),Json::array(),Json::array()})}}},{"macros",{{"version",1},{"knobs",knobs},{"bases",Json::array()}}},{"targets",Json::array({{{"target",cutoff},{"min",0},{"max",127},{"base",80},{"available",true}}})}}}}.dump());
+      daw.message(R"({"type":"control","timbre":0,"parameter":1,"value":80})");
+      daw.message(R"({"type":"transport","playing":true,"tempo":120,"beat":2,"seek":true})");daw.render(l,r,257);
+      auto status=Json::parse(daw.stats())["modulation"];
+      require(status["backend"]=="native-rust"&&status["positions"][0][0]==2&&status["values"][0]["value"]==110,"Rust modulation starts at DAW PPQ position");
+      daw.message(R"({"type":"transport","playing":true,"tempo":95.25,"beat":0.25,"seek":true})");daw.render(l,r,257);
+      require(Json::parse(daw.stats())["modulation"]["positions"][0][0]==1,"DAW seek and fractional tempo reach native modulation");
+      daw.midi(0x90,69,100);for(int i=0;i<4;i++)daw.render(l,r,257);
+      require(Json::parse(daw.stats())["voices"]==1,"DAW MIDI bypasses an imported key-triggered note pattern");
+      daw.message(R"({"type":"stop"})");daw.render(l,r,257);status=Json::parse(daw.stats())["modulation"];
+      require(status["running"]==false&&status["values"].empty(),"Host Stop restores temporary modulation and stops its Rust clock");
       require(a.stats().find("\"backend\":\"native-rust\"")!=std::string::npos,"AOT native Rust backend");
       require(a.stats().find("\"capacity\":128")!=std::string::npos,"Same expanded 128-voice engine");
       std::cout<<"Native Rust DSP / shared controls: "<<rate<<" Hz, MIDI, variable blocks and instance isolation passed; peak "<<peak<<"\n";

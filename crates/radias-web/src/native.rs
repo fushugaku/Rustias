@@ -2,6 +2,8 @@
 //! The caller serializes access to each host; instances can move between threads.
 use super::*;
 use std::cell::Cell;
+mod modulation;
+use modulation::Modulation;
 
 thread_local! {
     static ACTIVE: Cell<*const NativeHost> = const { Cell::new(std::ptr::null()) };
@@ -146,7 +148,74 @@ pub static METHODS: &[Method] = &[
     action!(rustias_library_sync()),
     action!(rustias_library_reset()),
     number!(rustias_library_note(timbre: u32, id: u32, velocity: u32)),
+    number!(rustias_modulation_state(length: u32)),
+    action!(rustias_modulation_restore()),
+    action!(rustias_modulation_play()),
+    action!(rustias_modulation_stop()),
+    action!(rustias_modulation_reset()),
+    action!(rustias_modulation_tempo(tempo: f64)),
+    action!(rustias_modulation_transport(playing: u32, tempo: f64, beat: f64, seek: u32)),
+    action!(rustias_modulation_parameter(index: u32, value: f64)),
+    number!(rustias_modulation_gain()),
+    number!(rustias_modulation_profile(timbre: u32, id: u32, length: u32)),
+    number!(rustias_modulation_status()),
 ];
+
+fn with_modulation<R>(f: impl FnOnce(&mut Modulation) -> R) -> R {
+    ACTIVE.with(|active| {
+        let host = active.get();
+        assert!(!host.is_null(), "Native modulation requires a NativeHost");
+        f(&mut unsafe { &*host }.modulation.borrow_mut())
+    })
+}
+fn rustias_modulation_state(length: u32) -> u32 {
+    modulation::bytes(length).is_some_and(|bytes| with_modulation(|m| m.set_state(&bytes))) as u32
+}
+fn rustias_modulation_restore() {
+    with_modulation(Modulation::restore);
+}
+fn rustias_modulation_play() {
+    with_modulation(Modulation::play);
+}
+fn rustias_modulation_stop() {
+    with_modulation(Modulation::stop);
+}
+fn rustias_modulation_reset() {
+    with_modulation(|m| m.reset(0.));
+}
+fn rustias_modulation_tempo(tempo: f64) {
+    with_modulation(|m| m.set_tempo(tempo));
+}
+fn rustias_modulation_transport(playing: u32, tempo: f64, beat: f64, seek: u32) {
+    with_modulation(|m| m.transport(playing != 0, tempo, beat, seek != 0));
+}
+fn rustias_modulation_parameter(index: u32, value: f64) {
+    with_modulation(|m| m.parameter(index as usize, value));
+}
+fn rustias_modulation_gain() -> f64 {
+    with_modulation(|m| m.gain())
+}
+fn rustias_modulation_profile(timbre: u32, id: u32, length: u32) -> u32 {
+    let Some(bytes) = modulation::bytes(length) else {
+        return 0;
+    };
+    let Ok(source) = serde_json::from_slice::<String>(&bytes) else {
+        return 0;
+    };
+    if timbre as usize >= TIMBRE_COUNT || source.len() > 200 {
+        return 0;
+    }
+    with_modulation(|m| m.set_profile(timbre as usize, id, source));
+    1
+}
+fn rustias_modulation_status() -> u32 {
+    let bytes = serde_json::to_vec(&with_modulation(|m| m.status())).unwrap();
+    if modulation::stage(&bytes) {
+        bytes.len() as u32
+    } else {
+        0
+    }
+}
 
 struct Region {
     token: u32,
@@ -157,6 +226,7 @@ struct Region {
 
 pub struct NativeHost {
     engine: RefCell<Option<Box<WebEngine>>>,
+    modulation: RefCell<Modulation>,
     region: Option<Region>,
     serial: u32,
 }
@@ -164,6 +234,7 @@ impl Default for NativeHost {
     fn default() -> Self {
         Self {
             engine: RefCell::new(None),
+            modulation: RefCell::new(Modulation::default()),
             region: None,
             serial: 0,
         }
@@ -179,7 +250,90 @@ impl NativeHost {
         // engine operation revokes it, including operations that reallocate PCM.
         self.region = None;
         let _scope = Scope(ACTIVE.with(|active| active.replace(self)));
-        Some(match (method.invoke)(args) {
+        match method.name {
+            b"rustias_init\0" => *self.modulation.borrow_mut() = Modulation::default(),
+            b"rustias_render\0" => self.modulation.borrow_mut().before_render(128),
+            b"rustias_save\0" => self.modulation.borrow_mut().restore(),
+            b"rustias_stop\0" => self.modulation.borrow_mut().stop(),
+            b"rustias_load\0" => {
+                // Restoring modulated FX can use the shared JSON staging buffer.
+                // Preserve the caller's incoming program across that restoration.
+                let bytes = modulation::bytes(args[0] as u32);
+                self.modulation.borrow_mut().stop();
+                if let Some(bytes) = bytes {
+                    modulation::stage(&bytes);
+                }
+            }
+            b"rustias_midi\0" => self.modulation.borrow_mut().restore(),
+            _ => {}
+        }
+        let result = (method.invoke)(args);
+        match method.name {
+            b"rustias_note\0" if matches!(result, Value::Number(v) if v != 0.) => self
+                .modulation
+                .borrow_mut()
+                .note(args[0] as usize, args[1] as u64, args[2] as u32),
+            b"rustias_library_note\0" if matches!(result, Value::Number(v) if v != 0.) => {
+                self.modulation.borrow_mut().note(
+                    args[0] as usize,
+                    (1u64 << 32) | args[1] as u64,
+                    args[2] as u32,
+                )
+            }
+            b"rustias_drum_pad\0" if matches!(result, Value::Number(v) if v != 0.) => {
+                self.modulation.borrow_mut().note(
+                    rustias_value(0, 141) as usize,
+                    128 + args[0] as u64,
+                    args[1] as u32,
+                )
+            }
+            b"rustias_midi\0" => {
+                let command = args[0] as u32 & 240;
+                if command == 128 || command == 144 {
+                    for t in 0..TIMBRE_COUNT {
+                        let channel = rustias_value(t as u32, 72);
+                        let channel = if channel == 16 {
+                            rustias_value(0, 148)
+                        } else {
+                            channel
+                        };
+                        if rustias_value(t as u32, 71) != 0
+                            && channel == (args[0] as i32 & 15)
+                            && (rustias_value(t as u32, 119)..=rustias_value(t as u32, 120))
+                                .contains(&(args[1] as i32))
+                        {
+                            self.modulation.borrow_mut().note(
+                                t,
+                                args[1] as u64,
+                                if command == 144 { args[2] as u32 } else { 0 },
+                            );
+                        }
+                    }
+                } else if command == 176 || command == 224 {
+                    self.modulation.borrow_mut().accept_values();
+                    if command == 176 && (args[1] == 120. || args[1] == 123.) {
+                        for t in 0..TIMBRE_COUNT {
+                            let channel = rustias_value(t as u32, 72);
+                            let channel = if channel == 16 {
+                                rustias_value(0, 148)
+                            } else {
+                                channel
+                            };
+                            if channel == (args[0] as i32 & 15) {
+                                self.modulation.borrow_mut().release_keys(t);
+                            }
+                        }
+                    }
+                }
+            }
+            b"rustias_library_reset\0" => self.modulation.borrow_mut().clear_profiles(),
+            b"rustias_control\0" if args[1] == 89. => self
+                .modulation
+                .borrow_mut()
+                .set_tempo(rustias_value(0, 89) as f64 / 10.),
+            _ => {}
+        }
+        Some(match result {
             Value::Number(value) => value,
             Value::Buffer(pointer, length, writable) => {
                 if pointer.is_null() {

@@ -8,8 +8,9 @@ native machine code** for Apple Silicon, Intel macOS and Windows x64. There is
 no WASM runtime in the plugin's audio engine.
 
 The browser and plugins compile the same canonical Rust sources, with eight
-timbres, 128 voices, OSC 3, modular routing and timbre effect chains. Sequencers,
-macros and the interface retain the shared JavaScript control layer. The original
+timbres, 128 voices, OSC 3, modular routing and timbre effect chains. Modulation
+sequencers and macro automation also execute in native Rust. The editor retains
+the shared browser interface. The original
 reference desktop profile remains unchanged.
 
 ## Install
@@ -38,8 +39,14 @@ Legacy VST2 is not included.
 
 Create an instrument track, load Rustias and send it MIDI. The plugin's **DAW**
 status means its output goes to that track; it does not open a separate audio
-device. Notes use each timbre's MIDI channel and receive settings. DAW tempo and
-Play/Stop drive all enabled sequencer tracks. The internal Play button also works.
+device. Notes use each timbre's MIDI channel and receive settings. Compose notes
+in the DAW: the plugin has no internal note sequencer or pattern Play button.
+The **Mod sequencer** panel provides up to six independent lanes per timbre,
+with 1–128 steps, independent divisions, Step/Slide, directions, Loop/OneShot and
+Key Sync. It can modulate synthesis, samples, effects, modules and macros.
+DAW tempo, Play/Stop and song position synchronize its native Rust clock;
+seek and loop jumps restart it at the corresponding song position. Live MIDI
+also starts modulation, including while the transport is stopped.
 The existing web controls, program/timbre save, RDL import, sample upload,
 recordings and WAV/MP3 exports remain available.
 
@@ -48,10 +55,13 @@ FX control to assign it to a macro; edit the amount with its pencil. Individual
 synth parameters are available through these assignments.
 
 Saving the DAW project stores the complete current program, every timbre,
-sequencers, modulation, macros, routing, FX and loaded sample PCM in the plugin
+modulation sequencers, macros, routing, FX and loaded sample PCM in the plugin
 state. A fresh instance starts independently. User patch libraries and recordings
 remain in the editor's persistent local storage; recordings are not embedded in
 the DAW project. Keep a WAV/MP3 export for portable recordings.
+Browser note patterns remain in imported program data for round trips, but are
+never played by the plugin. Sequencer Gate is unavailable as a plugin modulation
+target because MIDI note lengths come from the DAW.
 
 ## Build and verify
 
@@ -74,7 +84,10 @@ Archives appear in `output/plugin/packages/`. The `plugins.yml` workflow builds
 macOS universal AU/VST3 and Windows x64 VST3 on every shared engine/UI change.
 SDK versions and hashes are pinned in `plugin/CMakeLists.txt`.
 
-`ctest` compares 79 native PCM/state scenarios with the actual browser build,
+`ctest` compares 100 native PCM/state scenarios with the actual browser build,
+including 21 modulation scenarios executed directly through the Rust ABI with
+no JavaScript runtime. It covers independent clocks, Step/Slide, all directions,
+OneShot, key sync, bipolar macro bindings, FX/chains, modules and sample profiles,
 then verifies the native engine at 44.1/48/96 kHz, MIDI, variable blocks,
 instance isolation, complete state round trips and sample-rate changes. macOS
 packaging also runs Apple's strict `auval` check. These checks render into memory
@@ -99,8 +112,12 @@ Expanded voice storage is allocated on the heap. Initialization and whole-progra
 loading use a Rust preparation thread with an 8 MiB stack; rendering calls the
 native engine directly on the DAW thread.
 
-The shared sequencing, modulation, macros and output adapter run in system
-JavaScriptCore on macOS and QuickJS-NG on Windows, calling that native library.
+`crates/radias-web/src/native/modulation.rs` owns per-instance native modulation:
+phase advancement, interpolation, lane priority, macro bindings, parameter writes
+and base-value restoration. The UI only edits its configuration and displays its
+reported positions. Saving or stopping never stores temporary playback offsets.
+The shared editor/control/output adapter runs in system JavaScriptCore on macOS
+and QuickJS-NG on Windows, calling that native library.
 The full editor uses WKWebView / WebView2. WebAssembly is disabled in the audio
 control context and Wasmtime is no longer a dependency. A WASM file remains in
 the editor's web assets for local RDL parsing and metadata; it does not render

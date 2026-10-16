@@ -8,7 +8,7 @@ The project is under development. Individual algorithms and recorded scenarios a
 
 ## AU / VST3 plugins
 
-The complete browser instrument also builds as universal macOS AU/VST3 and Windows x64 VST3, with the shared Rust DSP compiled directly into native machine code. The interface and sequencing/control layer remain shared with the browser. Project state includes all timbres, sequencers, modulation, FX and loaded sample PCM. See [installation and builds](plugin/README.md); the [plugin workflow](https://github.com/fushugaku/Rustias/actions/workflows/plugins.yml) provides archives.
+Rustias also builds as universal macOS AU/VST3 and Windows x64 VST3, with the shared Rust DSP compiled directly into native machine code. Notes come from the DAW; plugins have no internal note sequencer. Modulation sequencers and macro automation run in native Rust, synchronized to DAW tempo and song position. The editor stays shared with the browser. Project state includes all timbres, modulation, macros, FX and loaded sample PCM. See [installation and builds](plugin/README.md); the [plugin workflow](https://github.com/fushugaku/Rustias/actions/workflows/plugins.yml) provides archives.
 
 ## WebAssembly
 

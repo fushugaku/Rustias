@@ -22,7 +22,7 @@ mkdir -p dist/samples/tr-909
 cp web/samples/tr-909/* dist/samples/tr-909/
 touch dist/.nojekyll
 cp web/effects.js web/effects-ui.js dist/
-cp web/engine-io.js web/wasm-json.js web/plugin-host.js web/plugin-platform.js dist/
+cp web/engine-io.js web/wasm-json.js web/plugin-host.js web/plugin-platform.js web/plugin-modulation-ui.js dist/
 cp web/recording-tap.js web/recording-format.js web/recordings-store.js web/recordings-worker.js web/recordings-ui.js dist/
 mkdir -p dist/vendor/lamejs
 cp web/vendor/lamejs/* dist/vendor/lamejs/
