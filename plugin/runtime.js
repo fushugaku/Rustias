@@ -68,4 +68,4 @@ globalThis.pluginParameter=(index,value)=>{
   processor.modulation.parameter(index,value);
 };
 globalThis.pluginFailed=()=>processor.failed;
-globalThis.pluginStats=()=>JSON.stringify({frames:processor.wasm.rustias_frames(),voices:processor.wasm.rustias_voices(),capacity:processor.wasm.rustias_voice_capacity(),failed:processor.failed,backend:"native-rust",modulation:processor.modulation.status()});
+globalThis.pluginStats=()=>JSON.stringify({frames:processor.wasm.rustias_frames(),voices:processor.wasm.rustias_voices(),capacity:processor.wasm.rustias_voice_capacity(),failed:processor.failed,backend:"native-rust",modulation:processor.modulationStatus()});

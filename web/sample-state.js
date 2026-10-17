@@ -14,10 +14,10 @@ export function validateSamples(value,parameters){
     return {source:slot.source,mode:slot.mode,...(slot.name?{name:String(slot.name).slice(0,100)}:{})};
   }),library:library.map(profile=>{
     const key=`${profile?.timbre}:${profile?.source}`;
-    if(!validSampleSource(profile?.source)||!Number.isInteger(profile.timbre)||profile.timbre<0||profile.timbre>=MAX_TIMBRES||![0,1,2].includes(profile.mode)||keys.has(key)||!Array.isArray(profile.values)||![153,154,155,163,171,177,PARAMETER_COUNT].includes(profile.values.length)||profile.values.some(v=>!Number.isInteger(v)||v< -32768||v>32767))throw new Error('Invalid sequence sample profile.');
+    if(!validSampleSource(profile?.source)||!Number.isInteger(profile.timbre)||profile.timbre<0||profile.timbre>=MAX_TIMBRES||![0,1,2].includes(profile.mode)||keys.has(key)||!Array.isArray(profile.values)||![153,154,155,163,171,177,179,PARAMETER_COUNT].includes(profile.values.length)||profile.values.some(v=>!Number.isInteger(v)||v< -32768||v>32767))throw new Error('Invalid sequence sample profile.');
     profile={...profile,values:extendValues(profile.values,parameters)};
     if(parameters&&parameters.some(p=>profile.values[p.id]<p.min||profile.values[p.id]>p.max||p.values&&!p.values.includes(profile.values[p.id])))throw new Error('Invalid sample sound parameters.');
-    if(profile.values[0]>=4&&profile.values[10]!==0||profile.values[OSC3_BASE]>=4&&profile.values[OSC3_BASE+1]!==0||profile.values[119]>profile.values[120])throw new Error("Invalid sample sound parameters.");
+    if(profile.values[0]>=4&&profile.values[10]!==0||profile.values[OSC3_BASE]>=4&&profile.values[OSC3_BASE+1]!==0||profile.values[179]>=4&&profile.values[180]!==0||profile.values[119]>profile.values[120])throw new Error("Invalid sample sound parameters.");
     keys.add(key);return {source:profile.source,timbre:profile.timbre,mode:profile.mode,name:String(profile.name??profile.source).slice(0,100),values:[...profile.values]};
   })};
 }

@@ -20,6 +20,12 @@ use serde::Deserialize;
 use std::{collections::BTreeMap, sync::Arc};
 #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
 mod osc3;
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+mod expanded;
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+pub mod filters;
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+pub mod motion;
 mod primary;
 const LIMIT: usize = 64;
 #[derive(Clone, Deserialize)]
@@ -53,6 +59,8 @@ enum Kind {
     Osc2,
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     Osc3,
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    Osc4,
     #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
     Noise,
     Mix,
@@ -96,6 +104,8 @@ fn kind(name: &str) -> Option<Kind> {
         }
         #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         "osc3" => Kind::Osc3,
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        "osc4" => Kind::Osc4,
         "mixer" => Kind::Mix,
         "filter1" => Kind::Filter1,
         "filter2" => Kind::Filter2,
@@ -152,7 +162,7 @@ fn output_port(k: Kind, name: &str) -> Option<(usize, bool)> {
 }
 fn port(k: Kind, name: &str) -> Option<(usize, bool)> {
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-    if k == Kind::Osc3 {
+    if matches!(k, Kind::Osc3 | Kind::Osc4) {
         return match name {
             "mod" => Some((0, false)),
             "ctrl1" => Some((1, true)),
@@ -166,6 +176,8 @@ fn port(k: Kind, name: &str) -> Option<(usize, bool)> {
         (Kind::Mix | Kind::Sum, "a") => Some((0, false)),
         (Kind::Mix | Kind::Sum, "b") => Some((1, false)),
         (Kind::Mix | Kind::Sum, "c") => Some((2, false)),
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        (Kind::Mix, "d") => Some((3, false)),
         (
             Kind::Filter1
             | Kind::Filter2
@@ -234,6 +246,8 @@ pub struct CircuitVoice {
     previous_phases: Option<[radias_synth_domain::Phase; 2]>,
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     source_wraps: [bool; 2],
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    expanded: expanded::Expanded,
 }
 struct State {
     osc: PrimaryOscillator,
@@ -250,6 +264,8 @@ struct State {
     switch_mix: Option<f64>,
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     third_pitch: Option<osc3::Pitch>,
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    modeled: filters::Model,
 }
 impl Default for State {
     fn default() -> Self {
@@ -268,6 +284,8 @@ impl Default for State {
             switch_mix: None,
             #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third_pitch: None,
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+            modeled: Default::default(),
         }
     }
 }
@@ -340,6 +358,10 @@ impl CircuitVoice {
                     values[1] = get("cutoff", 96.0, 0.0, 127.0)? as i32;
                     values[2] = get("resonance", 0.0, 0.0, 127.0)? as i32;
                     values[9] = get("morph", 0.0, 0.0, 127.0)? as i32;
+                    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                    { values[189] = get("model",0.0,0.0,17.0)? as i32;
+                      values[191] = get("drive",0.0,0.0,127.0)? as i32;
+                      values[193] = get("modelMorph",0.0,0.0,127.0)? as i32; }
                 }
                 Kind::Shaper => {
                     values[29] = get("mode", 1.0, 0.0, 2.0)? as i32;
@@ -461,7 +483,9 @@ impl CircuitVoice {
         if !circuit.enabled {
             #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             {
-                return Ok(Some(Self::fixed()));
+                let mut voice = Self::fixed();
+                voice.expanded.parameters(base);
+                return Ok(Some(voice));
             }
             #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
             {
@@ -473,9 +497,9 @@ impl CircuitVoice {
             .any(|i| matches!(nodes[*i].kind, Kind::Amp | Kind::Eg2));
         let primary_tables = nodes
             .iter()
-            .any(|n| n.kind == Kind::Primary || kind("osc3").is_some_and(|k| n.kind == k))
+            .any(|n| n.kind == Kind::Primary || kind("osc3").is_some_and(|k| n.kind == k) || kind("osc4").is_some_and(|k| n.kind == k))
             .then(|| Box::new(primary::Tables::new()));
-        Ok(Some(Self::new(Arc::new(Plan {
+        let mut voice = Self::new(Arc::new(Plan {
             fixed: false,
             #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             fine: crate::standalone_tables::fine(),
@@ -485,7 +509,10 @@ impl CircuitVoice {
             controllers: Box::new(crate::standalone_tables::controllers()),
             has_amp,
             primary_tables,
-        }))))
+        }));
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        voice.expanded.parameters(base);
+        Ok(Some(voice))
     }
     fn new(plan: Arc<Plan>) -> Self {
         let mut states: Vec<State> = if plan.fixed {
@@ -525,6 +552,8 @@ impl CircuitVoice {
             previous_phases: None,
             #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             source_wraps: [false; 2],
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+            expanded: Default::default(),
         }
     }
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
@@ -537,10 +566,100 @@ impl CircuitVoice {
         };
         (sample, self.source_wraps[reference.min(1)])
     }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn expanded_fixed(&mut self, sources: [Sample;3], p:VoiceParameters, level:i16, table:&WaveformTable) -> Sample {
+        let sources = self.prepare_sources(sources,p,table);
+        let reference_id = self.expanded.value(186,self.third_targets).round().clamp(0.0,3.0) as usize;
+        let reference = match reference_id {0=>sources[0],1=>self.source_taps.secondary_before_ring,2=>sources[1],_=>sources[2]};
+        let wrap = if reference_id == 3 {
+            let phase = self.third.osc.phase.0;
+            let wrap = phase < self.expanded.previous_third_phase;
+            self.expanded.previous_third_phase = phase;
+            wrap
+        } else {self.source_wraps[reference_id.min(1)]};
+        let fourth_gain = self.expanded.next_gain(self.third_targets);
+        let fourth = if fourth_gain != 0 {
+            self.expanded.oscillator(self.third_targets,p,reference,wrap,sources[1],[0.0,0.0,0.0,0.0,self.controls[5]],self.plan.primary_tables.as_ref().unwrap(),&self.plan.fine,table,self.frames)
+        } else {Sample(0)};
+        let a = multiply_q15(sources[0].0,p.mix.primary_gain);
+        let b = multiply_q15(sources[1].0,p.mix.secondary_gain) + multiply_q15(sources[2].0,p.mix.noise_gain)
+            + multiply_q15(fourth.0,fourth_gain);
+        let mixed = Sample(saturate(a+b));
+        let shape = |state:&mut Waveshaper, x:Sample, before:bool| {
+            p.shaper.filter(|s| (s.position == radias_synth_domain::waveshaper::ShaperPosition::PreFilter) == before).map_or(x, |s| state.process(ShaperSignal {input:x,primary_pitch_code:p.primary_pitch_code,primary_increment:p.primary.base_increment()},s.coefficients,&table.shapers))
+        };
+        let route = p.routing.map(|r|r.route);
+        let first_input = shape(&mut self.third.shaper, if route == Some(radias_synth_domain::filter_routing::FilterRouting::Individual) {Sample(saturate(a))} else {mixed},true);
+        let model1 = self.expanded.value(189,self.third_targets).round().clamp(0.0,17.0) as u8;
+        let model2 = self.expanded.value(190,self.third_targets).round().clamp(0.0,17.0) as u8;
+        let first = if model1 == 0 { self.third.filter.next_sample(first_input,p.filter) } else {
+            let resonance = (self.expanded.values[2] as f64 + self.third_targets.controls[6] as f64).clamp(0.0,127.0)/127.0;
+            let x = self.expanded.models[0].sample_coefficient(first_input.0 as f64/2147483648.0,model1,p.filter.integrator_gain,resonance,
+                self.expanded.value(191,self.third_targets)/127.0,self.expanded.value(193,self.third_targets)/127.0);
+            Sample((x.clamp(-1.0,1.0)*2147483647.0) as i32)
+        };
+        let filtered = if let Some(r) = p.routing {
+            use radias_synth_domain::filter_routing::FilterRouting;
+            let input = match r.route {FilterRouting::Serial=>first,FilterRouting::Parallel=>mixed,FilterRouting::Individual=>Sample(saturate(b))};
+            let second = if model2 == 0 {
+                if r.second.output == Filter2Output::Comb {
+                    self.third.comb.get_or_insert_with(||Box::new(radias_synth_domain::comb::Comb {feedback:Default::default(),delay:Default::default()})).sample(input,r.second.feedback,r.second.integrator_gain as u32)
+                } else {self.third.second.sample(input,r.second)}
+            } else {
+                let resonance = (self.expanded.values[23] as f64+self.third_targets.controls[17] as f64).clamp(0.0,127.0)/127.0;
+                let x = self.expanded.models[1].sample_coefficient(input.0 as f64/2147483648.0,model2,r.second.integrator_gain,resonance,
+                    self.expanded.value(192,self.third_targets)/127.0,self.expanded.value(194,self.third_targets)/127.0);
+                Sample((x.clamp(-1.0,1.0)*2147483647.0) as i32)
+            };
+            match r.route {FilterRouting::Serial=>second,FilterRouting::Parallel=>Sample(saturate((first.0 as i64+second.0 as i64)>>1)),FilterRouting::Individual=>Sample(saturate(first.0 as i64+second.0 as i64))}
+        } else {first};
+        Sample(saturate(multiply_q15(shape(&mut self.third.shaper,filtered,false).0,level)))
+    }
 }
 impl VoiceCircuit for CircuitVoice {
     fn fresh(&self) -> Box<dyn VoiceCircuit> {
-        Box::new(Self::new(self.plan.clone()))
+        let mut next = Self::new(self.plan.clone());
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        { next.expanded = self.expanded.fresh(); }
+        Box::new(next)
+    }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn extension_parameters(&mut self, values: &[i32]) { self.expanded.parameters(values); }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn extension_instrument(&mut self, values:&[i32;195]) {
+        let tempo=self.expanded.values[89];self.expanded.parameters(values);self.expanded.values[89]=tempo;
+    }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn extension_tempo(&mut self, tempo:i32) {self.expanded.values[89]=tempo;}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn inherit_extensions(&mut self, other: &dyn VoiceCircuit) {
+        if let Some(other) = other.as_any().downcast_ref::<Self>() { self.expanded.inherit(&other.expanded); }
+    }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_program(&mut self, program: Arc<radias_synth_application::motion::Program>) { self.expanded.motion(program); }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_seed(&mut self, seed:u32) { self.expanded.motion.seed=seed.max(1); }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_tempo(&mut self, tempo:f64) {self.expanded.tempo=Some(tempo);}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_status(&self)->(u64,[i16;6]) { (self.frames,self.expanded.motion.positions) }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_resonance(&self, offset:i16)->Option<i32> {
+        Some(((self.expanded.values[2] as i32+offset as i32).clamp(0,127) as f64/127.0*0.95*2147483647.0) as i32)
+    }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_envelopes(&mut self)->Option<[ModEnvelopeProgram;3]> {self.expanded.envelopes()}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn prepare_motion(&mut self) {
+        let _=self.motion_targets(Default::default());
+    }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn set_motion_offsets(&mut self,offsets:&[f64;195],positions:[i16;6]) {
+        self.expanded.motion.offsets=*offsets;self.expanded.motion.positions=positions;
+    }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_targets(&mut self, targets: radias_synth_domain::modulation::AppliedModulationTargets) -> radias_synth_domain::modulation::AppliedModulationTargets {
+        self.expanded.motion.tick(self.frames, self.expanded.tempo.unwrap_or(self.expanded.values[89] as f64 / 10.0), targets)
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -625,10 +744,15 @@ impl VoiceCircuit for CircuitVoice {
 }
 impl SignalProcessor for CircuitVoice {
     fn fixed_graph(&self) -> bool {
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        if self.expanded.enabled() || self.third_targets.controls[59..].iter().any(|v|*v!=0) { return false; }
         self.plan.fixed
     }
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn needs_oscillator_taps(&self) -> bool {
+        let fourth_mode = self.expanded.value(185,self.third_targets).round() as u8;
+        let fourth_source = self.expanded.value(186,self.third_targets).round() as u8;
+        if fourth_mode & 1 != 0 && fourth_source == 1 && (self.expanded.gain(self.third_targets)!=0 || self.plan.order.iter().any(|i|self.plan.nodes[*i].kind==Kind::Osc4)) {return true;}
         let (mode, reference) = osc3::interaction(self.third_program, self.third_targets);
         mode.ring
             && reference == 1
@@ -676,6 +800,7 @@ impl SignalProcessor for CircuitVoice {
             table,
             self.frames,
             2,
+            2,
         );
         self.frames = self.frames.wrapping_add(1);
         sources
@@ -687,6 +812,8 @@ impl SignalProcessor for CircuitVoice {
         level: i16,
         table: &WaveformTable,
     ) -> Sample {
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        if self.plan.fixed { return self.expanded_fixed(sources, p, level, table); }
         #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         let (reference, wrap) = self.third_reference(sources);
         let mut out = [[0.0; 2]; LIMIT];
@@ -731,16 +858,31 @@ impl SignalProcessor for CircuitVoice {
                         table,
                         self.frames,
                         n.id,
+                        2,
                     )
                     .0 as f64
                         / 2147483647.0
                 }
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                Kind::Osc4 => {
+                    let ref_id = self.expanded.value(186,self.third_targets).round().clamp(0.0,3.0) as usize;
+                    let third_node = self.plan.nodes.iter().find(|n|n.kind==Kind::Osc3).map(|n|n.id);
+                    let source = match ref_id {0=>sources[0],1=>self.source_taps.secondary_before_ring,2=>sources[1],_=>Sample((third_node.map_or(0.0,|id|out[id][0])*2147483647.0) as i32)};
+                    let wrap = if ref_id==3 {
+                        let phase=third_node.map_or(0,|id|self.states[id].osc.phase.0);
+                        let wrap=phase<self.expanded.previous_third_phase;self.expanded.previous_third_phase=phase;wrap
+                    } else {self.source_wraps[ref_id.min(1)]};
+                    self.expanded.oscillator(self.third_targets,p,source,wrap,if n.inputs[0].is_some() {audio}else{sources[1]},input,self.plan.primary_tables.as_ref().unwrap(),&self.plan.fine,table,self.frames).0 as f64 / 2147483647.0
+                }
                 #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
                 Kind::Noise => sources[2].0 as f64 / 2147483647.0,
                 Kind::Mix => {
-                    input[0] * p.mix.primary_gain as f64 / 32768.0
+                    let mix = input[0] * p.mix.primary_gain as f64 / 32768.0
                         + input[1] * p.mix.secondary_gain as f64 / 32768.0
-                        + input[2] * p.mix.noise_gain as f64 / 32768.0
+                        + input[2] * p.mix.noise_gain as f64 / 32768.0;
+                    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                    let mix = mix + input[3] * self.expanded.next_gain(self.third_targets) as f64 / 32768.0;
+                    mix
                 }
                 Kind::Sum => {
                     input[0] * n.numbers[0] + input[1] * n.numbers[1] + input[2] * n.numbers[2]
@@ -766,7 +908,16 @@ impl SignalProcessor for CircuitVoice {
                             .round()
                             .clamp(0.0, 127.0) as usize]
                     };
-                    state.filter.next_sample(audio, c).0 as f64 / 2147483647.0
+                    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                    {
+                        let (model,drive,morph,resonance) = if n.kind == Kind::Filter {
+                            (n.values[189] as u8,n.values[191] as f64/127.0,n.values[193] as f64/127.0,n.values[2] as f64/127.0)
+                        } else { (self.expanded.value(189,self.third_targets).round().clamp(0.0,17.0) as u8,self.expanded.value(191,self.third_targets)/127.0,self.expanded.value(193,self.third_targets)/127.0,(self.expanded.values[2] as f64+self.third_targets.controls[6] as f64).clamp(0.0,127.0)/127.0) };
+                        if model != 0 {state.modeled.sample_coefficient(input[0],model,c.integrator_gain,resonance,drive,morph)}
+                        else {state.filter.next_sample(audio,c).0 as f64/2147483647.0}
+                    }
+                    #[cfg(not(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))))]
+                    { state.filter.next_sample(audio, c).0 as f64 / 2147483647.0 }
                 }
                 Kind::Filter2 => {
                     if let Some(r) = p.routing {
@@ -776,6 +927,11 @@ impl SignalProcessor for CircuitVoice {
                                 * 2.0_f64.powf(input[3] * 4.0))
                             .clamp(0.0, 2147483647.0)
                                 as i32;
+                        }
+                        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                        if self.expanded.value(190,self.third_targets)>=0.5 {
+                            out[n.id][0]=state.modeled.sample_coefficient(input[0],self.expanded.value(190,self.third_targets).round().clamp(0.0,17.0) as u8,c.integrator_gain,(self.expanded.values[23] as f64+self.third_targets.controls[17] as f64).clamp(0.0,127.0)/127.0,self.expanded.value(192,self.third_targets)/127.0,self.expanded.value(194,self.third_targets)/127.0);
+                            continue;
                         }
                         let x = if c.output == Filter2Output::Comb {
                             state.comb.as_mut().unwrap().sample(

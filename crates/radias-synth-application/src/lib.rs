@@ -13,6 +13,33 @@ pub trait VoiceCircuit: radias_synth_domain::voice::SignalProcessor {
     fn controls(&mut self, values: [f64; 8]);
     fn tail_active(&self) -> bool;
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn extension_parameters(&mut self, _values: &[i32]) {}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn extension_instrument(&mut self, _values: &[i32;195]) {}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn extension_tempo(&mut self, _tempo:i32) {}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn inherit_extensions(&mut self, _other: &dyn VoiceCircuit) {}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_program(&mut self, _program: alloc::sync::Arc<crate::motion::Program>) {}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_targets(&mut self, targets: radias_synth_domain::modulation::AppliedModulationTargets)
+        -> radias_synth_domain::modulation::AppliedModulationTargets { targets }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_seed(&mut self, _seed:u32) {}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_tempo(&mut self, _tempo:f64) {}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_status(&self) -> (u64,[i16;6]) { (0,[-1;6]) }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_resonance(&self, _offset:i16) -> Option<i32> { None }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn motion_envelopes(&mut self) -> Option<[crate::voice_envelopes::ModEnvelopeProgram;3]> { None }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn prepare_motion(&mut self) {}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn set_motion_offsets(&mut self,_offsets:&[f64;195],_positions:[i16;6]) {}
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn oscillator3(
         &mut self,
         _program: crate::primary::ThirdProgram,
@@ -86,6 +113,8 @@ pub mod manual_parameters;
 pub mod mixer;
 pub mod mod_delay;
 pub mod modulation;
+#[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+pub mod motion;
 pub mod motion_initialization;
 pub mod noise;
 pub mod note_modulators;

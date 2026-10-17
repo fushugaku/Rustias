@@ -35,6 +35,8 @@ jobs:
         run: bash scripts/build-web.sh
       - name: Verify audio, sampler, sequencer and storage
         run: node scripts/verify-web.mjs
+      - name: Verify OSC4, expanded filters and polyphonic motion silently
+        run: node scripts/verify-motion-synthesis.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

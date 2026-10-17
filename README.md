@@ -18,14 +18,15 @@ The browser instrument runs **without firmware**. The shared Rust generator in `
 
 Each build gives the interface modules, workers, parameter/effect tables and WASM one asset revision and fingerprinted filenames, so a page reload updates them together. Audio regressions run on WASM/AudioWorklet buffers without opening an audio device, including live OSC 3 edits at 48/44.1 kHz.
 
-All 155 implemented native parameters are arranged on one instrument panel, with a full-screen button and a compact desktop layout. The browser adds Patch 7/8, LFO 3 and OSC 3, for 179 parameters in total. Definitions extend the same [schema](crates/radias-synth-infrastructure/src/parameters.json) that Rust uses to validate controls.
+All 155 implemented native parameters are arranged on one instrument panel, with a full-screen button and a compact desktop layout. The browser adds Patch 7/8, LFO 3, OSC 3/4 and filter models, for 195 parameters in total. Definitions extend the same [schema](crates/radias-synth-infrastructure/src/parameters.json) that Rust uses to validate controls.
 
 | Section | Available controls |
 | --- | --- |
 | OSC1 | Saw, Pulse, Triangle, Sine, Noise, Formant; Waveform, Cross, oscillator Unison and VPM; CTRL1/CTRL2. Noise/Formant use Waveform mode. |
 | OSC2 / Mixer | Four waveforms; Normal, Ring, Sync and Ring+Sync; semitone/fine tuning; independent OSC1, OSC2 and OSC3 levels |
 | OSC3 | The OSC1 waveforms, modes and CTRL1/2; independent semitone/fine tuning; Normal/Ring/Sync/Ring+Sync with selectable OSC1, OSC2 or OSC1→2 reference |
-| Filters | Filter1 type morph, cutoff, resonance, EG1 intensity and key tracking; Single, Serial, Parallel and Individual routing; Filter2 LP/HP/BP/Comb, link, cutoff, resonance and envelope/key controls |
+| OSC4 | Independent Waveform/Cross/Unison/VPM and Wavefolder, five shapers, Fold/Bias, Semi/Fine, Ring/Sync and source; fourth mixer channel |
+| Filters | RADIAS and 17 expanded models per slot, independent Drive, SEM/Multi Filter morph; Filter1 type morph, cutoff, resonance, EG1 intensity and key tracking; Single, Serial, Parallel and Individual routing; Filter2 LP/HP/BP/Comb, link, cutoff, resonance and envelope/key controls |
 | Drive / Waveshaper | Independent Off / Drive / WavShape modes; all eleven WS types (Decimator, Hard Clip, OctSaw, MultiTri, MultiSin, four SubOSC waves, Pickup, Level Boost); Depth 0–127 and PreFilt1 / PreAmp position. Switching modes retains the WS type and depth. |
 | EG1 / EG2 / EG3 | Independent ADSR, eight curves, velocity level/time sensitivity and key tracking |
 | Amplifier | Level, stereo pan, key tracking, level offset, source gain/Expression routing and optional MIDI volume; automatic Unison gain bank |
@@ -333,3 +334,18 @@ Generated SH3/C55 decoders are included and compile with Cargo. Regeneration req
 - The browser exposes the implemented native synthesis controls through a firmware-free table profile. Factory programs and hardware sound parity require the original data and separate validation.
 
 Software parity confirms only the observed boundary and tested scenario. Full hardware equivalence remains a project goal.
+
+### Expanded synthesis and polyphonic motion
+
+The browser and native plugin profile adds **OSC 4** with its own Waveform/Cross/Unison/VPM modes, Semi/Fine, Ring/Sync, source selector and mixer level. Its **Wavefolder** mode offers Triangle, Sine, Soft, Asymmetric and Rectify shapers; CTRL 1 controls folding and CTRL 2 controls bias. Folding runs at four times the voice rate with output filtering and DC rejection. Level, fold and bias changes are smoothed. Build exposes OSC 4 and the mixer's fourth input. Macros, virtual patches and modulation sequences address the new controls independently of OSC 2/3.
+
+Both filter slots and added Build filters now offer RADIAS plus 17 expanded models: Ladder LP/HP/BP 24, M/Poly LP24, Pro LP24, MS-20 LP/HP12, SEM, Multi Filter, and linear LP/HP/BP/Notch at 12/24 dB. Drive belongs to each filter; SEM and Multi Filter have a separate Model morph control. These are Rustias interpretations of filter families, not measured or bit-exact reproductions of Korg or other hardware. Uploaded samples use the same expanded models with their own settings.
+
+Each mod lane has a **Playback** choice:
+
+- **Timbre** retains the existing shared clock, Step/Slide, KeySync, macro and effect targets.
+- **Poly motion** gives each sounding voice its own clock, offsets and random state. A new note starts its own sequence without resetting other notes. Per-voice targets include pitch, oscillator controls, levels, filters, envelopes, LFO rates and the new synthesis controls. Global macros, effects and note-sequencer Gate remain Timbre targets.
+
+Poly motion adds Loop start/end, Random direction, per-step Duration, Probability and Auto/Linear/Exp/Log/Hold transitions. Choose a step in the grid or Edit step to change its properties. Failed probability holds the previous accepted value. The step indicator follows the oldest held voice. Six lanes can mix both playback modes, each with its own resolution and up to 128 steps. Native plugins execute both modes in Rust and follow DAW tempo; browser poly motion also executes in the shared Rust engine. Patch values remain unchanged by playback.
+
+Programs, copies, individual timbres and sample profiles retain the appended 179–194 parameter IDs and motion settings. Older 179-parameter programs gain a muted OSC 4 and RADIAS filter defaults. The original desktop/reference profile remains unchanged. Verify the extensions silently with `node scripts/verify-motion-synthesis.mjs`; native parity fixtures include OSC 4, filter models, polyphonic motion and mixed Timbre/Poly playback.

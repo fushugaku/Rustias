@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import {setEffectCatalog,defaultEffect} from '../web/effects.js';
 import {defaultCircuit,audioCircuit} from '../web/circuit.js';
 import {modulationFixtures} from './plugin-modulation-fixtures.mjs';
+import {emptyModulation,newModulationLane} from '../web/modulation.js';
 const root=new URL('../',import.meta.url);
 setEffectCatalog(JSON.parse(await fs.readFile(new URL('dist/effects.json',root),'utf8')));
 const module=await WebAssembly.compile(await fs.readFile(new URL('dist/rustias.wasm',root)));
@@ -31,6 +32,17 @@ scenario('Kit PCM with amplifier, filter and drum gain',()=>{control(140,1);pcm(
 scenario('Sample library in timbre eight',()=>{control(71,1,7);control(141,7);control(140,1);pcm('rustias_library_sample_buffer',[77],sample);call('rustias_library_sample_commit',77,sample.length);call('rustias_library_profile',77,77,7,2);call('rustias_library_control',77,9,110);call('rustias_library_sync');call('rustias_library_note',7,77,100);render();call('rustias_library_control',77,9,0);call('rustias_library_sync');});
 for(let kind=1;kind<=30;kind++)scenario(`Native FX ${kind}`,()=>{source({wave:3});json('rustias_effect',[0],defaultEffect(kind));json('rustias_effect',[17],defaultEffect(kind,true));json('rustias_effect_chain',[0],[{...defaultEffect(kind,true),id:'native-chain'}]);call('rustias_note',0,69,100);render();control(89,1350);render();call('rustias_note',0,69,0);});
 cases.push(...modulationFixtures(module));
+for(let mode=0;mode<=4;mode++)scenario(`OSC4 native mode ${mode}`,()=>{
+  source();control(17,0);control(187,100);control(179,3);control(180,mode);control(181,80);control(182,90);call('rustias_note',0,69,100);render();control(183,76);control(184,100);render();control(15,80);control(16,120);
+});
+for(let model=1;model<=17;model++)scenario(`Expanded native filters ${model}`,()=>{source();control(9,0);control(1,70);control(189,model);control(190,model);control(20,1);control(191,80);control(193,90);call('rustias_note',0,60,100);render();control(1,100);control(22,80);});
+for(const motion of ['Step','Slide'])scenario(`Polyphonic motion ${motion}`,()=>{
+  source();const config=emptyModulation();
+  for(const [i,parameter]of [53,1,2,5,181,193].entries()){
+    const lane=newModulationLane('poly-'+i);Object.assign(lane,{playback:'Poly',target:{kind:'synth',timbre:0,parameter},length:5,resolution:['1/16','1/8','1/48','1/3','1/32','1/4'][i],motion,direction:i===1?'Random':'Forward',values:Array.from({length:128},(_,n)=>parameter===53?n%3*4:n%3*15-15),durations:Array.from({length:128},(_,n)=>n%2?1:2),probabilities:Array.from({length:128},(_,n)=>n%3?100:50)});config.tracks[0].push(lane);
+  }
+  control(187,40);control(189,6);json('rustias_poly_motion',[],config);call('rustias_note',0,60,100);render(64);call('rustias_note',0,67,100);render(16);call('rustias_poly_motion_position',0,0);call('rustias_note',0,60,0);render();call('rustias_poly_motion_tempo',83);render();control(181,110);control(1,90);render();
+});
 await fs.mkdir(new URL('output/plugin/',root),{recursive:true});
 await fs.writeFile(new URL('output/plugin/native-parity.json',root),JSON.stringify({version:1,cases}));
 console.log(`Captured ${cases.length} browser PCM/state scenarios for native parity.`);

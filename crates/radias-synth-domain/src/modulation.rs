@@ -1,14 +1,14 @@
 //! Six Virtual Patch routes: original SH3 022300 and 022390..022610.
 pub const MODULATION_DESTINATIONS: usize =
     if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
-        52
+        69
     } else {
         40
     };
 pub const VIRTUAL_PATCHES: usize = 6;
 pub const PITCH_OSCILLATORS: usize = if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))
 {
-    3
+    4
 } else {
     2
 };
@@ -108,13 +108,13 @@ impl ModulationTargets {
     pub fn applied(&self) -> AppliedModulationTargets {
         AppliedModulationTargets {
             oscillator_pitch_q16: core::array::from_fn(|i| {
-                self.values[if i < 2 { i } else { 43 }].wrapping_shl(8)
+                self.values[match i { 0 | 1 => i, 2 => 43, _ => 52 }].wrapping_shl(8)
             }),
             controls: core::array::from_fn(|n| {
                 let destination = n + 2;
                 let shift = match destination {
-                    8 | 15 | 16 | 19 | 22..=33 | 45 => 7,
-                    17 | 18 | 20 | 21 | 34..=41 | 46..=51 => 8,
+                    8 | 15 | 16 | 19 | 22..=33 | 45 | 54 => 7,
+                    17 | 18 | 20 | 21 | 34..=41 | 46..=51 | 55..=60 | 62..=68 => 8,
                     _ => 0,
                 };
                 (self.values[destination].clamp(-32767, 32767) >> shift) as i16
@@ -156,7 +156,7 @@ impl ModulationTables {
         let key = source.selector & 15 == 8;
         let index = (depth as i16 + 64) as usize;
         let (amount, linked_pitch) = match d {
-            0 | 1 | 43 => (self.pitch(source.value, depth), 0),
+            0 | 1 | 43 | 52 => (self.pitch(source.value, depth), 0),
             7 | 9 if key => (
                 ((self.key_cutoff_depth[index] as i64 * source.value as i64) >> 16) as i32,
                 0,

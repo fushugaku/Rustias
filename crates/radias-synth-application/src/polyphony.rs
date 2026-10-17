@@ -39,6 +39,8 @@ pub struct ActiveVoice {
     pub primary: Option<crate::primary::PrimaryProgram>,
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub third: crate::primary::ThirdProgram,
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub extensions: Option<[i32;195]>,
     pub shaper: Option<crate::shaper::ShaperProgram>,
     pub comb_program: Option<crate::comb::CombProgram>,
     pub timbre: u8,
@@ -65,6 +67,8 @@ impl ActiveVoice {
             primary: self.primary,
             #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third: self.third,
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+            extensions: self.extensions,
             shaper: self.shaper,
             comb_program: self.comb_program,
             timbre: self.timbre,
@@ -358,6 +362,8 @@ impl PolyphonicRenderer {
             #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             {
                 voice.third = c.third;
+                voice.extensions = Some(c.extensions);
+                if let Some(circuit)=&mut voice.renderer.circuit {circuit.extension_instrument(&c.extensions);}
             }
             if before.pitch != c.pitch {
                 voice.drum_pitch = Some(c.pitch);
@@ -2035,14 +2041,23 @@ impl PolyphonicRenderer {
                 .as_ref()
                 .map(|p| p.fresh());
         }
+        #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        if let Some(circuit) = &mut voice.renderer.circuit {
+            if let Some(values)=voice.extensions {circuit.extension_instrument(&values);}
+            circuit.motion_seed((self.modulation_frame as u32).wrapping_mul(2654435761).wrapping_add(slot as u32+1));
+        }
         self.voices[slot] = Some(voice);
     }
     #[cfg(feature = "web-modular")]
     pub fn set_circuit(
         &mut self,
         timbre: usize,
-        prototype: Option<alloc::boxed::Box<dyn crate::VoiceCircuit>>,
+        mut prototype: Option<alloc::boxed::Box<dyn crate::VoiceCircuit>>,
     ) {
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        if let (Some(next), Some(previous)) = (&mut prototype, &self.circuits[timbre]) {
+            next.inherit_extensions(&**previous);
+        }
         for v in self
             .voices
             .iter_mut()
@@ -2055,6 +2070,35 @@ impl PolyphonicRenderer {
             }
         }
         self.circuits[timbre] = prototype;
+    }
+    #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn extension_parameters(&mut self, timbre: usize, values: &[i32]) {
+        if let Some(circuit) = &mut self.circuits[timbre] { circuit.extension_parameters(values); }
+        for voice in self.voices.iter_mut().flatten().filter(|v| v.timbre as usize == timbre) {
+            if let Some(circuit) = &mut voice.renderer.circuit {
+                if voice.drum_instrument.is_none() {circuit.extension_parameters(values);} else {circuit.extension_tempo(values[89]);}
+            }
+        }
+    }
+    #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn motion_program(&mut self, timbre: usize, program: alloc::sync::Arc<crate::motion::Program>) {
+        if let Some(circuit) = &mut self.circuits[timbre] { circuit.motion_program(program.clone()); }
+        for voice in self.voices.iter_mut().flatten().filter(|v| v.timbre as usize == timbre) {
+            if let Some(circuit) = &mut voice.renderer.circuit { circuit.motion_program(program.clone()); }
+        }
+    }
+    #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn motion_position(&self, timbre:usize, lane:usize) -> i16 {
+        self.voices.iter().flatten().filter(|v| v.timbre as usize==timbre && v.held)
+            .filter_map(|v|v.renderer.circuit.as_ref().map(|c|c.motion_status()))
+            .filter(|(_,p)|p[lane]>=0).max_by_key(|(age,_)|*age).map_or(-1,|(_,p)|p[lane])
+    }
+    #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn motion_tempo(&mut self, tempo:f64) {
+        for circuit in self.circuits.iter_mut().flatten() {circuit.motion_tempo(tempo);}
+        for voice in self.voices.iter_mut().flatten() {
+            if let Some(circuit)=&mut voice.renderer.circuit {circuit.motion_tempo(tempo);}
+        }
     }
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub fn edit_third(&mut self, timbre: u8, program: crate::primary::ThirdProgram) {
@@ -2753,6 +2797,16 @@ impl PolyphonicRenderer {
                 self.shared_assigned_pitch[active.timbre as usize] =
                     self.assigned_pitch_slots[slot];
             }
+            #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+            if service {
+                if let (Some(circuit),Some(tables))=(&mut active.renderer.circuit,tables) {
+                    circuit.prepare_motion();
+                    if let Some(envelopes)=circuit.motion_envelopes() {
+                        if let Some(amp)=&mut active.amplifier {if initial {amp.initialize_motion_envelope(envelopes[1],tables);}else{amp.edit_motion_envelope(envelopes[1],tables);}}
+                        if let Some(auxiliary)=&mut active.auxiliary {let next=[envelopes[0],envelopes[2]];if initial {auxiliary.initialize_motion_envelopes(next,tables);}else if auxiliary.programs!=next {auxiliary.edit(next,tables);}}
+                    }
+                }
+            }
             if let (Some(amp), Some(tables)) = (&mut active.amplifier, tables) {
                 if service {
                     let relative_pitch = if self.portamento_voices[slot].is_some() {
@@ -2860,6 +2914,23 @@ impl PolyphonicRenderer {
                 let mut sources = [0; SOURCE_COUNT];
                 sources[..10].copy_from_slice(&signals);
                 let targets = modulation.service(&mod_tables.lfo, &mod_tables.matrix, sources);
+                #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                let targets = if let Some(circuit) = &mut active.renderer.circuit {
+                    let targets = circuit.motion_targets(targets);
+                    modulation.patches.targets = targets;
+                    if let Some(auxiliary)=&mut active.auxiliary {
+                        if let Some(filter)=&mut auxiliary.filter {
+                            if let Some(resonance)=circuit.motion_resonance(targets.controls[6]) {filter.resonance=resonance;}
+                        }
+                    }
+                    if let Some(envelopes)=circuit.motion_envelopes() {
+                        if let Some(amp)=&mut active.amplifier {amp.edit_motion_envelope(envelopes[1],tables);}
+                        if let Some(auxiliary)=&mut active.auxiliary {
+                            let next=[envelopes[0],envelopes[2]];if auxiliary.programs!=next {auxiliary.edit(next,tables);}
+                        }
+                    }
+                    targets
+                } else { targets };
                 if let (Some(port), Some(port_tables)) =
                     (&mut self.portamento_voices[slot], &self.portamento_tables)
                 {

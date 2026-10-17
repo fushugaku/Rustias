@@ -1,4 +1,4 @@
-import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray,effectUsesMaster,effectTimbre,effectRole,timbreEffectSlots,LFO3_BASE,OSC3_BASE} from './limits.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray,effectUsesMaster,effectTimbre,effectRole,timbreEffectSlots,LFO3_BASE,OSC3_BASE,OSC4_BASE} from './limits.js';
 import {webParameters} from './parameters.js';
 import {createMacrosPanel} from './macros-ui.js';
 import {createModulationEditor} from './modulation-ui.js';
@@ -58,7 +58,7 @@ const INCLUDE_TIMBRE_SEQUENCE=false;
 const factorySounds=[{value:"init",label:"INIT"},{value:"pad",label:"Warm pad"},{value:"pulse",label:"Pulse bass"},{value:"pluck",label:"Soft pluck"},{value:"custom",label:"Custom"}];
 function markProgram(){programDirty=true;if(!activeSavedPatch)programState="custom";}
 function markTimbre(t=selected){timbres[t].modified=true;markProgram();}
-const send = message => node?.port.postMessage(message.type==='control'&&message.parameter>=OSC3_BASE
+const send = message => node?.port.postMessage(message.type==='control'&&message.parameter>=OSC3_BASE&&message.parameter<OSC3_BASE+8
   ? {type:'osc3-control',timbre:message.timbre,control:message.parameter-OSC3_BASE,value:message.value}
   : message);
 const pluginAutomation=pluginHost?createPluginAutomationSync(send):null;
@@ -92,12 +92,20 @@ function format(id, value) {
   return String(value);
 }
 function disabled(id, v) {
-  if(isSample()&&([0,10,11,12,13,14,15,16,17,18,19].includes(id)||id>=OSC3_BASE))return true;
+  if(isSample()&&([0,10,11,12,13,14,15,16,17,18,19].includes(id)||id>=OSC3_BASE&&id<=188))return true;
   if(isSample()&&[59,60,61,62,63,64,65,66,67,68,69,70,139].includes(id))return true;
   if(isSample()&&[6,35,39].includes(id)&&(sampleProfile()?.mode??sampleUI.getConfig().slots[global(142)].mode)===0)return true;
   if(unavailableSource()&&[10,11,12].includes(id))return true;
   if (id === 10) return v[0] >= 4;
   if (id === OSC3_BASE+1) return v[OSC3_BASE] >= 4;
+  if (id === 180) return v[179]>=4;
+  if (id === 188) return v[180]!==4;
+  if (id===191) return v[189]===0;
+  if (id===193) return ![5,6].includes(v[189]);
+  if (id===192) return v[190]===0||v[20]===0;
+  if (id===194) return ![5,6].includes(v[190])||v[20]===0;
+  if (id === 9) return v[189]!==0;
+  if (id === 21) return v[190]!==0||v[20]===0;
   if (id === 154) return v[29] !== 2;
   if ([21, 22, 23, 24, 27, 28].includes(id)) return v[20] === 0;
   if ([64, 63].includes(id)) return v[62] === 1;
@@ -147,13 +155,13 @@ function resolveMacro(target){
   else if(target.kind==='drum'){v=drums[target.instrument];label=`Drum ${target.instrument+1} · ${p.group} · ${p.label}`;}
   else if(target.kind==='sample'){v=sampleUI?.findProfile(target.timbre,target.source)?.values;label=`T${target.timbre+1} · ${sampleUI?.sampleName(target.source)??target.source} · ${p.group} · ${p.label}`;available=target.timbre<timbreCount;}
   if(!v)return null;if(p.id===10&&v[0]>=4)available=false;
-  if(p.id===OSC3_BASE+1&&v[OSC3_BASE]>=4)available=false;
+  if(p.id===OSC3_BASE+1&&v[OSC3_BASE]>=4)available=false;if(p.id===180&&v[179]>=4)available=false;
   return {label,min:p.min,max:p.max,values:p.values,read:()=>v[p.id],available};
 }
-function modulationTargets(t){
+function modulationTargets(t,mode='Timbre'){
   const result=[],samples=sampleUI?.getConfig(),knobs=macroUI?.getConfig().knobs??[];
-  const ids=parameters.filter(p=>p.scope!=='global'&&!p.readonly&&!p.options&&!macroExcluded.has(p.id)&&![66,137,138,139,146,147,150].includes(p.id)).map(p=>p.id);
-  const add=(target,prefix='')=>{const spec=resolveMacro(target);if(spec&&spec.available!==false)result.push({value:modulationKey(target),label:prefix+spec.label,target});};
+  const ids=parameters.filter(p=>p.scope!=='global'&&!p.readonly&&(!p.options||p.id>=171)&&!macroExcluded.has(p.id)&&![66,137,138,139,146,147,150].includes(p.id)).map(p=>p.id);
+  const add=(target,prefix='')=>{const spec=resolveMacro(target);if(spec&&(spec.available!==false||mode==='Poly'&&target.kind==='synth'))result.push({value:modulationKey(target),label:prefix+spec.label,target});};
   add({kind:'sequence-gate',timbre:t});
   for(const parameter of ids)add({kind:'synth',timbre:t,parameter});
   if(global(140)&&global(141)===t)for(let instrument=0;instrument<16;instrument++)for(const parameter of ids){
@@ -189,10 +197,10 @@ function writeMacros(changes){
     else if(target.kind==='volume'){$('#volume').value=value;send({type:'gain',value:value/100});}
     else{
       const id=target.parameter;let v=target.kind==='global'?timbres[0].values:target.kind==='synth'?timbres[target.timbre].values:target.kind==='drum'?drums[target.instrument]:sampleUI.findProfile(target.timbre,target.source).values;
-      const next=(id===10&&v[0]>=4||id===OSC3_BASE+1&&v[OSC3_BASE]>=4)?0:value;
+      const next=(id===10&&v[0]>=4||id===OSC3_BASE+1&&v[OSC3_BASE]>=4||id===180&&v[179]>=4)?0:value;
       if(target.kind==='global'){for(const timbre of timbres)timbre.values[id]=next;send({type:'control',timbre:0,parameter:id,value:next});for(let t=0;t<timbreCount;t++)circuits.add(t);}
       else if(target.kind==='sample'){sampleUI.controlLibrary(target.timbre,target.source,id,next);markTimbre(target.timbre);}
-      else{v[id]=next;if(id===0&&next>=4)v[10]=0;if(id===OSC3_BASE&&next>=4)v[OSC3_BASE+1]=0;
+      else{v[id]=next;if(id===0&&next>=4)v[10]=0;if(id===OSC3_BASE&&next>=4)v[OSC3_BASE+1]=0;if(id===179&&next>=4)v[180]=0;
         if(target.kind==='drum'){send({type:'drum-control',instrument:target.instrument,parameter:id,value:next});circuits.add(global(141));}
         else{if([66,137,138,139,150].includes(id)){const channel=v[72]===16?global(148):v[72];for(const t of timbres)if((t.values[72]===16?global(148):t.values[72])===channel)t.values[id]=next;}send({type:'control',timbre:target.timbre,parameter:id,value:next});circuits.add(target.timbre);markTimbre(target.timbre);}
       }
@@ -216,6 +224,7 @@ function setControl(id, value, fromUser = true) {
   else (isDrum() && instrumentParameter(id) ? drums[global(142)] : timbres[selected].values)[id] = value;
   if (id === 0 && value >= 4) (isDrum() ? drums[global(142)] : timbres[selected].values)[10] = 0;
   if (id === OSC3_BASE && value >= 4) (isDrum() ? drums[global(142)] : timbres[selected].values)[OSC3_BASE+1] = 0;
+  if(id===179&&value>=4)(isDrum()?drums[global(142)]:timbres[selected].values)[180]=0;
   if ([66,137,138,139,150].includes(id)) {
     const channel = timbres[selected].values[72] === 16 ? global(148) : timbres[selected].values[72];
     for (const t of timbres) if ((t.values[72] === 16 ? global(148) : t.values[72]) === channel) t.values[id] = value;
@@ -235,11 +244,12 @@ function updateControls(sync=true) {
   panel?.render(v,sourceLabel?{0:sourceLabel}:{}); sampleUI?.render();syncRdlMasks();
   sequenceUI?.setDrumKit(drumSequenceKit(timbres[0].values,drums,sampleUI?.instrumentNames(),sampleUI?.getConfig().slots.map(s=>s.source)));
   $('#rdl-details').hidden=!rdlSource;$('#wave-display').toggleAttribute('hidden',!!missing||pcm);
-  document.querySelector('.module-filter1 h2').textContent=v[9]===127?'FILTER 1 · THRU':'FILTER 1';
+  document.querySelector('.module-filter1 h2').textContent=v[189]===0&&v[9]===127?'FILTER 1 · THRU':'FILTER 1';
   $("#wave-display").setAttribute("aria-label", `${names[v[0]]} waveform`);
   const paths = ["M0 60 L60 12 L60 60 L120 12 L120 60 L180 12 L180 60 L240 12", "M0 60 V12 H30 V60 H60 V12 H90 V60 H120 V12 H150 V60 H180 V12 H210 V60 H240", "M0 36 L30 12 L60 36 L90 60 L120 36 L150 12 L180 36 L210 60 L240 36", `M${Array.from({length: 121}, (_, i) => `${i * 2} ${36 - 24 * Math.sin(i / 120 * 4 * Math.PI)}`).join(" L")}`, `M${Array.from({length: 61}, (_, i) => `${i * 4} ${12 + (i * 17 % 49)}`).join(" L")}`, `M${Array.from({length: 121}, (_, i) => `${i * 2} ${36 - 24 * Math.sin(i / 120 * 10 * Math.PI) * Math.sin(i / 120 * 2 * Math.PI)}`).join(" L")}`];
   $("#wave-path").setAttribute("d", paths[v[0]]);
   $("#wave-display-osc3").toggleAttribute("hidden",pcm);$("#wave-display-osc3").setAttribute("aria-label",`${names[v[OSC3_BASE]]} waveform`);$("#wave-path-osc3").setAttribute("d",paths[v[OSC3_BASE]]);
+  $("#wave-display-osc4").toggleAttribute("hidden",pcm);$("#wave-display-osc4").setAttribute("aria-label",`${names[v[179]]} waveform`);$("#wave-path-osc4").setAttribute("d",paths[v[179]]);
   $("#edit-context").textContent = editingSample ? `T${selected+1} · ${sampleUI.sampleName(editingSample.source)}` : isDrum() ? `Drum ${String(global(142) + 1).padStart(2, "0")} · Timbre ${String(selected + 1).padStart(2, "0")}` : `Timbre ${String(selected + 1).padStart(2, "0")}`;
   $("#edit-context").title=$("#edit-context").textContent;
   const programLabel=patchStore.list().find(p=>p.id===activeSavedPatch)?.name??(programState==='init'?'INIT':'Unsaved');

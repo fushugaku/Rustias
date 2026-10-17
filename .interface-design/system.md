@@ -104,3 +104,17 @@ RDL sequencing: the note lane's ⋯ opens aligned settings on the dark plate (si
 LFO 3 uses the shared Rust LFO 1 waveform/clock algorithm behind `web-expanded` + wasm32; desktop remains at two. Append its eight stored parameter IDs at 163–170 and source ID 16 / rate destination 42; keep all native/old browser indexes stable. Add a removable builtin LFO 3 CV node at ID 63 in new graphs, preserving the original 0–15 IDs and existing user modules. Older graphs can add LFO 3 through Add module. Program/timbre/sample storage, macro gestures and Mod Sequencer choices use the extended schema.
 
 OSC 3 replaces Noise at builtin node 2, preserving old IDs/cables. It has OSC 1's six waveforms/four modes and CTRL1/2, OSC 2's Semi/Fine, plus independent Ring/Sync and Source (OSC 1, OSC 2 before Ring, current OSC 1→2 result). Its four choices share one row and the four dials share the following row. Keep OSC 1/2/3 bottom rules aligned on desktop, and OSC 3 full-width on phones. Source references use native audio/phase taps; the original pair is unchanged. Store IDs 171–178, Virtual Patch destinations 43–51 and existing Level 5. Noise/Formant disable only synthesis Mode. CV/audio ports and macro gestures follow independent OSC 1. Defaults retain Noise with Ring/Sync off, native desktop retains its original Noise generator.
+
+OSC 4 adds the same compact audio/CV module with four choices above four dials and
+one Shaper choice below. OSC1–4 use two columns at ordinary desktop widths, four
+on wide screens and one on phones. Its level is the fourth Mixer dial. Filter
+Model is a full LCD choice in each filter; original Morph/Type apply to RADIAS,
+Drive to expanded models, Model morph to SEM/Multi Filter. Keep disabled controls
+visible and preserve all native parameter IDs.
+
+Mod Playback uses the existing LCD picker: Timbre / Poly motion. Poly keeps the
+same 16-dial grid and adds an aligned six-column step inspector for Loop start,
+Loop end, Edit step, Duration, Probability and Transition; two columns on phones.
+The selected inspector step uses a teal outline, separate from playback. KeySync
+is disabled in Poly because each note owns its clock. Keep macro/effect/Gate
+choices in Timbre mode and show only supported per-voice destinations in Poly.

@@ -42,7 +42,7 @@ use radias_synth_domain::{
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const NATIVE_PARAMETER_COUNT: usize = 155;
 pub const PARAMETER_COUNT: usize = if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
-    179
+    195
 } else {
     NATIVE_PARAMETER_COUNT
 };
@@ -67,8 +67,8 @@ pub fn parameters() -> Vec<Parameter> {
         for i in 0..6 {
             spec[90 + i * 4].max = 16;
             spec[90 + i * 4].values = Some((0..=8).chain(core::iter::once(16)).collect());
-            spec[91 + i * 4].max = 51;
-            spec[91 + i * 4].values.as_mut().unwrap().extend(40..=51);
+            spec[91 + i * 4].max = 68;
+            spec[91 + i * 4].values.as_mut().unwrap().extend(40..=68);
         }
         for id in NATIVE_PARAMETER_COUNT..163 {
             let mut p = spec[90 + (id - NATIVE_PARAMETER_COUNT) % 4].clone();
@@ -97,6 +97,12 @@ pub fn parameters() -> Vec<Parameter> {
         reference.default = 0;
         reference.values = Some(vec![0, 1, 2]);
         spec.push(reference);
+        for (id, min, max, default) in [
+            (179,0,5,3),(180,0,4,4),(181,0,127,32),(182,0,127,64),
+            (183,0,127,64),(184,0,127,64),(185,0,3,0),(186,0,3,0),
+            (187,0,127,0),(188,0,4,0),(189,0,17,0),(190,0,17,0),
+            (191,0,127,0),(192,0,127,0),(193,0,127,0),(194,0,127,0),
+        ] { spec.push(Parameter { id, min, max, default, values: None, scope: String::new() }); }
     }
     spec
 }
@@ -157,7 +163,12 @@ fn modulation(v: &Values) -> ModulationProgram {
 fn controls(v: &Values) -> TimbreControls {
     let selection = v[0] as u8 | ((v[10] as u8) << 4);
     let secondary = v[13] as u8 | ((v[14] as u8) << 4);
+    let second_filter = v[21] as u8;
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    let second_filter = if v[190] != 0 {0} else {second_filter};
     TimbreControls {
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        extensions: *v,
         #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
         third: radias_synth_application::primary::ThirdProgram {
             primary: radias_synth_application::primary::PrimaryProgram {
@@ -221,7 +232,7 @@ fn controls(v: &Values) -> TimbreControls {
             levels: [v[17] as u8, v[18] as u8, v[19] as u8],
             manual_offsets: [0; 3],
         },
-        filter_route: v[20] as u8 | ((v[21] as u8) << 4) | if v[24] != 0 { 128 } else { 0 },
+        filter_route: v[20] as u8 | (second_filter << 4) | if v[24] != 0 { 128 } else { 0 },
         cutoff: [v[1] as u8, v[22] as u8],
         resonance: [v[2] as u8, v[23] as u8],
         filter_type: v[9] as u8,
@@ -449,6 +460,8 @@ impl StandaloneSynth {
     }
     fn apply_timbre(&mut self, t: u8, changed: Option<usize>) {
         let v = self.settings[t as usize];
+        #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        self.engine.extension_parameters(t as usize, &v);
         let c = controls(&v);
         let is = |ids: &[usize]| changed.is_none_or(|id| ids.contains(&id));
         if is(&[71, 72]) {
@@ -477,7 +490,7 @@ impl StandaloneSynth {
         if is(&[0, 10, 13, 14, 17, 18, 19]) {
             self.engine.apply(Command::Mixer(t, c.mixer));
         }
-        if is(&[1, 2, 9, 20, 21, 22, 23, 24, 25, 26, 27, 28]) {
+        if is(&[1, 2, 9, 20, 21, 22, 23, 24, 25, 26, 27, 28, 190]) {
             let graph = self.graph(&v);
             self.engine.apply(Command::Filter(t, graph.filter));
             self.engine
@@ -650,7 +663,7 @@ impl StandaloneSynth {
             return false;
         }
         #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-        if id == 172 && value != 0 && self.value(t, 171) >= 4 {
+        if (id == 172 && self.value(t, 171) >= 4 || id == 180 && self.value(t,179)>=4) && value != 0 {
             return false;
         }
         if id == 119 && value > self.settings[t as usize][120]
@@ -663,7 +676,11 @@ impl StandaloneSynth {
                 v[id] = value;
             }
             match id {
-                89 => self.engine.apply(Command::Tempo(value as u16)),
+                89 => {
+                    self.engine.apply(Command::Tempo(value as u16));
+                    #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                    for t in 0..TIMBRE_COUNT { self.engine.extension_parameters(t, &self.settings[t]); }
+                }
                 121..=136 => self.global_pitch(),
                 148..=149 | 152 => {
                     self.performance();
@@ -701,9 +718,7 @@ impl StandaloneSynth {
             self.settings[t as usize][10] = 0;
         }
         #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-        if id == 171 && value >= 4 {
-            self.settings[t as usize][172] = 0;
-        }
+        if [171,179].contains(&id) && value >= 4 { self.settings[t as usize][id+1] = 0; }
         let channel = self.channel(t);
         if matches!(id, 66 | 137..=139 | 150) {
             for i in 0..TIMBRE_COUNT as u8 {
@@ -747,7 +762,7 @@ impl StandaloneSynth {
             return false;
         }
         #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-        if id == 172 && value != 0 && self.drum_settings[i][171] >= 4 {
+        if (id == 172 && self.drum_settings[i][171] >= 4 || id == 180 && self.drum_settings[i][179]>=4) && value != 0 {
             return false;
         }
         self.drum_settings[i][id] = value;
@@ -755,9 +770,7 @@ impl StandaloneSynth {
             self.drum_settings[i][10] = 0;
         }
         #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-        if id == 171 && value >= 4 {
-            self.drum_settings[i][172] = 0;
-        }
+        if [171,179].contains(&id) && value >= 4 { self.drum_settings[i][id+1] = 0; }
         if self.settings[0][140] != 0 {
             let program = DrumInstrumentProgram {
                 controls: controls(&self.drum_settings[i]),
@@ -848,6 +861,7 @@ impl StandaloneSynth {
                     || v.len() == 163
                     || v.len() == 171
                     || v.len() == 177
+                    || v.len() == 179
                 {
                     v.extend_from_slice(&defaults[v.len()..]);
                 }
@@ -874,7 +888,7 @@ impl StandaloneSynth {
                 return None;
             }
             #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-            if v[171] >= 4 && v[172] != 0 {
+            if v[171] >= 4 && v[172] != 0 || v[179]>=4 && v[180]!=0 {
                 return None;
             }
             for s in &spec {

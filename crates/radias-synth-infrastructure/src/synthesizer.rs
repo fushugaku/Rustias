@@ -386,6 +386,8 @@ pub(crate) struct Timbre {
     primary: radias_synth_application::primary::PrimaryProgram,
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     third: radias_synth_application::primary::ThirdProgram,
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    extensions: [i32;195],
     enabled: bool,
     channel: u8,
     modulation: ModulationProgram,
@@ -442,6 +444,8 @@ impl Synthesizer {
                 primary: Default::default(),
                 #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 third: Default::default(),
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                extensions: [0;195],
                 enabled: i == 0,
                 channel: i as u8,
                 modulation: ModulationProgram::default(),
@@ -482,6 +486,18 @@ impl Synthesizer {
     pub fn waveform_table(&self) -> &WaveformTable {
         &self.table
     }
+    #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn extension_parameters(&mut self, timbre: usize, values: &[i32]) {
+        self.pool.extension_parameters(timbre, values);
+    }
+    #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn motion_program(&mut self, timbre: usize, program: std::sync::Arc<radias_synth_application::motion::Program>) {
+        self.pool.motion_program(timbre, program);
+    }
+    #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn motion_position(&self,timbre:usize,lane:usize)->i16 { self.pool.motion_position(timbre,lane) }
+    #[cfg(all(feature = "web-modular", feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn motion_tempo(&mut self,tempo:f64) {self.pool.motion_tempo(tempo);}
     pub fn active_count(&self) -> usize {
         self.pool.active_count()
     }
@@ -715,6 +731,8 @@ impl Synthesizer {
             primary: Some(settings.primary),
             #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third: settings.third,
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+            extensions: drum.map(|_| settings.extensions),
             shaper: Some(settings.shaper),
             comb_program: settings.comb_program,
             timbre,
@@ -815,6 +833,8 @@ impl Synthesizer {
                         primary: c.primary(),
                         #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                         third: c.third,
+                        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                        extensions: c.extensions,
                         enabled: source.enabled,
                         channel: source.channel,
                         modulation: c.modulation,
@@ -1317,6 +1337,8 @@ impl Synthesizer {
                 primary: c.primary(),
                 #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 third: c.third,
+                        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                        extensions: c.extensions,
                 modulation: c.modulation,
                 auxiliary: [c.envelope[0], c.envelope[2]],
                 dynamic_filter: Some(graph.dynamic_filter),

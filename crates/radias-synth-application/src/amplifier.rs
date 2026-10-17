@@ -205,6 +205,19 @@ impl AmplifierController {
         self.parameters = next;
         self.compile(tables);
     }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn edit_motion_envelope(&mut self, program:crate::voice_envelopes::ModEnvelopeProgram, tables:&ControllerTables) {
+        let next=program.parameters(self.parameters.note,self.parameters.velocity);
+        if next==self.parameters && self.control.velocity_sensitivity==program.velocity_level_sensitivity {return;}
+        self.envelope.edit(self.parameters,next,&tables.timing);self.parameters=next;
+        self.control.velocity_sensitivity=program.velocity_level_sensitivity;self.compile(tables);
+    }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn initialize_motion_envelope(&mut self, program:crate::voice_envelopes::ModEnvelopeProgram, tables:&ControllerTables) {
+        self.edit_motion_envelope(program,tables);
+        self.envelope.note_on(self.parameters,&tables.curves,&tables.timing,0);
+        self.compile(tables);
+    }
     pub fn modulation(&mut self, value: i16, tables: &ControllerTables) -> i16 {
         self.control.modulation[1] = value;
         self.compile(tables);

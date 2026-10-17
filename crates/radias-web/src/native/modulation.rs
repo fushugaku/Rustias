@@ -109,13 +109,13 @@ impl Target {
         match self {
             Self::Macro { .. } | Self::SequenceGate { .. } => 100,
             Self::Synth {
-                parameter: 53 | 15, ..
+                parameter: 53 | 15 | 175 | 183, ..
             }
             | Self::Drum {
-                parameter: 53 | 15, ..
+                parameter: 53 | 15 | 175 | 183, ..
             }
             | Self::Sample {
-                parameter: 53 | 15, ..
+                parameter: 53 | 15 | 175 | 183, ..
             } => 24,
             _ => 63,
         }
@@ -124,15 +124,15 @@ impl Target {
         matches!(
             self,
             Self::Synth {
-                parameter: 0 | 171,
+                parameter: 0 | 171 | 179,
                 ..
-            } | Self::Global { parameter: 0 | 171 }
+            } | Self::Global { parameter: 0 | 171 | 179 }
                 | Self::Drum {
-                    parameter: 0 | 171,
+                    parameter: 0 | 171 | 179,
                     ..
                 }
                 | Self::Sample {
-                    parameter: 0 | 171,
+                    parameter: 0 | 171 | 179,
                     ..
                 }
         )
@@ -155,6 +155,7 @@ enum Direction {
     Reverse,
     Alt1,
     Alt2,
+    Random,
 }
 #[derive(Clone, Copy, Default, Deserialize, PartialEq)]
 enum RunMode {
@@ -172,6 +173,8 @@ enum KeySync {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Lane {
+    #[serde(default)]
+    playback: Option<String>,
     id: String,
     enabled: bool,
     target: Option<Target>,
@@ -415,6 +418,7 @@ impl Modulation {
                 if !valid_id(&lane.id)
                     || !ids.insert(lane.id.clone())
                     || !(-100..=100).contains(&lane.amount)
+                    || lane.direction==Direction::Random&&lane.playback.as_deref()!=Some("Poly")
                     || !(1..=128).contains(&lane.length)
                     || !DIVISIONS.contains(&lane.resolution.as_str())
                     || lane.values.len() != 128
@@ -578,6 +582,7 @@ impl Modulation {
         self.gain
     }
     pub(super) fn before_render(&mut self, frames: usize) {
+        if self.config.tracks.iter().flatten().any(|lane|lane.playback.as_deref()==Some("Poly")) {rustias_poly_motion_tempo(self.tempo);}
         if !self.running {
             return;
         }
@@ -589,7 +594,7 @@ impl Modulation {
         for lanes in &mut self.config.tracks {
             for lane in lanes {
                 lane.position = None;
-                if !lane.enabled || lane.target.is_none() {
+                if !lane.enabled || lane.target.is_none() || lane.playback.as_deref()==Some("Poly") {
                     continue;
                 }
                 let value = lane.value(frames, self.tempo);
@@ -721,7 +726,7 @@ impl Modulation {
                             *value = 0.;
                         }
                     }
-                    if *parameter >= 171 {
+                    if (171..179).contains(parameter) {
                         rustias_osc3_control(timbre, parameter - 171, *value as i32) != 0
                     } else {
                         rustias_control(timbre, *parameter, *value as i32) != 0
@@ -903,6 +908,7 @@ fn mode_wave(parameter: u32) -> Option<u32> {
     match parameter {
         10 => Some(0),
         172 => Some(171),
+        180 => Some(179),
         _ => None,
     }
 }

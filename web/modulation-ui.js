@@ -1,5 +1,5 @@
 import {makeDial,makePicker} from './panel.js';
-import {emptyModulation,validateModulation,newModulationLane,modulationKey,modulationRange,modulationBarChoices,MOD_LANES,MOD_STEPS,MOD_RESOLUTIONS,MOD_DIRECTIONS,MOD_RUN_MODES,MOD_KEY_SYNC} from './modulation.js';
+import {emptyModulation,validateModulation,newModulationLane,modulationKey,modulationRange,modulationBarChoices,MOD_LANES,MOD_STEPS,MOD_RESOLUTIONS,MOD_DIRECTIONS,MOD_RUN_MODES,MOD_KEY_SYNC,polyTarget} from './modulation.js';
 
 export function createModulationEditor({panels,getTargets,onChange,onError,onCounts}){
   let config=emptyModulation(),status={positions:[]};
@@ -10,7 +10,7 @@ export function createModulationEditor({panels,getTargets,onChange,onError,onCou
     const wrap=document.createElement('label'),text=document.createElement('span');wrap.className='mod-field '+className;text.textContent=label;wrap.append(text,control);return wrap;
   }
   function targetOptions(t,lane,shared=getTargets(t)){
-    const options=[{value:'none',label:'None',target:null},...shared];
+    const options=[{value:'none',label:'None',target:null},...(lane.playback==='Poly'?getTargets(t,'Poly'):shared).filter(o=>lane.playback!=='Poly'||polyTarget(o.target,t))];
     if(lane.target&&!options.some(o=>o.value===modulationKey(lane.target)))options.push({value:modulationKey(lane.target),label:'Unavailable parameter',target:lane.target});
     return options;
   }
@@ -19,6 +19,11 @@ export function createModulationEditor({panels,getTargets,onChange,onError,onCou
   }
   function paint(view){
     const lane=view.lane;view.power.textContent=lane.enabled?'On':'Off';view.power.setAttribute('aria-pressed',lane.enabled);view.root.classList.toggle('muted',!lane.enabled);
+    const poly=lane.playback==='Poly';view.playback.render(lane.playback??'Timbre');view.root.classList.toggle('poly-motion',poly);view.polyTools.hidden=!poly;view.keySync.button.disabled=poly;
+    view.loopStart.options=Array.from({length:lane.length},(_,i)=>({value:i,label:String(i+1)}));view.loopStart.render(lane.loopStart??0);
+    view.loopEnd.options=view.loopStart.options.filter(o=>o.value>=(lane.loopStart??0));view.loopEnd.render(lane.loopEnd??lane.length-1);
+    view.editStep=Math.min(view.editStep,lane.length-1);view.edit.options=view.loopStart.options;view.edit.render(view.editStep);
+    view.duration.render(lane.durations?.[view.editStep]??1);view.chance.render();view.curve.render(lane.curves?.[view.editStep]??'Auto');
     view.steps.render(lane.length);view.bars.options=modulationBarChoices(lane);view.bars.render(lane.length);view.resolution.render(lane.resolution);view.amount.render();
     view.motionButtons.forEach(b=>b.setAttribute('aria-pressed',b.textContent===lane.motion));view.direction.render(lane.direction);view.runMode.render(lane.runMode);view.keySync.render(lane.keySync??'Off');
     view.bank=Math.min(view.bank,Math.floor((lane.length-1)/16));view.block.options=Array.from({length:Math.ceil(lane.length/16)},(_,i)=>({value:i,label:(i*16+1)+'–'+Math.min(lane.length,(i+1)*16)}));view.block.render(view.bank);view.blockWrap.hidden=lane.length<=16;
@@ -26,7 +31,7 @@ export function createModulationEditor({panels,getTargets,onChange,onError,onCou
     view.grid.style.setProperty('--mod-columns',Math.min(4,lane.length-view.bank*16));
     for(const [i,step]of view.knobs.entries()){
       const index=view.bank*16+i,active=index<lane.length;step.label.textContent=String(index+1).padStart(2,'0');step.dial.button.setAttribute('aria-label',view.aria+' step '+(index+1)+' dial');step.dial.number.setAttribute('aria-label',view.aria+' step '+(index+1));
-      step.dial.render();step.dial.button.disabled=step.dial.number.disabled=!active;step.root.classList.toggle('outside-loop',!active);step.root.classList.toggle('current',position===index);
+      step.dial.render();step.dial.button.disabled=step.dial.number.disabled=!active;step.root.classList.toggle('outside-loop',!active||poly&&(index<(lane.loopStart??0)||index>(lane.loopEnd??lane.length-1)));step.root.classList.toggle('current',position===index);step.root.classList.toggle('motion-selected',poly&&view.editStep===index);
       step.dial.number.min=-range;step.dial.number.max=range;
     }
   }
@@ -39,25 +44,37 @@ export function createModulationEditor({panels,getTargets,onChange,onError,onCou
       const root=document.createElement('section'),tools=document.createElement('div'),grid=document.createElement('div'),name=document.createElement('h4'),power=document.createElement('button'),remove=document.createElement('button');
       const aria='Timbre '+(t+1)+' Mod '+(index+1);root.className='modulation-sequence';root.setAttribute('aria-label',aria);tools.className='mod-tools';grid.className='mod-step-grid';name.textContent='MOD '+(index+1);power.type=remove.type='button';power.className='mod-power';power.setAttribute('aria-label',aria+' enabled');remove.className='mod-remove';remove.textContent='×';remove.setAttribute('aria-label','Remove '+aria);
       power.addEventListener('click',()=>{lane.enabled=!lane.enabled;notify(t);paint(view);});remove.addEventListener('click',()=>{config.tracks[t].splice(index,1);notify(t);render(t);});tools.append(name,power);
+      const playback=makePicker({label:aria+' playback mode',options:[{value:'Timbre',label:'Timbre'},{value:'Poly',label:'Poly motion'}],value:lane.playback??'Timbre',onChange:value=>attempt(()=>{lane.playback=value;if(value==='Poly'&&!polyTarget(lane.target,t))lane.target=null;if(value==='Timbre'&&lane.direction==='Random')lane.direction='Forward';const range=modulationRange(lane.target);lane.values=lane.values.map(v=>Math.max(-range,Math.min(range,v)));notify(t);render(t);})});tools.append(field('Playback',playback.button));
       const target=makePicker({label:aria+' parameter',options:targetOptions(t,lane,shared),value:lane.target?modulationKey(lane.target):'none',searchable:true,searchLabel:'Search '+aria+' parameters',onChange:value=>attempt(()=>{lane.target=target.options.find(o=>o.value===value).target;const range=modulationRange(lane.target);lane.values=lane.values.map(v=>Math.max(-range,Math.min(range,v)));notify(t);render(t);})});
       tools.append(field('Parameter',target.button,'mod-target'));
       const amount=makeDial({label:aria+' intensity',min:-100,max:100,defaultValue:100,read:()=>lane.amount,onChange:value=>{lane.amount=value;amount.render();notify(t);},format:v=>(v>0?'+':'')+v+'%'}),amountWrap=document.createElement('div');amountWrap.className='mod-amount';const amountLabel=document.createElement('span');amountLabel.textContent='Intensity';amountWrap.append(amountLabel,amount.button,amount.number);tools.append(amountWrap);
-      const changeLength=value=>{lane.length=value;notify(t);paint(view);};
+      const changeLength=value=>{lane.length=value;if(lane.loopEnd!=null)lane.loopEnd=Math.min(lane.loopEnd,value-1);if(lane.loopStart!=null)lane.loopStart=Math.min(lane.loopStart,lane.loopEnd??value-1);notify(t);paint(view);};
       const steps=makePicker({label:aria+' steps',options:Array.from({length:MOD_STEPS},(_,i)=>({value:i+1,label:String(i+1)})),value:lane.length,onChange:changeLength});tools.append(field('Steps',steps.button));
       const bars=makePicker({label:aria+' bars',options:modulationBarChoices(lane),value:lane.length,onChange:changeLength});tools.append(field('Bars',bars.button));
       const resolution=makePicker({label:aria+' resolution',options:MOD_RESOLUTIONS.map(value=>({value,label:value})),value:lane.resolution,onChange:value=>{lane.resolution=value;notify(t);paint(view);}});tools.append(field('Resolution',resolution.button));
       const motion=document.createElement('div');motion.className='mod-motion segmented';motion.setAttribute('role','group');motion.setAttribute('aria-label',aria+' motion');const motionButtons=['Step','Slide'].map(value=>{const b=document.createElement('button');b.type='button';b.textContent=value;b.setAttribute('aria-label',aria+' '+value);b.addEventListener('click',()=>{lane.motion=value;notify(t);paint(view);});motion.append(b);return b;});tools.append(field('Motion',motion));
-      const direction=makePicker({label:aria+' direction',options:MOD_DIRECTIONS.map(value=>({value,label:value})),value:lane.direction,onChange:value=>{lane.direction=value;notify(t);paint(view);}});tools.append(field('SeqType',direction.button));
+      const direction=makePicker({label:aria+' direction',options:MOD_DIRECTIONS.filter(value=>lane.playback==='Poly'||value!=='Random').map(value=>({value,label:value})),value:lane.direction,onChange:value=>{lane.direction=value;notify(t);paint(view);}});tools.append(field('SeqType',direction.button));
       const runMode=makePicker({label:aria+' run mode',options:MOD_RUN_MODES.map(value=>({value,label:value})),value:lane.runMode,onChange:value=>{lane.runMode=value;notify(t);paint(view);}});tools.append(field('RunMode',runMode.button));
       const keySync=makePicker({label:aria+' key sync',options:MOD_KEY_SYNC.map(value=>({value,label:value})),value:lane.keySync??'Off',onChange:value=>{lane.keySync=value;notify(t);paint(view);}});tools.append(field('KeySync',keySync.button));keySync.button.title='Voice resets the shared timbre clock on every note.';
-      const view={root,power,grid,lane,t,index,aria,bank:0,target,amount,steps,bars,resolution,motionButtons,direction,runMode,keySync,knobs:[]};
+      let view;
+      const polyTools=document.createElement('div');polyTools.className='motion-step-tools';
+      const loopStart=makePicker({label:aria+' loop start',options:[],value:lane.loopStart??0,onChange:value=>{lane.loopStart=value;lane.loopEnd=Math.max(value,lane.loopEnd??lane.length-1);notify(t);paint(view);}});
+      const loopEnd=makePicker({label:aria+' loop end',options:[],value:lane.loopEnd??lane.length-1,onChange:value=>{lane.loopEnd=value;notify(t);paint(view);}});
+      const edit=makePicker({label:aria+' edit step',options:[],value:0,onChange:value=>{view.editStep=value;view.bank=Math.floor(value/16);paint(view);}});
+      const duration=makePicker({label:aria+' step duration',options:[.125,.25,.5,1,1.5,2,3,4,6,8,12,16].map(value=>({value,label:'×'+value})),value:1,onChange:value=>{lane.durations??=Array(MOD_STEPS).fill(1);lane.durations[view.editStep]=value;notify(t);paint(view);}});
+      const chance=makeDial({label:aria+' step probability',min:0,max:100,defaultValue:100,read:()=>lane.probabilities?.[view?.editStep??0]??100,onChange:value=>{lane.probabilities??=Array(MOD_STEPS).fill(100);lane.probabilities[view.editStep]=value;chance.render();notify(t);},format:v=>v+'%'});
+      const chanceWrap=document.createElement('div');chanceWrap.className='mod-amount';chanceWrap.append(Object.assign(document.createElement('span'),{textContent:'Probability'}),chance.button,chance.number);
+      const curve=makePicker({label:aria+' step transition',options:['Auto','Linear','Exp','Log','Hold'].map(value=>({value,label:value})),value:'Auto',onChange:value=>{lane.curves??=Array(MOD_STEPS).fill('Auto');lane.curves[view.editStep]=value;notify(t);paint(view);}});
+      polyTools.append(field('Loop start',loopStart.button),field('Loop end',loopEnd.button),field('Edit step',edit.button),field('Duration',duration.button),chanceWrap,field('Transition',curve.button));
+      view={root,power,grid,lane,t,index,aria,bank:0,target,amount,steps,bars,resolution,motionButtons,direction,runMode,keySync,knobs:[],playback,polyTools,loopStart,loopEnd,edit,editStep:0,duration,chance,curve};
       const block=makePicker({label:aria+' block',options:[],value:0,onChange:value=>{view.bank=value;paint(view);}}),blockWrap=field('Steps',block.button,'mod-block');tools.append(blockWrap,remove);Object.assign(view,{block,blockWrap});
       for(let i=0;i<16;i++){
         const step=document.createElement('div'),label=document.createElement('label'),range=modulationRange(lane.target);step.className='mod-step';
         const dial=makeDial({label:aria+' step '+(i+1),min:-range,max:range,defaultValue:0,read:()=>lane.values[view.bank*16+i],onChange:value=>{lane.values[view.bank*16+i]=value;dial.render();notify(t);},format:v=>(v>0?'+':'')+v+(['macro','sequence-gate'].includes(lane.target?.kind)?'%':range===24?' st':'')});
         step.append(label,dial.button,dial.number);grid.append(step);view.knobs.push({root:step,label,dial});
+        step.addEventListener('pointerdown',()=>{if(lane.playback==='Poly'){view.editStep=view.bank*16+i;paint(view);}});
       }
-      root.append(tools,grid);panel.append(root);views[t].records.push(view);paint(view);
+      root.append(tools,grid,polyTools);panel.append(root);views[t].records.push(view);paint(view);
     });
   }
   panels.forEach((panel,t)=>panel.addEventListener('modulation-open',()=>render(t)));

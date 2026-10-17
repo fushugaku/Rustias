@@ -8,6 +8,8 @@ use std::cell::RefCell;
 mod effects;
 mod rdl_import;
 mod sampler;
+#[cfg(any(target_arch = "wasm32", rustias_plugin))]
+mod poly_motion;
 use sampler::Sampler;
 
 const PRESET_CAPACITY: usize = 65536;
@@ -161,6 +163,33 @@ pub extern "C" fn rustias_timbre_capacity() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_parameter_count() -> u32 {
     PARAMETER_COUNT as u32
+}
+#[cfg(any(target_arch = "wasm32", rustias_plugin))]
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_poly_motion(length:u32) -> u32 {
+    with_engine(|state| {
+        let mut state=state.borrow_mut(); let Some(e)=state.as_mut() else {return 0;};
+        let Some(bytes)=e.preset.get(..length as usize) else {return 0;};
+        let Some(programs)=poly_motion::compile(bytes) else {return 0;};
+        for (t, program) in programs.into_iter().enumerate() { e.synth.engine.motion_program(t,program.clone());e.sampler.motion_program(t,program); }
+        1
+    })
+}
+#[cfg(any(target_arch = "wasm32", rustias_plugin))]
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_poly_motion_position(timbre:u32,lane:u32)->i32 {
+    if timbre as usize>=TIMBRE_COUNT || lane>=6 {return -1;}
+    with_engine(|state|state.borrow().as_ref().map_or(-1,|e|{
+        let pos=e.synth.engine.motion_position(timbre as usize,lane as usize);
+        if pos>=0 {pos as i32} else {e.sampler.motion_position(timbre as usize,lane as usize) as i32}
+    }))
+}
+#[cfg(any(target_arch = "wasm32", rustias_plugin))]
+#[unsafe(no_mangle)]
+pub extern "C" fn rustias_poly_motion_tempo(tempo:f64) {
+    if !tempo.is_finite() {return;}
+    let tempo=tempo.clamp(10.0,300.0);
+    with_engine(|state| {if let Some(e)=state.borrow_mut().as_mut() {e.synth.engine.motion_tempo(tempo);e.sampler.motion_tempo(tempo);}});
 }
 /// Browser OSC 3 has its own control address space; OSC 2's 13–16 never enter it.
 #[unsafe(no_mangle)]
@@ -321,7 +350,7 @@ pub extern "C" fn rustias_circuit(timbre: u32, length: u32) -> u32 {
             timbre as usize,
             processor
                 .as_ref()
-                .filter(|p| !radias_synth_domain::voice::SignalProcessor::fixed_graph(*p))
+                .filter(|_| circuit.enabled)
                 .map(|p| p.fresh()),
         );
         e.synth.engine.set_circuit(

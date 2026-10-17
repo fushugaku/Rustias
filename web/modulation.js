@@ -4,7 +4,9 @@ import {macroTarget,targetKey,macroOffset} from './macros.js';
 
 export const MOD_LANES=6,MOD_STEPS=128;
 export const MOD_RESOLUTIONS=['1/48',...RESOLUTIONS];
-export const MOD_DIRECTIONS=['Forward','Reverse','Alt1','Alt2'];
+export const MOD_DIRECTIONS=['Forward','Reverse','Alt1','Alt2','Random'];
+export const POLY_PARAMETERS=new Set([1,2,3,4,5,6,7,8,11,12,15,16,17,18,19,22,23,25,26,27,28,...Array.from({length:21},(_,i)=>31+i),53,54,59,75,83,165,...Array.from({length:24},(_,i)=>171+i)]);
+export const polyTarget=(target,t)=>target?.kind==='synth'&&target.timbre===t&&POLY_PARAMETERS.has(target.parameter);
 export const MOD_RUN_MODES=['Loop','OneShot'];
 export const MOD_KEY_SYNC=['Off','Timbre','Voice'];
 const integer=(value,min,max)=>Number.isInteger(value)&&value>=min&&value<=max;
@@ -22,22 +24,28 @@ export function modulationTarget(raw){
   return macroTarget(raw);
 }
 export const modulationKey=target=>target?.kind==='macro'?'macro:'+target.macro:target?.kind==='sequence-gate'?'sequence-gate:'+target.timbre:targetKey(target);
-export const modulationRange=target=>['macro','sequence-gate'].includes(target?.kind)?100:['synth','drum','sample'].includes(target?.kind)&&[53,15].includes(target.parameter)?24:63;
+export const modulationRange=target=>['macro','sequence-gate'].includes(target?.kind)?100:['synth','drum','sample'].includes(target?.kind)&&[53,15,175,183].includes(target.parameter)?24:63;
 export function newModulationLane(id){
-  return {id,enabled:true,target:null,amount:100,length:16,resolution:'1/16',motion:'Step',direction:'Forward',runMode:'Loop',values:Array(MOD_STEPS).fill(0)};
+  return {id,enabled:true,target:null,amount:100,length:16,resolution:'1/16',motion:'Step',direction:'Forward',runMode:'Loop',playback:'Timbre',values:Array(MOD_STEPS).fill(0)};
 }
 export function validateModulation(raw){
   if(raw==null)return emptyModulation();
   if(raw.version!==1||!Array.isArray(raw.tracks)||raw.tracks.length<INITIAL_TIMBRES||raw.tracks.length>MAX_TIMBRES)throw new Error('Invalid modulation sequencers.');
-  const tracks=raw.tracks.map(lanes=>{
+  const tracks=raw.tracks.map((lanes,t)=>{
     if(!Array.isArray(lanes)||lanes.length>MOD_LANES)throw new Error('A timbre can have up to six modulation sequences.');
     const ids=new Set();
     return lanes.map(lane=>{
       const target=modulationTarget(lane.target),range=modulationRange(target);
       if(typeof lane.id!=='string'||!/^[a-zA-Z0-9-]{1,64}$/.test(lane.id)||ids.has(lane.id)||typeof lane.enabled!=='boolean'||!integer(lane.amount,-100,100)||!integer(lane.length,1,MOD_STEPS)||!MOD_RESOLUTIONS.includes(lane.resolution)||!['Step','Slide'].includes(lane.motion)||!MOD_DIRECTIONS.includes(lane.direction)||!MOD_RUN_MODES.includes(lane.runMode)||!Array.isArray(lane.values)||lane.values.length!==MOD_STEPS||lane.values.some(v=>!integer(v,-range,range)))throw new Error('Invalid modulation sequence.');
       if(lane.keySync!=null&&!MOD_KEY_SYNC.includes(lane.keySync))throw new Error('Invalid modulation key sync.');
+      const playback=lane.playback??'Timbre';
+      if(!['Timbre','Poly'].includes(playback)||playback==='Poly'&&target&&!polyTarget(target,t)||playback==='Timbre'&&lane.direction==='Random')throw new Error('Invalid motion playback mode or target.');
+      if(lane.loopStart!=null&&!integer(lane.loopStart,0,lane.length-1)||lane.loopEnd!=null&&!integer(lane.loopEnd,lane.loopStart??0,lane.length-1))throw new Error('Invalid motion loop.');
+      if(lane.durations!=null&&(!Array.isArray(lane.durations)||lane.durations.length!==MOD_STEPS||lane.durations.some(v=>!Number.isFinite(v)||v<.125||v>16)))throw new Error('Invalid motion step duration.');
+      if(lane.probabilities!=null&&(!Array.isArray(lane.probabilities)||lane.probabilities.length!==MOD_STEPS||lane.probabilities.some(v=>!integer(v,0,100))))throw new Error('Invalid motion step probability.');
+      if(lane.curves!=null&&(!Array.isArray(lane.curves)||lane.curves.length!==MOD_STEPS||lane.curves.some(v=>!['Auto','Linear','Exp','Log','Hold'].includes(v))))throw new Error('Invalid motion step curve.');
       ids.add(lane.id);
-      return {...lane,target,values:[...lane.values]};
+      return {...lane,playback,target,values:[...lane.values]};
     });
   });
   while(tracks.length<MAX_TIMBRES)tracks.push([]);
@@ -83,7 +91,7 @@ export class ModulationClock {
   beforeRender(frames=128){
     const offsets=new Map();
     this.positions=this.config.tracks.map((lanes,t)=>lanes.map(lane=>{
-      if(!this.running||!lane.enabled||!lane.target)return -1;
+      if(!this.running||!lane.enabled||!lane.target||lane.playback==='Poly')return -1;
       const key=t+':'+lane.id,phase=this.phases.get(key)??0,tick=Math.floor(phase+1e-10),index=modulationStep(lane,tick),next=modulationStep(lane,tick+1),fraction=Math.max(0,phase-tick);
       const value=lane.motion==='Slide'?lane.values[index]+(lane.values[next]-lane.values[index])*fraction:lane.values[index];
       // RADIAS uses offsets and gives a later sequence priority on a shared target.

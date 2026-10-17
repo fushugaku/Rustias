@@ -43,6 +43,14 @@ const SLEW: SlewWeights = SlewWeights {
 };
 
 struct SampleVoice {
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    motion: radias_synth_infrastructure::circuit::motion::VoiceMotion,
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    motion_start: u64,
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    motion_envelopes: bool,
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    model_values: [f64;6],
     circuit: Option<Box<dyn radias_synth_application::VoiceCircuit>>,
     instrument: usize,
     library: Option<u32>,
@@ -64,6 +72,8 @@ struct SampleVoice {
     envelopes: VoiceEnvelopes,
     modulation: VoiceModulation,
     filter: DualFilterGraph,
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    modeled: [radias_synth_infrastructure::circuit::filters::Model;2],
     first: radias_synth_domain::filter::FilterCoefficients,
     second: radias_synth_domain::filter_routing::Filter2Coefficients,
     shaper: Waveshaper,
@@ -82,6 +92,10 @@ struct LibrarySample {
 }
 
 pub struct Sampler {
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    motion: [std::sync::Arc<radias_synth_application::motion::Program>;TIMBRE_COUNT],
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    motion_tempo: Option<f64>,
     circuits: [Option<Box<dyn radias_synth_application::VoiceCircuit>>; TIMBRE_COUNT],
     samples: [Option<Rc<Vec<f32>>>; 16],
     modes: [u8; 16],
@@ -110,6 +124,26 @@ pub struct Sampler {
     birth: u64,
 }
 impl Sampler {
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    pub fn motion_tempo(&mut self,tempo:f64) {
+        self.motion_tempo=Some(tempo);
+        for circuit in self.circuits.iter_mut().flatten() {circuit.motion_tempo(tempo);}
+        for voice in self.voices.iter_mut().flatten() {if let Some(circuit)=&mut voice.circuit {circuit.motion_tempo(tempo);}}
+    }
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    pub fn motion_program(&mut self,timbre:usize,program:std::sync::Arc<radias_synth_application::motion::Program>) {
+        self.motion[timbre]=program.clone();
+        for voice in self.voices.iter_mut().flatten().filter(|v|v.timbre as usize==timbre) {
+            voice.motion.configure(program.clone());
+            if let Some(circuit)=&mut voice.circuit {circuit.motion_program(program.clone());}
+        }
+    }
+    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    pub fn motion_position(&self,timbre:usize,lane:usize)->i16 {
+        self.voices.iter().flatten().filter(|v|v.timbre as usize==timbre&&!v.released)
+            .filter_map(|v|{let pos=v.circuit.as_ref().map_or(v.motion.positions[lane],|c|c.motion_status().1[lane]);(pos>=0).then_some((v.born,pos))})
+            .min_by_key(|(born,_)|*born).map_or(-1,|(_,pos)|pos)
+    }
     pub fn set_circuit(
         &mut self,
         timbre: usize,
@@ -149,6 +183,10 @@ impl Sampler {
     }
     pub fn new(synth: &StandaloneSynth) -> Self {
         Self {
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+            motion: core::array::from_fn(|_|std::sync::Arc::default()),
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+            motion_tempo: None,
             circuits: core::array::from_fn(|_| None),
             samples: Default::default(),
             modes: [0; 16],
@@ -621,8 +659,19 @@ impl Sampler {
                 .1;
         }
         self.birth = self.birth.wrapping_add(1);
+        let mut circuit=self.circuits[timbre as usize].as_ref().map(|p|p.fresh());
+        #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+        if let Some(c)=&mut circuit {c.extension_parameters(&settings);c.motion_program(self.motion[timbre as usize].clone());}
         self.voices[slot] = Some(SampleVoice {
-            circuit: self.circuits[timbre as usize].as_ref().map(|p| p.fresh()),
+            circuit,
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+            motion: {let mut motion=radias_synth_infrastructure::circuit::motion::VoiceMotion::default();motion.configure(self.motion[timbre as usize].clone());motion.seed=(self.birth as u32).max(1);motion},
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+            motion_start: self.frames,
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+            motion_envelopes: false,
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+            model_values: [0.0;6],
             instrument,
             library,
             timbre,
@@ -658,6 +707,8 @@ impl Sampler {
             ),
             modulation,
             filter: Default::default(),
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+            modeled: Default::default(),
             first: p.graph.filter,
             second: p.graph.filter2,
             shaper: Default::default(),
@@ -706,6 +757,22 @@ impl Sampler {
         let targets = v
             .modulation
             .service_published(&self.modulation_tables.matrix, inputs, lfo);
+        #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+        let targets={
+            let targets=v.motion.tick(self.frames-v.motion_start,self.motion_tempo.unwrap_or(synth.settings[0][89] as f64/10.0),targets);
+            if let Some(circuit)=&mut v.circuit {circuit.extension_parameters(&v.settings);circuit.set_motion_offsets(&v.motion.offsets,v.motion.positions);}
+            v.modulation.patches.targets=targets;
+            if let Some(filter)=&mut v.envelopes.filter {filter.resonance=((v.settings[2]+targets.controls[6] as i32).clamp(0,127) as f64/127.0*0.95*2147483647.0) as i32;}
+            v.motion_envelopes |= v.motion.program.lanes.iter().any(|l|matches!(l.parameter,3..=6|32..=51));
+            if v.motion_envelopes {
+                let get=|id:usize|(v.settings[id] as f64+v.motion.offsets[id]).round().clamp(0.0,127.0) as u8;
+                let programs:[radias_synth_application::voice_envelopes::ModEnvelopeProgram;3]=core::array::from_fn(|i|{let (a,b)=match i {0=>(32,40),1=>(3,44),_=>(36,48)};radias_synth_application::voice_envelopes::ModEnvelopeProgram {adsr:core::array::from_fn(|i|get(a+i)),curve:get(b).min(7),velocity_level_sensitivity:get(b+1),velocity_time_sensitivity:get(b+2),key_tracking:get(b+3)}});
+                if initial {v.amplitude.initialize_motion_envelope(programs[1],&self.controllers);} else {v.amplitude.edit_motion_envelope(programs[1],&self.controllers);}
+                let aux=[programs[0],programs[2]];if initial {v.envelopes.initialize_motion_envelopes(aux,&self.controllers);} else if v.envelopes.programs!=aux {v.envelopes.edit(aux,&self.controllers);}
+            }
+            for i in 0..6 {v.model_values[i]=v.settings[189+i] as f64+v.motion.offsets[189+i]+targets.controls[61+i] as f64;}
+            targets
+        };
         let note_tables = &self.note_tables;
         let c = p.controls.pitch;
         let scale = ScaleContext {
@@ -952,7 +1019,29 @@ impl Sampler {
                     input
                 }
             };
-            let filtered = if let Some(route) = v.program.graph.filter_routing {
+            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+            let modeled = v.model_values[0]>=0.5 || v.model_values[1]>=0.5;
+            #[cfg(not(any(target_arch = "wasm32", rustias_plugin)))]
+            let modeled = false;
+            let filtered = if modeled {
+                #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+                {
+                    use radias_synth_domain::filter_routing::{FilterRouting,Filter2Output};
+                    let first_input=transform(input);
+                    let first=if v.model_values[0]<0.5 {v.filter.first.next_sample(first_input,v.first)} else {
+                        Sample((v.modeled[0].sample_coefficient(first_input.0 as f64/2147483648.0,v.model_values[0].round().clamp(0.0,17.0) as u8,v.first.integrator_gain,(v.settings[2]+v.modulation.patches.targets.controls[6] as i32).clamp(0,127) as f64/127.0,v.model_values[2]/127.0,v.model_values[4]/127.0).clamp(-1.0,1.0)*2147483647.0) as i32)
+                    };
+                    if let Some(route)=v.program.graph.filter_routing {
+                        let second_input=if route==FilterRouting::Serial {first} else if route==FilterRouting::Individual {Sample(0)} else {input};
+                        let second=if v.model_values[1]>=0.5 {
+                            Sample((v.modeled[1].sample_coefficient(second_input.0 as f64/2147483648.0,v.model_values[1].round().clamp(0.0,17.0) as u8,v.second.integrator_gain,(v.settings[23]+v.modulation.patches.targets.controls[17] as i32).clamp(0,127) as f64/127.0,v.model_values[3]/127.0,v.model_values[5]/127.0).clamp(-1.0,1.0)*2147483647.0) as i32)
+                        } else if v.second.output==Filter2Output::Comb {v.comb.sample(second_input,v.second.feedback,v.second.integrator_gain as u32)} else {v.filter.second.sample(second_input,v.second)};
+                        match route {FilterRouting::Serial=>second,FilterRouting::Parallel=>Sample(saturate((first.0 as i64+second.0 as i64)>>1)),FilterRouting::Individual=>Sample(saturate(first.0 as i64+second.0 as i64))}
+                    } else {first}
+                }
+                #[cfg(not(any(target_arch = "wasm32", rustias_plugin)))]
+                {input}
+            } else if let Some(route) = v.program.graph.filter_routing {
                 v.filter.sample_with_prefilter_and_comb(
                     route,
                     OscillatorMix {

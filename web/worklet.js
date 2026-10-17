@@ -40,7 +40,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
         }
         else if (data.type === "control") {
           // Legacy generic messages still address OSC 3 through the dedicated API.
-          const accepted=data.parameter>=OSC3_BASE?this.wasm.rustias_osc3_control(data.timbre,data.parameter-OSC3_BASE,data.value):this.wasm.rustias_control(data.timbre,data.parameter,data.value);
+          const accepted=data.parameter>=OSC3_BASE&&data.parameter<OSC3_BASE+8?this.wasm.rustias_osc3_control(data.timbre,data.parameter-OSC3_BASE,data.value):this.wasm.rustias_control(data.timbre,data.parameter,data.value);
           if (!accepted) this.snapshot();
           if(data.parameter===89)this.sequencer.setTempo(this.wasm.rustias_value(0,89)/10);
         }
@@ -97,7 +97,10 @@ class RustiasProcessor extends AudioWorkletProcessor {
         }
         else if(data.type==="audition")this.audition.play(data.timbre,data.step,this.wasm.rustias_value(0,89)/10,data.resolution);
         else if(data.type==="sequencer")this.sequencer.setConfig(data.config);
-        else if(data.type==='modulation'){this.modulation.setState(data.state);this.modulationHost?.setState(data.state);}
+        else if(data.type==='modulation'){
+          if(!this.wasm.rustias_poly_motion(writeWasmJson(this.wasm,data.state.config)))throw new Error('The engine rejected polyphonic motion settings.');
+          this.modulation.setState(data.state);this.modulationHost?.setState(data.state);
+        }
         else if(data.type==="sequence-play"){this.sequencer.play();this.modulation.clock.play();}
         else if(data.type==="sequence-stop"){this.sequencer.stop();this.modulation.stop();}
         else if(data.type==="sequence-reset"){this.sequencer.reset();this.modulation.clock.reset();}
@@ -198,11 +201,19 @@ class RustiasProcessor extends AudioWorkletProcessor {
         if (left[i] !== 0 || right[i] !== 0) this.audibleFrames++;
       }
       if (++this.callbacks % 20 === 0) {
-        this.port.postMessage({ type: "stats", voices: this.wasm.rustias_voices(), capacity:this.wasm.rustias_voice_capacity(), frames: this.wasm.rustias_frames(), audibleFrames: this.audibleFrames, peak: this.peak, callbacks: this.callbacks, sequence: this.sequencer.status(),modulation:this.modulation.status() });
+        this.port.postMessage({ type: "stats", voices: this.wasm.rustias_voices(), capacity:this.wasm.rustias_voice_capacity(), frames: this.wasm.rustias_frames(), audibleFrames: this.audibleFrames, peak: this.peak, callbacks: this.callbacks, sequence: this.sequencer.status(),modulation:this.modulationStatus() });
         this.peak = 0;
       }
     } catch (error) { this.fail(error); }
     return true;
+  }
+  modulationStatus(){
+    const status=this.modulation.status();
+    for(let t=0;t<MAX_TIMBRES;t++)for(let lane=0;lane<6;lane++){
+      const position=this.wasm.rustias_poly_motion_position(t,lane);
+      if(position>=0){(status.positions[t]??=[])[lane]=position;status.running=true;}
+    }
+    return status;
   }
 }
 registerProcessor("rustias", RustiasProcessor);

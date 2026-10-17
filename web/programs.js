@@ -15,7 +15,7 @@ const slot=t=>{if(!Number.isInteger(t)||t<0||t>=MAX_TIMBRES)throw new Error('Inv
 export function normalizeValues(input,parameters){
   if(!Array.isArray(input))throw new Error('The program contains invalid parameters.');
   const v=extendValues(input,parameters);
-  if(!Array.isArray(v)||v.length!==parameters.length||parameters.some(p=>!Number.isInteger(v[p.id])||v[p.id]<p.min||v[p.id]>p.max||p.values&&!p.values.includes(v[p.id]))||v[0]>=4&&v[10]!==0||v[OSC3_BASE]>=4&&v[OSC3_BASE+1]!==0||v[119]>v[120])throw new Error('The program contains invalid parameters.');
+  if(!Array.isArray(v)||v.length!==parameters.length||parameters.some(p=>!Number.isInteger(v[p.id])||v[p.id]<p.min||v[p.id]>p.max||p.values&&!p.values.includes(v[p.id]))||v[0]>=4&&v[10]!==0||v[OSC3_BASE]>=4&&v[OSC3_BASE+1]!==0||v[179]>=4&&v[180]!==0||v[119]>v[120])throw new Error('The program contains invalid parameters.');
   return v;
 }
 export function normalizeEngine(value,parameters){

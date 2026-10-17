@@ -494,3 +494,27 @@ html:not(.new-interface) .toolbar-actions { grid-column: 3/5; grid-row: 2; justi
   .new-interface .nw-transport > button, .new-interface #record-toggle { width: 56px; }
 }
 @media (prefers-reduced-motion:reduce) { button, a, input { transition: none; } }
+
+/* Expanded synthesis keeps the oscillator bank compact and the motion inspector aligned. */
+#rack .rack-row-0 :is(.module-osc1,.module-osc2,.module-osc3,.module-osc4) { grid-column: span 6; }
+#rack .module-osc4 .module-controls { grid-template-columns: repeat(4,minmax(0,1fr)); }
+#rack .module-osc4 .parameter:has(> .lcd-choice) { grid-column: span 1; }
+#rack .module-osc4 .parameter:last-child { grid-column: span 2; }
+.new-interface #rack :is(.module-osc1,.module-osc2,.module-osc3,.module-osc4) { grid-column: span 6; }
+.motion-step-tools { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); align-items:start; gap:8px; padding:12px 0 0; border-top:1px solid var(--line-subtle); margin-top:12px; }
+.motion-step-tools .mod-field { min-width:0; }
+.motion-step-tools :is(.lcd-choice,.mod-amount) { width:100%; }
+.motion-step-tools .mod-amount { display:grid; justify-items:center; gap:4px; }
+.motion-step-tools .mod-amount > span { color:var(--text-secondary); font-size:11px; }
+.motion-selected { box-shadow:inset 0 0 0 1px var(--modulation); border-radius:6px; }
+@media(min-width:1600px) {
+  #rack .rack-row-0 :is(.module-osc1,.module-osc2,.module-osc3,.module-osc4),
+  .new-interface #rack :is(.module-osc1,.module-osc2,.module-osc3,.module-osc4) { grid-column:span 3; }
+}
+@media(max-width:800px) {
+  #rack .rack-row-0 :is(.module-osc1,.module-osc2,.module-osc3,.module-osc4),
+  .new-interface #rack :is(.module-osc1,.module-osc2,.module-osc3,.module-osc4) { grid-column:1/-1; }
+  #rack .module-osc4 .module-controls { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .motion-step-tools { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .motion-step-tools .lcd-choice { height:44px; min-height:44px; }
+}

@@ -29,10 +29,10 @@ export function modulationFixtures(module){
     const e={api,call,native,json,
       pcm(name,args,values){const p=api[name](...args,values.length);operations.push({call:name,args:[...args,values.length],buffer:true});new Float32Array(api.memory.buffer,p,values.length).set(values);operations.push({floats:[...values]});},
       profile(timbre,id,source){processor.libraryProfiles.set(timbre+':'+source,{id,timbre,source});const length=stage(source);operations.push({native:'rustias_modulation_profile',args:[timbre,id,length],expected:1});},
-      setState(next){state=structuredClone(next);automation.setState(state);host.setState(state);const length=stage(next);operations.push({native:'rustias_modulation_state',args:[length],expected:1});},
+      setState(next){json('rustias_poly_motion',[],next.config);state=structuredClone(next);automation.setState(state);host.setState(state);const length=stage(next);operations.push({native:'rustias_modulation_state',args:[length],expected:1});},
       play(){automation.clock.play();native('rustias_modulation_play');},
       stop(){automation.stop();native('rustias_modulation_stop');},
-      tempo(value){automation.clock.setTempo(value);native('rustias_modulation_tempo',value);},
+      tempo(value){automation.clock.setTempo(value);if(state?.config.tracks.flat().some(l=>l.playback==='Poly'))api.rustias_poly_motion_tempo(value);native('rustias_modulation_tempo',value);},
       macro(index,value){automation.restore();automation.macros.knobs[index].value=value;const knob=automation.macros.knobs[index],changes=[];for(const binding of knob.bindings){const spec=automation.targets.get(targetKey(binding.target)),base=automation.macros.bases.find(b=>targetKey(b.target)===targetKey(binding.target));if(!spec||!base)continue;spec.base=macroValue(automation.macros,base,spec);changes.push({target:binding.target,value:spec.base});}host.write(changes);native('rustias_modulation_parameter',index,value);},
       render(blocks=6){const expected=[];for(let b=0;b<blocks;b++){automation.beforeRender(128);const p=api.rustias_render();expected.push(...new Float32Array(api.memory.buffer,p,256));}operations.push({render:blocks,expected,modulation:automation.status()});},
       snapshot(){automation.restore();native('rustias_modulation_restore');const n=api.rustias_save(),p=api.rustias_preset_buffer();operations.push({snapshot:JSON.parse(new TextDecoder().decode(new Uint8Array(api.memory.buffer,p,n)))});},
@@ -73,6 +73,12 @@ export function modulationFixtures(module){
     const values=Float32Array.from({length:12000},(_,i)=>.3*Math.sin(i*2*Math.PI*440/48000));
     e.pcm('rustias_library_sample_buffer',[90],values);e.call('rustias_library_sample_commit',90,values.length);e.call('rustias_control',7,71,1);e.call('rustias_control',0,141,7);e.call('rustias_control',0,140,1);e.call('rustias_library_profile',90,90,7,2);e.call('rustias_library_control',90,1,100);e.call('rustias_library_sync');e.profile(7,90,'custom:native-mod');
     const target={kind:'sample',timbre:7,source:'custom:native-mod',parameter:1};e.state.targets=[spec(target,100)];e.state.config.tracks[7]=[lane('sample',target,[-63,0],{length:2,resolution:'1/48',motion:'Slide',keySync:'Voice'})];e.setState(e.state);e.call('rustias_library_note',7,90,100);e.render(30);e.call('rustias_library_note',7,90,100);e.render(5);
+  });
+  scenario('polyphonic voices mixed with the current timbre mode',e=>{
+    const pitch=synth(53),cutoff=synth(1),level=synth(7);
+    e.state.targets=[spec(pitch,64,40,88),spec(cutoff,90),spec(level,80)];
+    e.state.config.tracks[0]=[lane('poly-pitch',pitch,[0,7,12],{playback:'Poly',length:3,resolution:'1/48',motion:'Slide'}),lane('poly-filter',cutoff,[-40,20,0],{playback:'Poly',length:3,resolution:'1/8'}),lane('common-amp',level,[-20,0],{length:2,resolution:'1/16',motion:'Slide'})];
+    e.setState(e.state);e.call('rustias_note',0,60,100);e.render(50);e.call('rustias_note',0,67,100);e.render(10);e.tempo(87);e.render(35);e.call('rustias_note',0,60,0);e.render(10);e.stop();e.render(2);
   });
   return cases;
 }

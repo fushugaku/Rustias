@@ -21,6 +21,7 @@ jobs:
         with:
           node-version: 22
       - run: bash scripts/build-web.sh
+      - run: node scripts/verify-motion-synthesis.mjs
       - run: npm ci --prefix plugin
       - run: node plugin/build-assets.mjs
       - run: node scripts/plugin-native-fixtures.mjs

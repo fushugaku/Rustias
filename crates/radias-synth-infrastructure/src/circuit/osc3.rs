@@ -16,8 +16,11 @@ pub(super) fn interaction(
     program: ThirdProgram,
     targets: AppliedModulationTargets,
 ) -> (SecondaryModulation, usize) {
-    let mode = (program.interaction as i32 + targets.controls[48] as i32).clamp(0, 3) as u8;
-    let reference = (program.reference as i32 + targets.controls[49] as i32).clamp(0, 2) as usize;
+    interaction_at(program, targets, 43)
+}
+pub(super) fn interaction_at(program: ThirdProgram, targets: AppliedModulationTargets, base: usize) -> (SecondaryModulation, usize) {
+    let mode = (program.interaction as i32 + targets.controls[base + 5] as i32).clamp(0, 3) as u8;
+    let reference = (program.reference as i32 + targets.controls[base + 6] as i32).clamp(0, if base == 43 {2} else {3}) as usize;
     (
         SecondaryModulation {
             ring: mode & 1 != 0,
@@ -52,24 +55,28 @@ pub(super) fn next(
     table: &WaveformTable,
     frame: u64,
     id: usize,
+    pitch_index: usize,
 ) -> Sample {
-    program.primary.selection = program.selection(targets);
+    let base = if pitch_index == 2 {43} else {52};
+    let wave = ((program.primary.selection & 15) as i32 + targets.controls[base + 1] as i32).clamp(0, 5) as u8;
+    let mode = if wave >= 4 {0} else {((program.primary.selection >> 4) as i32 + targets.controls[base + 2] as i32).clamp(0, 3) as u8};
+    program.primary.selection = wave | (mode << 4);
     program.pitch.semitone =
-        (program.pitch.semitone as i32 + targets.controls[46] as i32).clamp(0, 127) as u8;
+        (program.pitch.semitone as i32 + targets.controls[base + 3] as i32).clamp(0, 127) as u8;
     program.pitch.fine_tune =
-        (program.pitch.fine_tune as i32 + targets.controls[47] as i32).clamp(0, 127) as u8;
-    program.pitch.virtual_patch_q16 = targets.oscillator_pitch_q16[2];
+        (program.pitch.fine_tune as i32 + targets.controls[base + 4] as i32).clamp(0, 127) as u8;
+    program.pitch.virtual_patch_q16 = targets.oscillator_pitch_q16[pitch_index];
     let relative = program.pitch.relative_code(fine) as f64 + cv[3] * 24.0 * 256.0;
-    let base = p.primary.base_increment().0;
+    let pitch_base = p.primary.base_increment().0;
     if cached.as_ref().is_none_or(|c| {
-        c.base != base || c.offset != relative.to_bits() || c.source_code != p.primary_pitch_code
+        c.base != pitch_base || c.offset != relative.to_bits() || c.source_code != p.primary_pitch_code
     }) {
         *cached = Some(Pitch {
-            base,
+            base: pitch_base,
             offset: relative.to_bits(),
             source_code: p.primary_pitch_code,
             increment: PhaseIncrement(
-                (base as f64 * 2.0_f64.powf(relative / (12.0 * 256.0))).clamp(0.0, i32::MAX as f64)
+                (pitch_base as f64 * 2.0_f64.powf(relative / (12.0 * 256.0))).clamp(0.0, i32::MAX as f64)
                     as u32,
             ),
             code: PitchCode::new(
@@ -81,7 +88,7 @@ pub(super) fn next(
         });
     }
     let pitch = cached.as_ref().unwrap();
-    let (interaction, _) = interaction(program, targets);
+    let (interaction, _) = interaction_at(program, targets, base);
     let sample = controller.next_with_sync(
         oscillator,
         program.primary,
@@ -89,10 +96,10 @@ pub(super) fn next(
         pitch.code,
         ((cv[4] * 32768.0).round().clamp(-32768.0, 32767.0) as i16) >> 8,
         [
-            (targets.controls[42] as f64 + cv[1] * 16383.0)
+            (targets.controls[base - 1] as f64 + cv[1] * 16383.0)
                 .round()
                 .clamp(-32767.0, 32767.0) as i16,
-            (targets.controls[43] as f64 + cv[2] * 127.0)
+            (targets.controls[base] as f64 + cv[2] * 127.0)
                 .round()
                 .clamp(-127.0, 127.0) as i16,
         ],

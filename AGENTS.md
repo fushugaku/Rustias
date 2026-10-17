@@ -112,3 +112,19 @@ Destroy GUI resources only when the view is released or replaced; CLAP hide/show
 must work without another set_parent. Keep the pinned wrapper lifecycle patch in
 `plugin/patches/` and validate power cycles, view reattachment and editor recreation
 through the real AU bundle without audio hardware.
+
+Expanded synthesis appends OSC 4 IDs 179–188 and filter model/drive/morph IDs
+189–194 (195 parameters total). Old OSC 3 API accepts only 171–178; never send
+OSC 4/filter controls through rustias_osc3_control. OSC 4 starts muted; filter
+model 0 retains RADIAS arithmetic. Build builtin OSC 4 uses free ID 62 in new
+graphs and mixer input d; do not rewrite existing custom graphs or occupied IDs.
+New filter families are independent Rustias models, not hardware parity claims.
+
+Mod lane playback defaults to Timbre. Poly lanes run in each Rust voice, including
+PCM, with independent cursor, loop, durations, probability, transitions and RNG.
+Only per-voice synth targets are valid in Poly; macros/FX/note Gate stay Timbre.
+Per-voice offsets never write shared program values. Preserve cursors on edits,
+copy/remap targets with timbre sounds, and carry DAW tempo without overwriting the
+saved BPM. Keep the shared browser adapter and native modulation engine from
+also applying Poly offsets globally. Verify real WASM, native/browser fixtures,
+old PCM, and exact original-profile tests; run UI checks with audio stopped.

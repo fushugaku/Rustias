@@ -122,6 +122,10 @@ impl VoiceEnvelopes {
         }
         self.programs = programs;
     }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn initialize_motion_envelopes(&mut self, programs:[ModEnvelopeProgram;2], tables:&ControllerTables) {
+        *self=Self::new(programs,self.filter,self.note,self.velocity,tables);
+    }
     pub fn levels(&self) -> [u16; 2] {
         self.envelopes.map(|e| e.envelope.segment.level)
     }

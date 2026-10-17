@@ -110,8 +110,8 @@ identity to sign the PKG. The builder verifies the expanded payload, signatures,
 architectures, user installation domain, selectable formats and upgrade behavior.
 The installer has English and Russian screens and executes no install scripts.
 
-`ctest` compares 100 native PCM/state scenarios with the actual browser build,
-including 21 modulation scenarios executed directly through the Rust ABI with
+`ctest` compares 125 native PCM/state scenarios with the actual browser build,
+including 22 modulation scenarios executed directly through the Rust ABI with
 no JavaScript runtime. It covers independent clocks, Step/Slide, all directions,
 OneShot, key sync, bipolar macro bindings, FX/chains, modules and sample profiles,
 then verifies the native engine at 44.1/48/96 kHz, MIDI, variable blocks,
@@ -157,3 +157,5 @@ Bundles are self-contained and work offline. The initial release is a developmen
 build; validation does not establish compatibility with every DAW or hardware
 sound parity. Dependency licenses are in `THIRD_PARTY_NOTICES.txt` and the bundle's
 `licenses/` directory.
+
+OSC 4, its five Wavefolder shapes, the expanded filter bank and per-voice Poly motion are compiled into the native Rust engine. Playback in each mod lane selects the original Timbre clock or Poly motion; their clocks, probabilities, glides and envelope modulation stay in Rust. Poly motion follows DAW tempo without changing the saved BPM. See the root README for controls and target scope.
