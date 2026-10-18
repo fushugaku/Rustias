@@ -110,13 +110,13 @@ jobs:
       - name: Build Steinberg validator (macOS)
         if: runner.os == 'macOS'
         run: |
-          cmake -S output/plugin/build/cpm/vst3sdk -B output/plugin/validator -DCMAKE_BUILD_TYPE=Release -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF
+          cmake -S output/plugin/build/cpm/vst3sdk -B output/plugin/validator -DCMAKE_BUILD_TYPE=Release -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF -DSMTG_ENABLE_VST3_HOSTING_EXAMPLES=OFF
           cmake --build output/plugin/validator --target validator --parallel 4
           output/plugin/validator/bin/Release/validator output/plugin/build/Rustias.vst3
       - name: Build Steinberg validator (Windows)
         if: runner.os == 'Windows'
         run: |
-          cmake -S output/plugin/build/cpm/vst3sdk -B output/plugin/validator -A x64 -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF
+          cmake -S output/plugin/build/cpm/vst3sdk -B output/plugin/validator -A x64 -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF -DSMTG_ENABLE_VST3_HOSTING_EXAMPLES=OFF
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build output/plugin/validator --target validator --config Release --parallel 4
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -124,7 +124,7 @@ jobs:
       - name: Build Steinberg validator (Linux)
         if: runner.os == 'Linux'
         run: |
-          cmake -S output/plugin/build/cpm/vst3sdk -B output/plugin/validator -DCMAKE_BUILD_TYPE=Release -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF
+          cmake -S output/plugin/build/cpm/vst3sdk -B output/plugin/validator -DCMAKE_BUILD_TYPE=Release -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF -DSMTG_ENABLE_VST3_HOSTING_EXAMPLES=OFF
           cmake --build output/plugin/validator --target validator --parallel 4
           rustias_vst3=$(python3 -c "from pathlib import Path; print(next(p for p in Path('output/plugin/build').rglob('Rustias.vst3') if p.is_dir() and (p/'Contents/x86_64-linux').is_dir()))")
           xvfb-run -a output/plugin/validator/bin/Release/validator "$rustias_vst3"
