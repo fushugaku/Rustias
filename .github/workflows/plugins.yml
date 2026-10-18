@@ -21,6 +21,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Verify exact expanded filter caches and saturation
+        run: cargo test --locked -p radias-synth-infrastructure --test expanded_filters
       - run: bash scripts/build-web.sh
       - run: node scripts/verify-motion-synthesis.mjs
       - run: npm ci --prefix plugin

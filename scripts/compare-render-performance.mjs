@@ -4,15 +4,20 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
+import os from 'node:os';
 import {writeWasmJson} from '../web/wasm-json.js';
 import {readEffectCatalog} from './verify-effects.mjs';
 import {defaultEffect} from '../web/effects.js';
 import {webParameters} from '../web/parameters.js';
+import {emptyModulation,newModulationLane} from '../web/modulation.js';
+import {defaultCircuit,audioCircuit} from '../web/circuit.js';
 
 const args=process.argv.slice(2),paths=args.filter(arg=>!arg.startsWith('--'));
 const verifyOnly=args.includes('--verify-only');
 const rounds=Number(args.find(arg=>arg.startsWith('--rounds='))?.split('=')[1]??7);
+const blocks=Number(args.find(arg=>arg.startsWith('--blocks='))?.split('=')[1]??512);
 assert.ok(Number.isInteger(rounds)&&rounds>=1&&rounds<=21,'Rounds must be 1…21.');
+assert.ok(Number.isInteger(blocks)&&blocks>=16&&blocks<=8192,'Timed blocks must be 16…8192.');
 const selected=args.find(arg=>arg.startsWith('--bench='))?.slice('--bench='.length).split(',');
 assert.ok(paths.length>=2,'Provide a baseline and one or more candidate WASM files.');
 const builds=await Promise.all(paths.map(async path=>{
@@ -21,7 +26,7 @@ const builds=await Promise.all(paths.map(async path=>{
 }));
 readEffectCatalog(builds[0].api);
 function control(api,id,value,t=0){
-  assert.equal(id>=171?api.rustias_osc3_control(t,id-171,value):api.rustias_control(t,id,value),1,`control ${t}/${id}=${value}`);
+  assert.equal(id>=171&&id<=178?api.rustias_osc3_control(t,id-171,value):api.rustias_control(t,id,value),1,`control ${t}/${id}=${value}`);
 }
 function jsonCall(api,name,args,value){assert.equal(api[name](...args,writeWasmJson(api,value)),1,name);}
 function fixture(api,scene){
@@ -37,6 +42,23 @@ function fixture(api,scene){
     api.rustias_drum_gain(24);
   }
   if(scene.chain)jsonCall(api,'rustias_effect_chain',[0],scene.chain.map((kind,i)=>({...defaultEffect(kind,true),id:'chain-'+i})));
+  if(scene.motion){
+    const motion=emptyModulation();
+    motion.tracks[0]=[1,2,191,193].map((parameter,i)=>({...newModulationLane('filter-'+i),
+      playback:'Poly',motion:'Slide',target:{kind:'synth',timbre:0,parameter},
+      resolution:'1/48',length:4,values:Array.from({length:128},(_,n)=>[-24,16,0,30][n%4])}));
+    jsonCall(api,'rustias_poly_motion',[],motion);
+  }
+  if(scene.build!=null){
+    const circuit=defaultCircuit();circuit.enabled=true;
+    if(scene.build){
+      circuit.nodes.push({id:20,kind:'filter',params:{model:scene.build,cutoff:70,resonance:83,drive:67,modelMorph:43}});
+      circuit.nodes.push({id:21,kind:'lfo',params:{rate:3.7,depth:55}});
+      const output=circuit.wires.find(w=>w.to===15);output.to=20;
+      circuit.wires.push({from:20,to:15,port:'in'},{from:21,to:20,port:'cutoff'});
+    }
+    jsonCall(api,'rustias_circuit',[0],audioCircuit(circuit));
+  }
   if(scene.pcm!=null){
     control(api,140,1);const length=4800,pointer=api.rustias_sample_buffer(0,length);
     const samples=new Float32Array(api.memory.buffer,pointer,length);
@@ -59,6 +81,14 @@ for(let kind=1;kind<=30;kind++)for(const slot of [0,16])add(`fx-${slot}-${kind}`
 const parameters=webParameters(JSON.parse(fs.readFileSync(new URL('../crates/radias-synth-infrastructure/src/parameters.json',import.meta.url))));
 for(const destination of parameters.find(p=>p.id===91).values)add('patch-'+destination,[[90,3],[91,destination],[92,104],[73,2],[74,91]]);
 for(const mode of [0,1,2])add('pcm-'+mode,[[20,1],[21,3],[22,76],[23,38]],{voices:0,pcm:mode,chain:[6,14]});
+for(let model=1;model<=17;model++){
+  add(`model-first-${model}`,[[189,model],[1,67],[2,93],[191,65],[193,43]],{filterEdits:true});
+  add(`model-second-${model}`,[[20,1],[190,model],[22,67],[23,93],[192,65],[194,43]],{filterEdits:true});
+  add(`model-pcm-${model}`,[[189,model],[1,67],[2,93],[191,65],[193,43]],{voices:0,pcm:2,filterEdits:true});
+  add(`model-build-${model}`,[[189,model],[190,model],[20,1],[1,67],[22,82]],{build:model,filterEdits:true});
+}
+for(const route of [1,2,3])add('model-route-'+route,[[189,9],[190,6],[20,route],[1,76],[22,85]],{filterEdits:true});
+for(const model of [1,6,9,17])add('model-poly-'+model,[[189,model],[1,70],[2,60],[191,40],[193,64]],{motion:true,voices:8,filterEdits:true});
 add('extra-fx',[],{chain:[6,14,7,11]});
 add('eight-timbres-128',[],{voices:128});
 add('mono-retrigger',[[62,0]],{voices:16});
@@ -71,6 +101,13 @@ for(const scene of scenes){
   for(const build of builds)fixture(build.api,scene);
   for(let block=0;block<96;block++){
     for(const {api}of builds){
+      if(scene.filterEdits){
+        if(block===12)for(const [id,value]of [[2,127],[23,120],[191,100],[192,20],[193,120],[194,0]])control(api,id,value);
+        if(block===20)for(const [id,value]of [[22,21],[1,124],[191,0],[192,127]])control(api,id,value);
+        if(block===40)for(const [id,value]of [[189,6],[190,9],[193,2],[194,127]])control(api,id,value);
+        if(block===56)for(const [id,value]of [[189,0],[190,0]])control(api,id,value);
+        if(block===72)for(const [id,value]of [[189,9],[190,17],[1,4],[22,126]])control(api,id,value);
+      }
       if(block===8)for(let t=0;t<8;t++)control(api,1,35,t);
       if(block===16)for(let t=0;t<8;t++)control(api,11,96,t);
       if(block===20)for(let t=0;t<8;t++)control(api,66,1,t);
@@ -101,6 +138,11 @@ const benchmark=[
   {name:'delay',voices:8,chain:[14]},
   {name:'tube',voices:8,chain:[9]},
   {name:'early',voices:8,chain:[12]},
+  ...[1,4,6,9,11,17].flatMap(model=>[32,128].map(voices=>({name:`model-${model}-${voices}`,voices,
+    controls:[[189,model],[1,70],[2,70],[191,64]]}))),
+  ...[1,6,9].map(model=>({name:`model-poly-${model}-48`,voices:48,motion:true,
+    controls:[[189,model],[1,70],[2,70],[191,64],[193,64]]})),
+  {name:'model-dual-128',voices:128,controls:[[189,9],[190,6],[20,1],[1,70],[22,85],[2,70],[23,70],[191,64],[192,64]]},
 ];
 const timings=[];
 if(selected)for(const name of selected)assert.ok(benchmark.some(scene=>scene.name===name),`Unknown benchmark: ${name}`);
@@ -113,12 +155,12 @@ for(const scene of verifyOnly?[]:benchmark.filter(scene=>!selected||selected.inc
       const api=builds[i].api;fixture(api,scene);
       for(let block=0;block<128;block++)api.rustias_render();
       const start=performance.now();
-      for(let block=0;block<512;block++)api.rustias_render();
+      for(let block=0;block<blocks;block++)api.rustias_render();
       samples[i].push(performance.now()-start);
     }
   }
   const medians=samples.map(values=>[...values].sort((a,b)=>a-b)[Math.floor(rounds/2)]);
-  timings.push({scene:scene.name,voices:scene.voices,frames:65536,median_ms:medians,saved_percent:medians.map(value=>(1-value/medians[0])*100),samples_ms:samples});
+  timings.push({scene:scene.name,voices:scene.voices,frames:128*blocks,median_ms:medians,saved_percent:medians.map(value=>(1-value/medians[0])*100),samples_ms:samples});
   process.stderr.write(`${scene.name}: ${medians.map(x=>x.toFixed(2)).join(' / ')} ms\n`);
 }
-console.log(JSON.stringify({passed:true,platform:process.platform,arch:process.arch,node:process.version,scenes:scenes.length,comparedFrames,audio_sha256:audioHash.digest('hex'),builds:builds.map(({api,...build})=>build),timings},null,2));
+console.log(JSON.stringify({passed:true,platform:process.platform,arch:process.arch,cpu:os.cpus()[0]?.model,node:process.version,scenes:scenes.length,comparedFrames,audio_sha256:audioHash.digest('hex'),builds:builds.map(({api,...build})=>build),timings},null,2));

@@ -28,6 +28,8 @@ jobs:
         run: cargo test --locked -p radias-synth-domain --lib --test fixed_optimizations
       - name: Verify cached browser oscillator controls
         run: cargo test --locked -p radias-synth-infrastructure --lib --features web-modular circuit::primary::cache_tests
+      - name: Verify exact expanded filter caches and saturation
+        run: cargo test --locked -p radias-synth-infrastructure --test expanded_filters
       - uses: actions/setup-node@v4
         with:
           node-version: 22
