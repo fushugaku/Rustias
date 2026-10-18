@@ -52,6 +52,14 @@ Source: "{#PackageRoot}\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignor
 Source: "{#PackageRoot}\prerequisites\*"; Flags: dontcopy
 
 [Code]
+function HasWebView: Boolean;
+var Version: String;
+begin
+  Result := RegQueryStringValue(HKLM32, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0');
+  if not Result then
+    Result := RegQueryStringValue(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0');
+end;
+
 function InstallDependency(Name, Arguments: String): String;
 var Code: Integer;
 begin
@@ -64,14 +72,12 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var Installed: Cardinal; Version: String;
+var Installed: Cardinal;
 begin
   Result := '';
   if not RegQueryDWordValue(HKLM64, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', Installed) or (Installed <> 1) then begin
     Result := InstallDependency('vc_redist.x64.exe', '/install /quiet /norestart');
     if Result <> '' then exit;
   end;
-  if not RegQueryStringValue(HKLM32, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version) then
-    if not RegQueryStringValue(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version) then
-      Result := InstallDependency('MicrosoftEdgeWebview2Setup.exe', '/silent /install');
+  if not HasWebView then Result := InstallDependency('MicrosoftEdgeWebview2Setup.exe', '/silent /install');
 end;

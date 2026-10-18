@@ -87,11 +87,11 @@ reference builds, even under --all-features. Keep synthesis in these shared crat
 not copied into the shell. NativeHost owns per-instance state; never rely on one
 thread-local singleton for multiple DAW instances or for thread migration.
 The JS editor/control/output adapter remains shared with web/worklet.js:
-JavaScriptCore on macOS, QuickJS-NG on Windows. WebAssembly is disabled in that
+JavaScriptCore on macOS, QuickJS-NG on Windows/Linux. WebAssembly is disabled in that
 context; do not reintroduce a WASM audio fallback, JS modulation clock or Wasmtime.
 DAW transport supplies native modulation tempo and PPQ on start/seek/loop;
 live MIDI runs it with the configured KeySync even while transport is stopped.
-WKWebView/WebView2
+WKWebView/WebView2/WebKitGTK
 only host the editor; its WASM resource is for RDL parsing and metadata.
 Only DAW lifecycle, MIDI/transport, automation, state and editor bridges belong in
 the shell. Editor initialization must adopt restored sample/profile IDs without
@@ -100,7 +100,7 @@ and sequencer/modulation data. Web libraries/recordings use persistent editor
 storage. Never introduce a hardware AudioContext in a plugin. All plugin checks
 render into discarded memory; rustias-plugin-preview is a silent UI host.
 Run CTest (including native/browser PCM/state parity) and strict Apple auval when
-changing host code. CI builds macOS universal and Windows x64 plugin archives.
+changing host code. CI builds macOS universal, Windows x64 and Linux x86_64 plugin installers. Linux uses GTK3/WebKitGTK 4.1 with X11/XWayland embedding; run its real editor test under Xvfb with discarded audio buffers.
 Mac packaging also builds a selectable AU/VST3/CLAP `.pkg` for the current user,
 with no install scripts. Disable bundle relocation and use atomic bundle upgrades;
 never let Installer replace a development checkout or merge stale resources.
@@ -128,3 +128,5 @@ copy/remap targets with timbre sounds, and carry DAW tempo without overwriting t
 saved BPM. Keep the shared browser adapter and native modulation engine from
 also applying Poly offsets globally. Verify real WASM, native/browser fixtures,
 old PCM, and exact original-profile tests; run UI checks with audio stopped.
+
+Release tags must match the plugin CMake version. `release.yml` publishes only after all platform checks, actual installer smoke tests and VST3 validation pass. Keep installers and archives in Release assets, never commit generated binaries. Windows Setup installs VST3/CLAP plus signed Microsoft prerequisites; preserve LocalAppData libraries on uninstall. Linux `.run` installs per-user with upgrade backups; `.deb` installs in standard system plugin paths. Neither uninstaller removes user patches or recordings.

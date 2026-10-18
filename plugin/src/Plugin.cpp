@@ -211,8 +211,8 @@ static const clap_plugin_t* create(const clap_plugin_factory_t*,const clap_host_
   };return &s->api;
 }
 static const clap_plugin_factory_t factory={[](const clap_plugin_factory_t*)->uint32_t{return 1;},[](const clap_plugin_factory_t*,uint32_t i)->const clap_plugin_descriptor_t*{return i?nullptr:&descriptor;},create};
-extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry={CLAP_VERSION,
-  [](const char* path){
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry;
+static bool initializeEntry(const char* path){
     auto p=std::filesystem::u8path(path?path:"");
 #ifdef _WIN32
     HMODULE module=nullptr;GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(&clap_entry),&module);
@@ -225,6 +225,7 @@ extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry={CLAP_VERSION,
     while(p.has_parent_path()&&p.extension()!=".clap"&&p!=p.parent_path())p=p.parent_path();bundleResources=utf8(p/"Contents/Resources");
 #endif
     return true;
-  },
-  [](){},[](const char* id)->const void*{return !std::strcmp(id,CLAP_PLUGIN_FACTORY_ID)?&factory:nullptr;}
+}
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry={CLAP_VERSION,
+  initializeEntry, [](){},[](const char* id)->const void*{return !std::strcmp(id,CLAP_PLUGIN_FACTORY_ID)?&factory:nullptr;}
 };

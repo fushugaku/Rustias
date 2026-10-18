@@ -4,17 +4,17 @@ on:
     tags: ['v*']
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  build:
-    uses: ./.github/workflows/plugins.yml
   publish:
-    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - name: Check tag matches the built plugin version
@@ -27,11 +27,16 @@ jobs:
           version=re.search(r'project\(RustiasPlugin VERSION ([\d.]+)',Path('plugin/CMakeLists.txt').read_text())[1]
           assert os.environ['RELEASE_TAG']=='v'+version, 'Release tag and binary version differ'
           PY
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: Rustias-*-plugins
-          merge-multiple: true
-          path: release-assets
+      - name: Promote the tested build of this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rustias_run=$(gh run list --workflow plugins.yml --commit "$GITHUB_SHA" --event push --branch main --limit 1 --json databaseId --jq '.[0].databaseId')
+          test -n "$rustias_run" && test "$rustias_run" != null || { echo 'Push this commit to main and let the plugin checks run before tagging.'; exit 1; }
+          gh run watch "$rustias_run" --exit-status
+          gh run download "$rustias_run" --pattern 'Rustias-*-plugins' --dir release-downloads
+          mkdir release-assets
+          find release-downloads -type f -maxdepth 2 -exec cp '{}' release-assets/ \;
       - name: Verify all platform installers and write checksums
         run: |
           python3 - <<'PY'

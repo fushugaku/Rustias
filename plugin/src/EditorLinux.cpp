@@ -2,7 +2,9 @@
 #include "Instrument.h"
 #include <gtk/gtk.h>
 #include <gtk/gtkx.h>
+#include <gdk/gdkx.h>
 #include <webkit2/webkit2.h>
+#include <libsoup/soup.h>
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #include <fstream>
@@ -44,7 +46,11 @@ struct Editor::Impl {
       auto source=g_file_new_for_path(file.c_str());GError* e=nullptr;auto stream=g_file_read(source,nullptr,&e);g_object_unref(source);
       if(!stream){webkit_uri_scheme_request_finish_error(request,e);g_error_free(e);return;}
       const auto ext=file.extension().string();const char* mime=ext==".js"?"text/javascript":ext==".css"?"text/css":ext==".html"?"text/html":ext==".json"?"application/json":ext==".wasm"?"application/wasm":ext==".svg"?"image/svg+xml":ext==".wav"?"audio/wav":"application/octet-stream";
-      webkit_uri_scheme_request_finish(request,G_INPUT_STREAM(stream),-1,mime);g_object_unref(stream);
+      auto response=webkit_uri_scheme_response_new(G_INPUT_STREAM(stream),-1);
+      webkit_uri_scheme_response_set_content_type(response,mime);
+      auto headers=soup_message_headers_new(SOUP_MESSAGE_HEADERS_RESPONSE);soup_message_headers_append(headers,"Access-Control-Allow-Origin","*");
+      webkit_uri_scheme_response_set_http_headers(response,headers);soup_message_headers_unref(headers);
+      webkit_uri_scheme_request_finish_with_response(request,response);g_object_unref(response);g_object_unref(stream);
     },root,[](gpointer data){delete static_cast<fs::path*>(data);});
     manager=webkit_user_content_manager_new();
     g_signal_connect(manager,"script-message-received::rustiasHost",G_CALLBACK(+[](WebKitUserContentManager*,WebKitJavascriptResult* result,gpointer data){

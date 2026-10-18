@@ -126,7 +126,8 @@ jobs:
         run: |
           cmake -S output/plugin/build/cpm/vst3sdk -B output/plugin/validator -DCMAKE_BUILD_TYPE=Release -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF
           cmake --build output/plugin/validator --target validator --parallel 4
-          xvfb-run -a output/plugin/validator/bin/Release/validator output/plugin/build/VST3/Release/Rustias.vst3
+          rustias_vst3=$(python3 -c "from pathlib import Path; print(next(p for p in Path('output/plugin/build').rglob('Rustias.vst3') if p.is_dir() and (p/'Contents/x86_64-linux').is_dir()))")
+          xvfb-run -a output/plugin/validator/bin/Release/validator "$rustias_vst3"
       - uses: actions/upload-artifact@v4
         with:
           name: Rustias-${{ matrix.name }}-plugins

@@ -4,16 +4,18 @@
 
 Полная версия Rustias без прошивки в виде плагина для DAW. **Генерация звука,
 фильтры, голоса, сэмплер и эффекты заранее компилируются из Rust в машинный код**
-для Apple Silicon, Intel macOS и Windows x64. В звуковом движке плагина нет
+для Apple Silicon, Intel macOS, Windows x64 и Linux x86_64. В звуковом движке плагина нет
 WASM-рантайма.
 
 Браузер и плагины собирают одни исходники Rust: восемь тембров, 128 голосов,
-OSC 3, модульные соединения и цепочки эффектов. Модуляционные секвенсоры и
+OSC 3/4, модульные соединения и цепочки эффектов. Модуляционные секвенсоры и
 автоматизация макросов тоже исполняются нативно на Rust. Редактор использует
 общий браузерный интерфейс. Исходный desktop-профиль
 для эталонных сравнений сохраняется.
 
 ## Установка
+
+Установщики и контрольные суммы доступны в [GitHub Releases](https://github.com/fushugaku/Rustias/releases/latest).
 
 **macOS 12+, Apple Silicon и Intel:** откройте `Rustias-macOS-<версия>.pkg`.
 В установщике можно выбрать AU, VST3 и CLAP. Плагины установятся для вашей
@@ -30,7 +32,9 @@ VST3 — для Ableton Live, Cubase, REAPER и других совместим�
 PKG не подписан, если не настроен сертификат установщика. Нотариализации
 Apple Developer ID пока нет.
 
-**Windows 10/11 x64:** распакуйте `Rustias-Windows-VST3.zip` и скопируйте
+**Windows 10/11 x64:** запустите `Rustias-Windows-x64-<версия>-Setup.exe` и выберите VST3 и/или CLAP. Установка идёт в стандартные папки Common Files; есть удаление через Windows. Включены Visual C++ Runtime и загрузчик WebView2. Если WebView2 отсутствует, для его установки нужен интернет. Удаление плагинов сохраняет пользовательские библиотеки и записи в LocalAppData. EXE не подписан сертификатом Authenticode.
+
+Для ручной установки распакуйте `Rustias-Windows-VST3.zip` и скопируйте
 папку `Rustias.vst3` целиком в `C:\Program Files\Common Files\VST3\`.
 Содержимое `Contents/Resources` необходимо для работы плагина.
 Для редактора нужен [Microsoft WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
@@ -40,6 +44,10 @@ Apple Developer ID пока нет.
 В архивы также включён CLAP. На Mac его можно положить в
 `~/Library/Audio/Plug-Ins/CLAP/`; на Windows `Rustias.clap` и
 `Rustias.resources` должны лежать рядом в папке CLAP. Старый VST2 не собирается.
+
+**Linux x86_64, X11/XWayland:** запустите `bash Rustias-Linux-x86_64-<версия>.run`. Плагины установятся в `~/.vst3` и `~/.clap`. Нужны Python 3 и WebKitGTK 4.1 версии 2.40+. В Debian/Ubuntu можно установить системный пакет с зависимостями: `sudo apt install ./Rustias-Linux-amd64-<версия>.deb`. Для GTK-хоста под Wayland запускайте DAW с `GDK_BACKEND=x11`. Пакеты для других архитектур пока не собираются.
+
+Установщик `.run` сохраняет предыдущие плагины в `~/.local/state/rustias/plugin-backups`; для удаления запустите его с `--uninstall`. Библиотеки и записи сохраняются. DEB удаляется через пакетный менеджер.
 
 ## Работа в DAW
 
@@ -94,10 +102,9 @@ bash scripts/build-plugin.sh
 ./scripts/build-plugin-windows.ps1
 ```
 
-Архивы и macOS `.pkg` появятся в `output/plugin/packages/`. Workflow `plugins.yml`
-собирает универсальные AU/VST3/CLAP и установщик для Mac, VST3 x64 для Windows
-при изменении общего
-движка или интерфейса. Версии SDK и контрольные суммы закреплены в CMake.
+На Linux нужны development-пакеты WebKitGTK 4.1, GTK3 и X11. Соберите те же CMake targets, запустите CTest под X11 (в CI используется Xvfb), затем `python3 scripts/package-plugin-linux.py`.
+
+Архивы и установщики появятся в `output/plugin/packages/`. Workflow `plugins.yml` проверяет macOS universal, Windows x64 и Linux x86_64 при изменении общего движка или интерфейса. После push версии в `main` тег `v<версия>` публикует проверенные CI-артефакты этого же коммита с SHA-256 через `release.yml`, без повторной сборки других бинарных файлов. Версии SDK закреплены в CMake.
 
 Готовые проверенные плагины Mac можно упаковать без повторной сборки звука:
 
@@ -149,8 +156,8 @@ CI также проверяет готовый модуль VST3 официал
 Интерфейс только редактирует настройки и показывает позиции. Временные
 смещения воспроизведения не попадают в сохранённую программу.
 Общий адаптер управления и выхода работает в JavaScriptCore
-на macOS и QuickJS-NG на Windows и вызывает нативную библиотеку. Интерфейс
-открывается в WKWebView / WebView2. В звуковом контексте WebAssembly отключён,
+на macOS и QuickJS-NG на Windows/Linux и вызывает нативную библиотеку. Интерфейс
+открывается в WKWebView / WebView2 / WebKitGTK (XEmbed). В звуковом контексте WebAssembly отключён,
 Wasmtime больше не используется. WASM-файл в ресурсах интерфейса нужен для
 локального разбора RDL и метаданных; звук плагина он не рендерит.
 

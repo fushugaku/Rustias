@@ -26,6 +26,7 @@ with tempfile.TemporaryDirectory(prefix='rustias-linux-') as temporary:
     digest=hashlib.sha256(archive.read_bytes()).hexdigest()
     header='''#!/usr/bin/env bash
 set -euo pipefail
+[ "$(uname -s)/$(uname -m)" = Linux/x86_64 ] || { echo 'This installer requires Linux x86_64.' >&2; exit 1; }
 command -v python3 >/dev/null || { echo 'Python 3 is required.' >&2; exit 1; }
 rustias_tmp=$(mktemp -d "${TMPDIR:-/tmp}/rustias.XXXXXXXX")
 trap 'rm -rf "$rustias_tmp"' EXIT
@@ -43,6 +44,8 @@ __RUSTIAS_PAYLOAD__
     installer.write_bytes(header.encode()+archive.read_bytes());installer.chmod(0o755)
     # Run the actual self-extracting installer twice, including a stale-resource upgrade.
     test_user=work/'test-user'
+    user_data=test_user/'.local/share/rustias/plugin/user-data-check.txt'
+    user_data.parent.mkdir(parents=True);user_data.write_text('keep')
     subprocess.run([str(installer),'--prefix',str(test_user)],check=True)
     stale=test_user/'.clap/Rustias.resources/stale.txt';stale.write_text('old')
     subprocess.run([str(installer),'--prefix',str(test_user)],check=True)
@@ -55,6 +58,7 @@ __RUSTIAS_PAYLOAD__
                 assert hashlib.sha256(file.read_bytes()).digest()==hashlib.sha256(target.read_bytes()).digest(),target
     subprocess.run([str(installer),'--prefix',str(test_user),'--uninstall'],check=True)
     assert not (test_user/'.clap/Rustias.clap').exists()
+    assert user_data.read_text()=='keep'
     debroot=work/'deb';control=debroot/'DEBIAN';control.mkdir(parents=True)
     (debroot/'usr/lib/vst3').mkdir(parents=True);(debroot/'usr/lib/clap').mkdir(parents=True)
     shutil.copytree(payload/'Rustias.vst3',debroot/'usr/lib/vst3/Rustias.vst3')

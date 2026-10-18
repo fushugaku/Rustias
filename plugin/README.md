@@ -4,16 +4,18 @@
 
 The full firmware-free Rustias instrument as a DAW plugin. **Synthesis, filters,
 voices, sample playback and effects are compiled ahead of time from Rust into
-native machine code** for Apple Silicon, Intel macOS and Windows x64. There is
+native machine code** for Apple Silicon, Intel macOS, Windows x64 and Linux x86_64. There is
 no WASM runtime in the plugin's audio engine.
 
 The browser and plugins compile the same canonical Rust sources, with eight
-timbres, 128 voices, OSC 3, modular routing and timbre effect chains. Modulation
+timbres, 128 voices, OSC 3/4, modular routing and timbre effect chains. Modulation
 sequencers and macro automation also execute in native Rust. The editor retains
 the shared browser interface. The original
 reference desktop profile remains unchanged.
 
 ## Install
+
+Download installers and checksums from [GitHub Releases](https://github.com/fushugaku/Rustias/releases/latest).
 
 **macOS 12 or later, Apple Silicon or Intel:** open `Rustias-macOS-<version>.pkg`.
 Installer lets you choose AU, VST3 and CLAP and installs them for your account
@@ -30,7 +32,9 @@ Restart the DAW and rescan its plugins. The supplied local builds use an ad-hoc
 signature; the PKG is unsigned unless an Installer identity is configured.
 There is no Developer ID notarization.
 
-**Windows 10/11 x64:** unzip `Rustias-Windows-VST3.zip` and copy the entire
+**Windows 10/11 x64:** run `Rustias-Windows-x64-<version>-Setup.exe` and select VST3 and/or CLAP. Setup installs into the standard Common Files plugin directories, includes the Visual C++ runtime and the WebView2 bootstrapper, and registers an uninstaller. Installing a missing WebView2 runtime requires an internet connection. User libraries and recordings remain in LocalAppData when uninstalling. The executable is unsigned.
+
+For manual installation, unzip `Rustias-Windows-VST3.zip` and copy the entire
 `Rustias.vst3` directory to `C:\Program Files\Common Files\VST3\`.
 Keep its `Contents/Resources` directory intact. The editor requires Microsoft's
 [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
@@ -41,6 +45,10 @@ The instrument renders without the editor or a browser window open.
 CLAP builds are included too: on macOS use `~/Library/Audio/Plug-Ins/CLAP/`;
 on Windows keep `Rustias.clap` and `Rustias.resources` together in the CLAP folder.
 Legacy VST2 is not included.
+
+**Linux x86_64, X11/XWayland:** run `bash Rustias-Linux-x86_64-<version>.run` for per-user installation into `~/.vst3` and `~/.clap`. Python 3 and WebKitGTK 4.1 (2.40+) are required. Debian/Ubuntu users can instead run `sudo apt install ./Rustias-Linux-amd64-<version>.deb` for system-wide installation with dependencies. Under a GTK Wayland host, launch the DAW with `GDK_BACKEND=x11`. Other architectures are not packaged.
+
+The `.run` installer preserves old plugin bundles under `~/.local/state/rustias/plugin-backups` and accepts `--uninstall`. Removal keeps user libraries and recordings. The `.deb` is removed through the system package manager.
 
 ## In the DAW
 
@@ -94,9 +102,10 @@ Windows additionally requires Visual Studio 2022 C++ desktop build tools:
 ./scripts/build-plugin-windows.ps1
 ```
 
-Archives and the macOS `.pkg` appear in `output/plugin/packages/`. The `plugins.yml`
-workflow builds macOS universal AU/VST3/CLAP, its Installer package and Windows
-x64 VST3 on every shared engine/UI change.
+On Linux, install WebKitGTK 4.1/GTK3/X11 development libraries, then configure with CMake and build the same targets. Run CTest under X11 (CI uses Xvfb) and `python3 scripts/package-plugin-linux.py` to produce `.run` and `.deb` installers.
+
+Archives and all installers appear in `output/plugin/packages/`. The `plugins.yml`
+workflow builds and verifies macOS universal, Windows x64 and Linux x86_64 on every shared engine/UI change. After pushing a version to `main`, a matching `v<version>` tag promotes that exact commit's successful CI artifacts to GitHub Releases with SHA-256 checksums through `release.yml`; it does not rebuild different binaries.
 SDK versions and hashes are pinned in `plugin/CMakeLists.txt`.
 
 To package validated Mac bundles without rebuilding audio:
@@ -147,8 +156,8 @@ phase advancement, interpolation, lane priority, macro bindings, parameter write
 and base-value restoration. The UI only edits its configuration and displays its
 reported positions. Saving or stopping never stores temporary playback offsets.
 The shared editor/control/output adapter runs in system JavaScriptCore on macOS
-and QuickJS-NG on Windows, calling that native library.
-The full editor uses WKWebView / WebView2. WebAssembly is disabled in the audio
+and QuickJS-NG on Windows/Linux, calling that native library.
+The full editor uses WKWebView / WebView2 / WebKitGTK (XEmbed). WebAssembly is disabled in the audio
 control context and Wasmtime is no longer a dependency. A WASM file remains in
 the editor's web assets for local RDL parsing and metadata; it does not render
 the plugin's sound. The UI, controls and storage stay shared with the browser.
