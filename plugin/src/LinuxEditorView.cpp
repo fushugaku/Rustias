@@ -31,7 +31,6 @@ struct LinuxEditorView::Impl {
     context=webkit_web_context_new_with_website_data_manager(storage);g_object_unref(storage);
     auto security=webkit_web_context_get_security_manager(context);
     webkit_security_manager_register_uri_scheme_as_secure(security,"rustias-plugin");
-    webkit_security_manager_register_uri_scheme_as_local(security,"rustias-plugin");
     webkit_security_manager_register_uri_scheme_as_cors_enabled(security,"rustias-plugin");
     auto root=new fs::path(fs::weakly_canonical(fs::path(s.resources)/"web"));
     webkit_web_context_register_uri_scheme(context,"rustias-plugin",[](WebKitURISchemeRequest* request,gpointer data){
@@ -57,7 +56,7 @@ struct LinuxEditorView::Impl {
       auto text=jsc_value_to_string(webkit_javascript_result_get_js_value(result));static_cast<Impl*>(data)->message(text?text:"");g_free(text);
     }),this);
     webkit_user_content_manager_register_script_message_handler(manager,"rustiasHost");
-    const auto injection="window.__RUSTIAS_PLUGIN__="+s.initialState()+";window.addEventListener('error',e=>window.webkit.messageHandlers.rustiasHost.postMessage(JSON.stringify({kind:'diagnostic',text:e.message})));window.addEventListener('unhandledrejection',e=>window.webkit.messageHandlers.rustiasHost.postMessage(JSON.stringify({kind:'diagnostic',text:String(e.reason)})));";
+    const auto injection="window.__RUSTIAS_PLUGIN__="+s.initialState()+";window.addEventListener('error',e=>window.webkit.messageHandlers.rustiasHost.postMessage(JSON.stringify({kind:'diagnostic',text:e.message+' '+(e.error?.stack??e.filename??'')})));window.addEventListener('unhandledrejection',e=>window.webkit.messageHandlers.rustiasHost.postMessage(JSON.stringify({kind:'diagnostic',text:String(e.reason)+' '+(e.reason?.stack??'')})));";
     auto script=webkit_user_script_new(injection.c_str(),WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,nullptr,nullptr);
     webkit_user_content_manager_add_script(manager,script);webkit_user_script_unref(script);
     web=WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,"web-context",context,"user-content-manager",manager,nullptr));g_object_ref_sink(web);
