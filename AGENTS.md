@@ -100,7 +100,7 @@ and sequencer/modulation data. Web libraries/recordings use persistent editor
 storage. Never introduce a hardware AudioContext in a plugin. All plugin checks
 render into discarded memory; rustias-plugin-preview is a silent UI host.
 Run CTest (including native/browser PCM/state parity) and strict Apple auval when
-changing host code. CI builds macOS universal, Windows x64 and Linux x86_64 plugin installers. Linux uses GTK3/WebKitGTK 4.1 with X11/XWayland embedding; run its real editor test under Xvfb with discarded audio buffers.
+changing host code. CI builds macOS universal, Windows x64 and Linux x86_64 plugin installers. Linux isolates GTK3/WebKitGTK 4.1 and its event loop in editor-helper with X11/XWayland embedding; do not link GTK into the DAW module or run DSP in the helper. Keep GUI IPC nonblocking and preserve complete sample/state payloads; run its real editor test under Xvfb with discarded audio buffers.
 Mac packaging also builds a selectable AU/VST3/CLAP `.pkg` for the current user,
 with no install scripts. Disable bundle relocation and use atomic bundle upgrades;
 never let Installer replace a development checkout or merge stale resources.

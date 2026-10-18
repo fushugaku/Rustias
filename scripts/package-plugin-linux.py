@@ -14,6 +14,8 @@ packages.mkdir(parents=True,exist_ok=True)
 version=re.search(r'project\(RustiasPlugin VERSION ([\d.]+)',(root/'plugin/CMakeLists.txt').read_text())[1]
 clap=next(p for p in build.rglob('Rustias.clap') if p.is_file())
 vst3=next(p for p in build.rglob('Rustias.vst3') if p.is_dir() and (p/'Contents/x86_64-linux').is_dir())
+linked=subprocess.check_output(['ldd',str(clap)],text=True)
+assert 'libgtk-' not in linked and 'libwebkit' not in linked, 'GUI libraries must remain in the isolated editor helper'
 with tempfile.TemporaryDirectory(prefix='rustias-linux-') as temporary:
     work=Path(temporary);payload=work/'payload';payload.mkdir()
     shutil.copy2(clap,payload/'Rustias.clap')

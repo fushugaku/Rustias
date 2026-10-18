@@ -24,7 +24,7 @@ if args.uninstall:
 else:
     for name, _ in targets:
         if not (source/name).exists(): raise SystemExit(f'Missing plugin payload: {name}')
-    dependencies=subprocess.run(['ldd',str(source/'Rustias.clap')],capture_output=True,text=True)
+    dependencies=subprocess.run(['ldd',str(source/'Rustias.resources/editor-helper')],capture_output=True,text=True)
     if dependencies.returncode or 'not found' in dependencies.stdout:
         raise SystemExit('Install WebKitGTK 4.1 (2.40+) and GTK3, or use the Debian/Ubuntu package.\n'+dependencies.stdout+dependencies.stderr)
     backup = prefix/'.local/state/rustias/plugin-backups'/(datetime.datetime.now().strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8])

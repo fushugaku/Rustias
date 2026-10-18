@@ -16,6 +16,7 @@ int main(int argc,char** argv){
   const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
   while(!instrument.editorReady&&instrument.lastError.empty()&&std::chrono::steady_clock::now()<deadline){
     float left[256],right[256];float* channels[]={left,right};clap_audio_buffer_t output{};output.data32=channels;output.channel_count=2;clap_process_t p{};p.frames_count=256;p.audio_outputs=&output;p.audio_outputs_count=1;instrument.process(&p);
+    for(unsigned i=0;i<64&&g_main_context_pending(nullptr);i++)g_main_context_iteration(nullptr,FALSE);
     instrument.editor->poll();std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   if(!instrument.editorReady){std::cerr<<"Editor failed: "<<instrument.lastError<<'\n';return 1;}

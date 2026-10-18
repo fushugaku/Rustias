@@ -46,7 +46,7 @@ CLAP builds are included too: on macOS use `~/Library/Audio/Plug-Ins/CLAP/`;
 on Windows keep `Rustias.clap` and `Rustias.resources` together in the CLAP folder.
 Legacy VST2 is not included.
 
-**Linux x86_64, X11/XWayland:** run `bash Rustias-Linux-x86_64-<version>.run` for per-user installation into `~/.vst3` and `~/.clap`. Python 3 and WebKitGTK 4.1 (2.40+) are required. Debian/Ubuntu users can instead run `sudo apt install ./Rustias-Linux-amd64-<version>.deb` for system-wide installation with dependencies. Under a GTK Wayland host, launch the DAW with `GDK_BACKEND=x11`. Other architectures are not packaged.
+**Linux x86_64, X11/XWayland:** run `bash Rustias-Linux-x86_64-<version>.run` for per-user installation into `~/.vst3` and `~/.clap`. Python 3 and WebKitGTK 4.1 (2.40+) are required. Debian/Ubuntu users can instead run `sudo apt install ./Rustias-Linux-amd64-<version>.deb` for system-wide installation with dependencies. The editor runs in an isolated WebKitGTK process and embeds through X11/XWayland, avoiding conflicts with the DAW's GTK version. Other architectures are not packaged.
 
 The `.run` installer preserves old plugin bundles under `~/.local/state/rustias/plugin-backups` and accepts `--uninstall`. Removal keeps user libraries and recordings. The `.deb` is removed through the system package manager.
 
@@ -157,7 +157,7 @@ and base-value restoration. The UI only edits its configuration and displays its
 reported positions. Saving or stopping never stores temporary playback offsets.
 The shared editor/control/output adapter runs in system JavaScriptCore on macOS
 and QuickJS-NG on Windows/Linux, calling that native library.
-The full editor uses WKWebView / WebView2 / WebKitGTK (XEmbed). WebAssembly is disabled in the audio
+The full editor uses WKWebView / WebView2 / WebKitGTK (XEmbed). On Linux, GTK/WebKit and their event loop live in a separate helper process; bounded nonblocking IPC forwards UI commands and state, while synthesis stays inside the DAW plugin. WebAssembly is disabled in the audio
 control context and Wasmtime is no longer a dependency. A WASM file remains in
 the editor's web assets for local RDL parsing and metadata; it does not render
 the plugin's sound. The UI, controls and storage stay shared with the browser.
