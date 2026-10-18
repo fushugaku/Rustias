@@ -29,8 +29,11 @@ if platform.system() == 'Darwin':
         targets.append({'arm64': 'aarch64-apple-darwin', 'x86_64': 'x86_64-apple-darwin'}[arch])
 elif platform.system() == 'Windows':
     targets = ['x86_64-pc-windows-msvc']
+elif platform.system() == 'Linux':
+    targets = [{'x86_64': 'x86_64-unknown-linux-gnu',
+                'aarch64': 'aarch64-unknown-linux-gnu'}[platform.machine()]]
 else:
-    raise SystemExit('Plugin builds support macOS and Windows')
+    raise SystemExit('Plugin builds support macOS, Windows and Linux')
 target_dir = root / 'output/plugin/native-cargo'
 libraries = []
 for target in targets:

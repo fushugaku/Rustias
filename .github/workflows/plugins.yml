@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths: ['plugin/**', 'web/**', 'crates/**', 'scripts/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/plugins.yml']
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 concurrency:
@@ -45,12 +46,19 @@ jobs:
             name: macOS-universal
           - os: windows-latest
             name: Windows-x64
+          - os: ubuntu-22.04
+            name: Linux-x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Linux native editor and wrapper dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libx11-dev libx11-xcb-dev libxcb-util-dev libxcb-cursor-dev libxcb-keysyms1-dev libxkbcommon-x11-dev libasound2-dev xvfb dbus-x11
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
-          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
       - uses: actions/download-artifact@v4
         with:
           name: plugin-resources
@@ -65,13 +73,23 @@ jobs:
       - name: Configure Windows x64
         if: runner.os == 'Windows'
         run: cmake -S plugin -B output/plugin/build -A x64
+      - name: Configure Linux x86_64
+        if: runner.os == 'Linux'
+        run: cmake -S plugin -B output/plugin/build -DCMAKE_BUILD_TYPE=Release
       - name: Build instruments and offline checks
         run: cmake --build output/plugin/build --config Release --target rustias_clap rustias_vst3 rustias-runtime-check rustias-engine-check rustias-host-check rustias-editor-check --parallel 4
       - name: Build AU
         if: runner.os == 'macOS'
         run: cmake --build output/plugin/build --target rustias_au rustias-au-check --parallel 4
       - name: Verify shared engine and project state silently
+        if: runner.os != 'Linux'
         run: ctest --test-dir output/plugin/build -C Release --output-on-failure
+      - name: Verify Linux native engine, state and embedded editor silently
+        if: runner.os == 'Linux'
+        env:
+          GDK_BACKEND: x11
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a dbus-run-session -- ctest --test-dir output/plugin/build -C Release --output-on-failure
       - name: Native Windows failure diagnostics
         if: failure() && runner.os == 'Windows'
         shell: pwsh
@@ -86,6 +104,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/package-plugin-windows.ps1
+      - name: Package Linux installers
+        if: runner.os == 'Linux'
+        run: python3 scripts/package-plugin-linux.py
       - name: Build Steinberg validator (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -100,10 +121,19 @@ jobs:
           cmake --build output/plugin/validator --target validator --config Release --parallel 4
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & output/plugin/validator/bin/Release/validator.exe output/plugin/build/Release/Rustias.vst3
+      - name: Build Steinberg validator (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S output/plugin/build/cpm/vst3sdk -B output/plugin/validator -DCMAKE_BUILD_TYPE=Release -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF
+          cmake --build output/plugin/validator --target validator --parallel 4
+          xvfb-run -a output/plugin/validator/bin/Release/validator output/plugin/build/VST3/Release/Rustias.vst3
       - uses: actions/upload-artifact@v4
         with:
-          name: Rustias-${{ matrix.name }}-AU-VST3
+          name: Rustias-${{ matrix.name }}-plugins
           path: |
             output/plugin/packages/*.zip
             output/plugin/packages/*.pkg
+            output/plugin/packages/*.exe
+            output/plugin/packages/*.deb
+            output/plugin/packages/*.run
           retention-days: 30

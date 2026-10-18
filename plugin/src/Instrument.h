@@ -31,6 +31,7 @@ struct Instrument {
   double rate=48000,previousBeat=0,previousFrames=0,previousTempo=120;
   bool active=false,hostPlaying=false,haveTransport=false;
   unsigned width=1100,height=800;
+  clap_id editorTimer=CLAP_INVALID_ID;
   explicit Instrument(const clap_host_t*,std::string);
   ~Instrument();
   bool activate(double);

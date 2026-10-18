@@ -4,6 +4,8 @@
 #include <filesystem>
 #ifdef _WIN32
 #include <windows.h>
+#elif defined(__linux__)
+#include <dlfcn.h>
 #endif
 #include <algorithm>
 #include <cmath>
@@ -18,16 +20,21 @@ static Instrument& self(const clap_plugin_t* p){return *static_cast<Instrument*>
 #ifdef _WIN32
 #define RUSTIAS_WINDOW_API CLAP_WINDOW_API_WIN32
 #define RUSTIAS_WINDOW_HANDLE(window) window->win32
+#elif defined(__linux__)
+#define RUSTIAS_WINDOW_API CLAP_WINDOW_API_X11
+#define RUSTIAS_WINDOW_HANDLE(window) reinterpret_cast<void*>(uintptr_t(window->x11))
 #else
 #define RUSTIAS_WINDOW_API CLAP_WINDOW_API_COCOA
 #define RUSTIAS_WINDOW_HANDLE(window) window->cocoa
 #endif
 static std::string bundleResources;
 static const char* features[]={CLAP_PLUGIN_FEATURE_INSTRUMENT,CLAP_PLUGIN_FEATURE_SYNTHESIZER,CLAP_PLUGIN_FEATURE_STEREO,nullptr};
-static const clap_plugin_descriptor_t descriptor={CLAP_VERSION,"io.github.fushugaku.rustias","Rustias","Rustias","https://github.com/fushugaku/Rustias","","","0.1.5","The shared firmware-free Rustias engine",features};
+static const clap_plugin_descriptor_t descriptor={CLAP_VERSION,"io.github.fushugaku.rustias","Rustias","Rustias","https://github.com/fushugaku/Rustias","","",RUSTIAS_PLUGIN_VERSION,"The shared firmware-free Rustias engine",features};
 
 Instrument::Instrument(const clap_host_t* h,std::string r):host(h),resources(std::move(r)){parameters[8]=30;}
-Instrument::~Instrument()=default;
+Instrument::~Instrument(){
+  if(editorTimer!=CLAP_INVALID_ID)if(auto timer=static_cast<const clap_host_timer_support_t*>(host->get_extension(host,CLAP_EXT_TIMER_SUPPORT)))timer->unregister_timer(host,editorTimer);
+}
 void Instrument::publish(std::string message){auto w=outgoingWrite.load(std::memory_order_relaxed);unsigned next=(w+1)%outgoing.size();if(next==outgoingRead.load(std::memory_order_acquire))return;outgoing[w]=std::move(message);outgoingWrite.store(next,std::memory_order_release);}
 bool Instrument::activate(double sampleRate){
   try{
@@ -162,10 +169,17 @@ static const clap_plugin_state_t state={
 static const clap_plugin_gui_t gui={
   [](const clap_plugin_t*,const char* api,bool floating){return !floating&&api&&std::strcmp(api,RUSTIAS_WINDOW_API)==0;},
   [](const clap_plugin_t*,const char** api,bool* floating){*api=RUSTIAS_WINDOW_API;*floating=false;return true;},
-  [](const clap_plugin_t* p,const char* api,bool floating){if(floating||!api||std::strcmp(api,RUSTIAS_WINDOW_API))return false;auto& s=self(p);if(!s.editor){s.editorReady=false;s.editor=std::make_unique<Editor>(s);}return true;},
+  [](const clap_plugin_t* p,const char* api,bool floating){
+    if(floating||!api||std::strcmp(api,RUSTIAS_WINDOW_API))return false;auto& s=self(p);
+    try{if(!s.editor){s.editorReady=false;s.editor=std::make_unique<Editor>(s);
+#ifdef __linux__
+      if(auto timer=static_cast<const clap_host_timer_support_t*>(s.host->get_extension(s.host,CLAP_EXT_TIMER_SUPPORT)))timer->register_timer(s.host,16,&s.editorTimer);
+#endif
+    }return true;}catch(const std::exception& e){s.lastError=e.what();return false;}
+  },
   // GUI lifetime is independent of the native engine and saved program. AU
   // creates a fresh embedded view on reopen without an explicit show callback.
-  [](const clap_plugin_t* p){auto& s=self(p);s.editor.reset();s.editorReady=false;},
+  [](const clap_plugin_t* p){auto& s=self(p);if(s.editorTimer!=CLAP_INVALID_ID){if(auto timer=static_cast<const clap_host_timer_support_t*>(s.host->get_extension(s.host,CLAP_EXT_TIMER_SUPPORT)))timer->unregister_timer(s.host,s.editorTimer);s.editorTimer=CLAP_INVALID_ID;}s.editor.reset();s.editorReady=false;},
   [](const clap_plugin_t*,double){return true;},
   [](const clap_plugin_t* p,uint32_t* w,uint32_t* h){*w=self(p).width;*h=self(p).height;return true;},
   [](const clap_plugin_t*){return true;},
@@ -180,6 +194,7 @@ static const clap_plugin_gui_t gui={
 };
 static const clap_plugin_latency_t latency={[](const clap_plugin_t*)->uint32_t{return 128;}};
 static const clap_plugin_tail_t tail={[](const clap_plugin_t*)->uint32_t{return INT32_MAX;}};
+static const clap_plugin_timer_support_t editorTimerSupport={[](const clap_plugin_t* p,clap_id){if(self(p).editor)self(p).editor->poll();}};
 static const clap_plugin_t* create(const clap_plugin_factory_t*,const clap_host_t* host,const char* id){
   if(!host||!clap_version_is_compatible(host->clap_version)||std::strcmp(id,descriptor.id))return nullptr;
   auto s=new Instrument(host,bundleResources);s->api={&descriptor,s,
@@ -191,7 +206,7 @@ static const clap_plugin_t* create(const clap_plugin_factory_t*,const clap_host_
     [](const clap_plugin_t* p){if(self(p).runtime)try{self(p).runtime->message("{\"type\":\"stop\"}");}catch(...){}},
     [](const clap_plugin_t* p){if(self(p).runtime)try{self(p).runtime->message("{\"type\":\"stop\"}");}catch(...){}},
     [](const clap_plugin_t* p,const clap_process_t* process){return self(p).process(process);},
-    [](const clap_plugin_t*,const char* id)->const void*{if(!std::strcmp(id,CLAP_EXT_AUDIO_PORTS))return &audioPorts;if(!std::strcmp(id,CLAP_EXT_NOTE_PORTS))return &notePorts;if(!std::strcmp(id,CLAP_EXT_PARAMS))return &params;if(!std::strcmp(id,CLAP_EXT_STATE))return &state;if(!std::strcmp(id,CLAP_EXT_GUI))return &gui;if(!std::strcmp(id,CLAP_EXT_LATENCY))return &latency;if(!std::strcmp(id,CLAP_EXT_TAIL))return &tail;return nullptr;},
+    [](const clap_plugin_t*,const char* id)->const void*{if(!std::strcmp(id,CLAP_EXT_AUDIO_PORTS))return &audioPorts;if(!std::strcmp(id,CLAP_EXT_NOTE_PORTS))return &notePorts;if(!std::strcmp(id,CLAP_EXT_PARAMS))return &params;if(!std::strcmp(id,CLAP_EXT_STATE))return &state;if(!std::strcmp(id,CLAP_EXT_GUI))return &gui;if(!std::strcmp(id,CLAP_EXT_LATENCY))return &latency;if(!std::strcmp(id,CLAP_EXT_TAIL))return &tail;if(!std::strcmp(id,CLAP_EXT_TIMER_SUPPORT))return &editorTimerSupport;return nullptr;},
     [](const clap_plugin_t* p){if(self(p).editor)self(p).editor->poll();}
   };return &s->api;
 }
@@ -202,6 +217,9 @@ extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry={CLAP_VERSION,
 #ifdef _WIN32
     HMODULE module=nullptr;GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(&clap_entry),&module);
     wchar_t file[32768];if(GetModuleFileNameW(module,file,32768))p=file;
+    bundleResources=utf8(p.extension()==".clap"?p.parent_path()/"Rustias.resources":p.parent_path().parent_path()/"Resources");
+#elif defined(__linux__)
+    Dl_info module{};if(dladdr(&clap_entry,&module)&&module.dli_fname)p=module.dli_fname;
     bundleResources=utf8(p.extension()==".clap"?p.parent_path()/"Rustias.resources":p.parent_path().parent_path()/"Resources");
 #else
     while(p.has_parent_path()&&p.extension()!=".clap"&&p!=p.parent_path())p=p.parent_path();bundleResources=utf8(p/"Contents/Resources");
