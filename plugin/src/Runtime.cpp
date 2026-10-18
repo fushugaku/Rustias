@@ -40,6 +40,15 @@ JSValueRef Runtime::readBuffer(JSContextRef ctx,JSObjectRef,JSObjectRef,size_t c
   if(!rustias_native_read(self->engine.handle,uint32_t(token),bytes,size_t(length)*(floating?sizeof(float):1)))return nativeError(ctx,exception,"Expired or invalid native buffer");
   return view;
 }
+JSValueRef Runtime::readBufferInto(JSContextRef ctx,JSObjectRef,JSObjectRef,size_t count,const JSValueRef args[],JSValueRef* exception){
+  if(count!=2)return nativeError(ctx,exception,"Invalid native buffer read");
+  auto self=static_cast<Runtime*>(JSObjectGetPrivate(JSContextGetGlobalObject(ctx)));
+  auto token=JSValueToNumber(ctx,args[0],exception);auto view=JSValueToObject(ctx,args[1],exception);if(*exception)return JSValueMakeUndefined(ctx);
+  auto length=JSObjectGetTypedArrayByteLength(ctx,view,exception);if(*exception)return JSValueMakeUndefined(ctx);
+  auto bytes=static_cast<uint8_t*>(JSObjectGetTypedArrayBytesPtr(ctx,view,exception));if(*exception)return JSValueMakeUndefined(ctx);
+  if(!rustias_native_read(self->engine.handle,uint32_t(token),bytes,length))return nativeError(ctx,exception,"Expired or invalid native buffer");
+  return JSValueMakeUndefined(ctx);
+}
 JSValueRef Runtime::writeBuffer(JSContextRef ctx,JSObjectRef,JSObjectRef,size_t count,const JSValueRef args[],JSValueRef* exception){
   if(count!=2)return nativeError(ctx,exception,"Invalid native buffer write");
   auto self=static_cast<Runtime*>(JSObjectGetPrivate(JSContextGetGlobalObject(ctx)));
@@ -61,17 +70,18 @@ Runtime::Runtime(const std::string& resources,double rate){
       bindings[i]={this,i};auto name=JSStringCreateWithUTF8CString(rustias_native_method_name(i));auto method=JSObjectMake(context,nativeClass,&bindings[i]);
       JSObjectSetProperty(context,a,name,method,kJSPropertyAttributeReadOnly,nullptr);JSStringRelease(name);
     }JSClassRelease(nativeClass);
-    for(auto pair:{std::pair{"readBuffer",readBuffer},std::pair{"writeBuffer",writeBuffer}}){auto name=JSStringCreateWithUTF8CString(pair.first);auto method=JSObjectMakeFunctionWithCallback(context,name,pair.second);JSObjectSetProperty(context,a,name,method,kJSPropertyAttributeReadOnly,nullptr);JSStringRelease(name);}
+    for(auto pair:{std::pair{"readBuffer",readBuffer},std::pair{"readBufferInto",readBufferInto},std::pair{"writeBuffer",writeBuffer}}){auto name=JSStringCreateWithUTF8CString(pair.first);auto method=JSObjectMakeFunctionWithCallback(context,name,pair.second);JSObjectSetProperty(context,a,name,method,kJSPropertyAttributeReadOnly,nullptr);JSStringRelease(name);}
     JSValueRef args[]={a,JSValueMakeNumber(context,rate)};call(function("pluginBoot"),2,args);
     JSValueUnprotect(context,a);
-    receiver=function("pluginMessage");renderer=function("pluginRender");midiFn=function("pluginMidi");paramFn=function("pluginParameter");statsFn=function("pluginStats");
-    for(auto f:{receiver,renderer,midiFn,paramFn,statsFn})JSValueProtect(context,f);
+    receiver=function("pluginMessage");renderer=function("pluginRender");midiFn=function("pluginMidi");paramFn=function("pluginParameter");statsFn=function("pluginStats");telemetryFn=function("pluginTelemetry");
+    for(auto f:{receiver,renderer,midiFn,paramFn,statsFn,telemetryFn})JSValueProtect(context,f);
   }catch(...){JSGlobalContextRelease(context);context=nullptr;throw;}
 }
-Runtime::~Runtime(){if(context){for(auto f:{receiver,renderer,midiFn,paramFn,statsFn})JSValueUnprotect(context,f);JSGlobalContextRelease(context);}}
+Runtime::~Runtime(){if(context){for(auto f:{receiver,renderer,midiFn,paramFn,statsFn,telemetryFn})JSValueUnprotect(context,f);JSGlobalContextRelease(context);}}
 void Runtime::message(const std::string& json){auto s=JSStringCreateWithUTF8CString(json.c_str());auto v=JSValueMakeFromJSONString(context,s);JSStringRelease(s);if(!v)throw std::runtime_error("Invalid host message");call(receiver,1,&v);}
 void Runtime::midi(unsigned char a,unsigned char b,unsigned char c){JSValueRef args[]={JSValueMakeNumber(context,a),JSValueMakeNumber(context,b),JSValueMakeNumber(context,c)};call(midiFn,3,args);}
 void Runtime::parameter(unsigned i,double v){JSValueRef args[]={JSValueMakeNumber(context,i),JSValueMakeNumber(context,v)};call(paramFn,2,args);}
+void Runtime::telemetry(bool enabled){if(telemetryEnabled==enabled)return;JSValueRef value=JSValueMakeBoolean(context,enabled);call(telemetryFn,1,&value);telemetryEnabled=enabled;}
 void Runtime::render(float* left,float* right,unsigned frames){
   JSValueRef n=JSValueMakeNumber(context,frames);auto result=JSValueToObject(context,call(renderer,1,&n),nullptr);JSValueProtect(context,result);
   for(unsigned channel=0;channel<2;channel++){

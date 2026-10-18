@@ -13,9 +13,13 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.wasm.rustias_init();
     this.gain = options.processorOptions.gain ?? 0.3;
     this.nativeIndex = 128;
+    this.nativeLength = 128;
+    this.nativePhase = 0;
     this.phase = 0;
     this.currentLeft = this.currentRight = this.nextLeft = this.nextRight = 0;
     this.callbacks = 0;
+    this.statsFrames = 0;
+    this.statsEnabled = true;
     this.audibleFrames = 0;
     this.peak = 0;
     this.failed = false;
@@ -23,6 +27,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.libraryProfiles=new Map();
     this.manualNotes=new Set();this.sequenceNotes=new Map();this.auditionNotes=new Set();
     this.nativeModulation=options.processorOptions.nativeModulation;
+    this.nativeStreaming=!!this.nativeModulation&&typeof this.wasm.rustias_render_frames==='function';
     this.sequencer=options.processorOptions.sequencer??new SequenceClock((t,n,v)=>this.ownedNote(t,n,v,true));
     this.audition=new StepAudition((t,n,v)=>this.ownedNote(t,n,v,"audition"));
     this.modulationHost=this.nativeModulation?null:new ModulationHost(this);
@@ -86,7 +91,7 @@ class RustiasProcessor extends AudioWorkletProcessor {
             this.sequencer.stop();this.audition.stop();this.manualNotes.clear();this.sequenceNotes.clear();this.auditionNotes.clear();
             this.modulation.stop();
             this.sequencer.setTempo(this.wasm.rustias_value(0,89)/10);
-            this.nativeIndex = 128; this.phase = 0;
+            this.nativeIndex = this.nativeLength = 128; this.nativePhase = 0; this.phase = 0;
             this.currentLeft = this.currentRight = this.nextLeft = this.nextRight = 0;
           }
         }
@@ -156,20 +161,29 @@ class RustiasProcessor extends AudioWorkletProcessor {
     this.recording.stop();
     this.port.postMessage({ type: "error", message: error.message ?? String(error) });
   }
-  nativeSample() {
+  nativeBlock(needed=128) {
     if(this.wasm.memory&&this.block&&this.block.buffer!==this.wasm.memory.buffer)this.block=engineFloats(this.wasm,this.pointer,256);
-    if (this.nativeIndex === 128) {
-      if(!this.nativeModulation){const tempo=this.wasm.rustias_value(0,89)/10;this.modulation.clock.setTempo(tempo);this.modulation.beforeRender(128);}
-      const sequenceTempo=this.wasm.rustias_value(0,89)/10;if(sequenceTempo!==this.sequencer.tempo)this.sequencer.setTempo(sequenceTempo);
-      this.sequencer.beforeRender(128);this.audition.beforeRender(128);
-      const pointer = this.wasm.rustias_render();
+    if (this.nativeIndex === this.nativeLength) {
+      const count=this.nativeStreaming?Math.min(needed,128-this.nativePhase):128;
+      if(!this.nativeModulation){
+        const tempo=this.wasm.rustias_value(0,89)/10;this.modulation.clock.setTempo(tempo);this.modulation.beforeRender(128);
+        if(tempo!==this.sequencer.tempo)this.sequencer.setTempo(tempo);
+        this.sequencer.beforeRender(128);
+      }
+      this.audition.beforeRender(count);
+      const pointer = this.nativeStreaming?this.wasm.rustias_render_frames(count):this.wasm.rustias_render();
       // Copy the render token before another native ABI call invalidates it.
       if (this.wasm.readBuffer || this.pointer !== pointer || this.block?.buffer !== this.wasm.memory.buffer) {
-        this.pointer = pointer; this.block = engineFloats(this.wasm,pointer,256);
+        this.pointer = pointer; this.block = engineFloats(this.wasm,pointer,256,this.block);
       }
       if(this.nativeModulation)this.gain=this.wasm.rustias_modulation_gain();
+      if(this.nativeStreaming)this.nativePhase=(this.nativePhase+count)%128;
+      this.nativeLength=count;
       this.nativeIndex = 0;
     }
+  }
+  nativeSample(needed=128) {
+    this.nativeBlock(needed);
     const index = this.nativeIndex++ * 2;
     this.nativeLeft = this.block[index]; this.nativeRight = this.block[index + 1];
   }
@@ -177,12 +191,16 @@ class RustiasProcessor extends AudioWorkletProcessor {
     const [left, right] = outputs[0];
     if (this.failed || !left || !right) return true;
     try {
-      for (let i = 0; i < left.length; i++) {
-        if (sampleRate === 48000) {
-          this.nativeSample();
-          left[i] = this.nativeLeft * this.gain;
-          right[i] = this.nativeRight * this.gain;
-        } else {
+      if(sampleRate===48000){
+        let at=0;
+        while(at<left.length){
+          this.nativeBlock(left.length-at);
+          const count=Math.min(left.length-at,this.nativeLength-this.nativeIndex),start=this.nativeIndex*2,gain=this.gain;
+          for(let i=0;i<count;i++){left[at+i]=this.block[start+i*2]*gain;right[at+i]=this.block[start+i*2+1]*gain;}
+          this.nativeIndex+=count;at+=count;
+        }
+      }else{
+        for (let i = 0; i < left.length; i++) {
           const fraction = this.phase / sampleRate;
           left[i] = (this.currentLeft + (this.nextLeft - this.currentLeft) * fraction) * this.gain;
           right[i] = (this.currentRight + (this.nextRight - this.currentRight) * fraction) * this.gain;
@@ -190,19 +208,26 @@ class RustiasProcessor extends AudioWorkletProcessor {
           while (this.phase >= sampleRate) {
             this.phase -= sampleRate;
             this.currentLeft = this.nextLeft; this.currentRight = this.nextRight;
-            this.nativeSample();
+            // Include the remaining pulls in this host buffer, including any
+            // extra native samples needed by the current resampling loop.
+            this.nativeSample(1+Math.floor((this.phase+48000*(left.length-i-1))/sampleRate));
             this.nextLeft = this.nativeLeft; this.nextRight = this.nativeRight;
           }
         }
       }
       this.recording.capture(left, right);
-      for (let i = 0; i < left.length; i++) {
-        this.peak = Math.max(this.peak, Math.abs(left[i]), Math.abs(right[i]));
-        if (left[i] !== 0 || right[i] !== 0) this.audibleFrames++;
-      }
-      if (++this.callbacks % 20 === 0) {
-        this.port.postMessage({ type: "stats", voices: this.wasm.rustias_voices(), capacity:this.wasm.rustias_voice_capacity(), frames: this.wasm.rustias_frames(), audibleFrames: this.audibleFrames, peak: this.peak, callbacks: this.callbacks, sequence: this.sequencer.status(),modulation:this.modulationStatus() });
-        this.peak = 0;
+      this.callbacks++;
+      if(this.statsEnabled){
+        for (let i = 0; i < left.length; i++) {
+          this.peak = Math.max(this.peak, Math.abs(left[i]), Math.abs(right[i]));
+          if (left[i] !== 0 || right[i] !== 0) this.audibleFrames++;
+        }
+        this.statsFrames+=left.length;
+        if (this.statsFrames >= sampleRate/20) {
+          this.statsFrames%=sampleRate/20;
+          this.port.postMessage({ type: "stats", voices: this.wasm.rustias_voices(), capacity:this.wasm.rustias_voice_capacity(), frames: this.wasm.rustias_frames(), audibleFrames: this.audibleFrames, peak: this.peak, callbacks: this.callbacks, sequence: this.sequencer.status(),modulation:this.modulationStatus() });
+          this.peak = 0;
+        }
       }
     } catch (error) { this.fail(error); }
     return true;

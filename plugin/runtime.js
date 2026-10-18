@@ -62,8 +62,9 @@ globalThis.pluginMidi=(a,b,c)=>pluginMessage({type:'midi',bytes:[a,b,c]});
 globalThis.pluginRender=frames=>{
   if(frames!==left.length){let pair=buffers.get(frames);if(!pair){pair=[new Float32Array(frames),new Float32Array(frames)];buffers.set(frames,pair);}[left,right]=pair;outputs=[pair];}
   processor.process([],outputs);if(processor.failed)throw new Error('The shared audio worklet rejected a message.');
-  snapshotFrames=Math.min(sampleRate/30,snapshotFrames+frames);if(snapshotFrames>=sampleRate/30)flushMidiSnapshot();return [left,right];
+  snapshotFrames=Math.min(sampleRate/30,snapshotFrames+frames);if(snapshotFrames>=sampleRate/30)flushMidiSnapshot();return outputs[0];
 };
+globalThis.pluginTelemetry=enabled=>{processor.statsEnabled=enabled;processor.statsFrames=0;processor.peak=0;};
 globalThis.pluginParameter=(index,value)=>{
   processor.modulation.parameter(index,value);
 };

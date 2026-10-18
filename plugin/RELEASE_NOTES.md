@@ -1,12 +1,16 @@
 Native Rustias instrument: the same Rust synthesis engine as the browser version, compiled to native machine code. No firmware or WASM audio runtime required.
 
-This update speeds up the expanded filters through exact coefficient caching,
-specialized topology kernels and an exact saturation fast path. Their f64
-arithmetic and 2× oversampling are preserved. Before/after WASM PCM matches byte
-for byte across 279 scenarios and 3,428,352 stereo frames. Complete-render WASM
-measurements save about 4–7% for the tested Ladder, Pro and M/Poly patches;
-DAW performance depends on the host and patch. See the repository's
-[measurement details](https://github.com/fushugaku/Rustias/blob/main/docs/filter-performance.md).
+This update removes native 128-frame pre-render queues that caused CPU bursts
+with multiple AU/VST3/CLAP instances and short DAW buffers. Rendering follows the
+host's requested frames while retaining the existing modulation/FX controller
+quantum and DSP arithmetic. PCM buffers are reused, the sampler visits occupied
+voice slots, and editor telemetry runs at 20 Hz only while its window is visible.
+Reported plugin latency now reflects the actual output path.
+
+Native PCM before/after matches bit for bit across 125 scenarios and 1,047,680
+stereo frames. Browser PCM also remains byte-identical across 279 scenarios.
+Streaming checks cover 1/17/32/64/128/257/512-frame buffers at 44.1/48/96 kHz,
+held modulation and macro edits, recording and four concurrent instances.
 
 | System | Installer | Formats |
 | --- | --- | --- |
@@ -28,10 +32,15 @@ All builds pass offline native/WASM PCM and state checks. macOS also runs AU val
 
 Нативный Rustias для macOS, Windows и Linux. Звук считает общий Rust-движок, без прошивки и без WASM в аудиотракте.
 
-Обновление ускоряет новые фильтры, сохраняя f64, двойную передискретизацию и
-побайтовое совпадение проверенного звука. В замерах полного WASM-рендера расход
-CPU на проверенных патчах Ladder, Pro и M/Poly снизился примерно на 4–7%.
-Производительность в DAW зависит от хоста и патча.
+Обновление убирает предварительный расчёт 128 сэмплов в нативных плагинах,
+который создавал пики CPU при нескольких экземплярах и коротких буферах DAW.
+Аудиобуферы переиспользуются, самплер обходит занятые голоса, телеметрия работает
+с частотой 20 Гц только при видимом редакторе. Частота модуляции и DSP-арифметика
+сохранены, заявленная задержка соответствует аудиотракту.
+
+Нативный PCM до и после совпал побитово в 125 сценариях — 1 047 680 стереосэмплов.
+Проверены буферы 1–512 сэмплов при 44,1/48/96 кГц, изменения MIDI/макросов внутри
+блока, сохранение модуляции, запись и четыре одновременных экземпляра.
 
 Скачайте установщик для своей системы из таблицы выше. Перед установкой закройте DAW, после — запустите её и обновите список плагинов. В Windows можно выбрать VST3 и CLAP; недостающие компоненты Microsoft устанавливаются автоматически. Для Linux нужны Python 3, WebKitGTK 4.1 версии 2.40+ и X11/XWayland.
 

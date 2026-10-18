@@ -17,6 +17,7 @@ public:
   void midi(unsigned char a,unsigned char b,unsigned char c);
   void parameter(unsigned index,double value);
   void render(float* left,float* right,unsigned frames);
+  void telemetry(bool enabled);
   std::vector<std::string> takeMessages();
   std::string stats();
   bool failed()const{return failure;}
@@ -27,7 +28,7 @@ private:
   std::unique_ptr<Portable> portable;
 #else
   JSGlobalContextRef context=nullptr;
-  JSObjectRef receiver=nullptr,renderer=nullptr,midiFn=nullptr,paramFn=nullptr,statsFn=nullptr;
+  JSObjectRef receiver=nullptr,renderer=nullptr,midiFn=nullptr,paramFn=nullptr,statsFn=nullptr,telemetryFn=nullptr;
   std::vector<std::string> outgoing;
   NativeEngine engine;
   struct Binding { Runtime* owner; unsigned method; };
@@ -39,8 +40,10 @@ private:
   static JSValueRef post(JSContextRef,JSObjectRef,JSObjectRef,size_t,const JSValueRef[],JSValueRef*);
   static JSValueRef invoke(JSContextRef,JSObjectRef,JSObjectRef,size_t,const JSValueRef[],JSValueRef*);
   static JSValueRef readBuffer(JSContextRef,JSObjectRef,JSObjectRef,size_t,const JSValueRef[],JSValueRef*);
+  static JSValueRef readBufferInto(JSContextRef,JSObjectRef,JSObjectRef,size_t,const JSValueRef[],JSValueRef*);
   static JSValueRef writeBuffer(JSContextRef,JSObjectRef,JSObjectRef,size_t,const JSValueRef[],JSValueRef*);
 #endif
   std::string errorText;
   bool failure=false;
+  bool telemetryEnabled=true;
 };

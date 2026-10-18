@@ -89,6 +89,11 @@ thread-local singleton for multiple DAW instances or for thread migration.
 The JS editor/control/output adapter remains shared with web/worklet.js:
 JavaScriptCore on macOS, QuickJS-NG on Windows/Linux. WebAssembly is disabled in that
 context; do not reintroduce a WASM audio fallback, JS modulation clock or Wasmtime.
+Native plugins stream only the requested audio frames; Synthesizer's 128-frame
+pre-render buffer is WASM-only. Keep the 128-frame modulation/FX-controller quantum
+independent of host buffer size, and reapply held offsets after mid-quantum edits
+without advancing clocks. Reuse native PCM views through readBufferInto. Editor
+telemetry is limited to 20 Hz and disabled while the editor is hidden or closed.
 DAW transport supplies native modulation tempo and PPQ on start/seek/loop;
 live MIDI runs it with the configured KeySync even while transport is stopped.
 WKWebView/WebView2/WebKitGTK

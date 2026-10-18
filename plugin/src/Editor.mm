@@ -59,5 +59,11 @@ bool Editor::parent(void* parent){if(!parent)return false;auto p=(__bridge NSVie
 void Editor::size(unsigned w,unsigned h){[impl->web setFrameSize:NSMakeSize(w,h)];}
 // Hosts may call show after hide without setting the parent again.
 void Editor::show(bool visible){impl->web.hidden=!visible;}
-void Editor::poll(){auto messages=impl->instrument.pull();if(messages.empty())return;std::string script="[";for(auto& s:messages){if(script.size()>1)script+=",";script+=s;}script+="].forEach(data=>window.__rustiasPluginReceive?.(data))";[impl->web evaluateJavaScript:string(script) completionHandler:nil];}
+void Editor::poll(){
+  // Logic can retain a detached Cocoa view across close / power cycles without
+  // calling CLAP hide. Read visibility on the UI thread, never from audio.
+  auto window=impl->web.window;
+  impl->instrument.editorVisible=window&&window.visible&&!impl->web.hiddenOrHasHiddenAncestor;
+  auto messages=impl->instrument.pull();if(messages.empty())return;std::string script="[";for(auto& s:messages){if(script.size()>1)script+=",";script+=s;}script+="].forEach(data=>window.__rustiasPluginReceive?.(data))";[impl->web evaluateJavaScript:string(script) completionHandler:nil];
+}
 void Editor::restore(){[impl->web evaluateJavaScript:[NSString stringWithFormat:@"window.__rustiasPluginRestore?.(%@)",string(impl->instrument.initialState())] completionHandler:nil];}

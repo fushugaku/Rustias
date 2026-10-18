@@ -496,10 +496,23 @@ pub extern "C" fn rustias_render() -> *const f32 {
         let Some(e) = state.as_mut() else {
             return std::ptr::null();
         };
-        e.peak = 0.0;
-        e.update_effect_controllers();
+        e.render_range(0, 128, true);
+        e.output.as_ptr()
+    })
+}
+
+impl WebEngine {
+    // The native host can split an audio block without changing the 128-frame
+    // modulation / FX-controller quantum or any per-sample DSP arithmetic.
+    fn render_range(&mut self, offset: usize, count: usize, begin: bool) {
+        let e = self;
+        if begin {
+            e.peak = 0.0;
+            e.update_effect_controllers();
+        }
+        e.sampler.prepare_render();
         let fx_active = e.effects.active();
-        for frame in e.output.chunks_exact_mut(2) {
+        for frame in e.output[offset * 2..(offset + count) * 2].chunks_exact_mut(2) {
             if fx_active {
                 let mut buses = e.synth.engine.sample_buses()[0];
                 let pcm = e.sampler.sample_buses(&e.synth);
@@ -532,9 +545,8 @@ pub extern "C" fn rustias_render() -> *const f32 {
             }
             e.peak = e.peak.max(frame[0].abs()).max(frame[1].abs());
         }
-        e.frames = e.frames.wrapping_add(128);
-        e.output.as_ptr()
-    })
+        e.frames = e.frames.wrapping_add(count as u32);
+    }
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn rustias_voices() -> u32 {

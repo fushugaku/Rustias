@@ -7,6 +7,10 @@ export function engineWrite(api,pointer,view){
 export function engineBytes(api,pointer,length){
   return api.readBuffer?api.readBuffer(pointer,length,false):new Uint8Array(api.memory.buffer,pointer,length);
 }
-export function engineFloats(api,pointer,length){
+export function engineFloats(api,pointer,length,reuse){
+  if(api.readBufferInto){
+    const view=reuse?.length===length?reuse:new Float32Array(length);
+    api.readBufferInto(pointer,view);return view;
+  }
   return api.readBuffer?api.readBuffer(pointer,length,true):new Float32Array(api.memory.buffer,pointer,length);
 }

@@ -113,6 +113,15 @@ pub static METHODS: &[Method] = &[
             )
         },
     },
+    Method {
+        name: b"rustias_render_frames\0",
+        arguments: 1,
+        invoke: |args| Value::Buffer(
+            rustias_render_frames(args[0] as usize).cast_mut().cast(),
+            256 * size_of::<f32>(),
+            false,
+        ),
+    },
     number!(rustias_voices()),
     number!(rustias_frames()),
     number!(rustias_peak()),
@@ -224,6 +233,28 @@ fn rustias_modulation_status() -> u32 {
     }
 }
 
+fn rustias_render_frames(count: usize) -> *const f32 {
+    ACTIVE.with(|active| {
+        let host = unsafe { &*active.get() };
+        let mut offset = 0;
+        while offset < count {
+            let phase = host.render_phase.get();
+            if phase == 0 {
+                host.modulation.borrow_mut().before_render(128);
+            } else {
+                host.modulation.borrow_mut().resume_render();
+            }
+            let length = (count - offset).min(128 - phase);
+            let mut engine = host.engine.borrow_mut();
+            let Some(engine) = engine.as_mut() else { return std::ptr::null(); };
+            engine.render_range(offset, length, phase == 0);
+            host.render_phase.set((phase + length) % 128);
+            offset += length;
+        }
+        host.engine.borrow().as_ref().map_or(std::ptr::null(), |e| e.output.as_ptr())
+    })
+}
+
 struct Region {
     token: u32,
     pointer: *mut u8,
@@ -236,6 +267,7 @@ pub struct NativeHost {
     modulation: RefCell<Modulation>,
     region: Option<Region>,
     serial: u32,
+    render_phase: Cell<usize>,
 }
 impl Default for NativeHost {
     fn default() -> Self {
@@ -244,6 +276,7 @@ impl Default for NativeHost {
             modulation: RefCell::new(Modulation::default()),
             region: None,
             serial: 0,
+            render_phase: Cell::new(0),
         }
     }
 }
@@ -253,13 +286,24 @@ impl NativeHost {
         if args.len() != method.arguments || args.iter().any(|v| !v.is_finite()) {
             return None;
         }
+        if method.name == b"rustias_render_frames\0"
+            && (!(1.0..=128.0).contains(&args[0]) || args[0].fract() != 0.0)
+        {
+            return None;
+        }
         // A token never exposes a process address to JavaScript. Any subsequent
         // engine operation revokes it, including operations that reallocate PCM.
         self.region = None;
         let _scope = Scope(ACTIVE.with(|active| active.replace(self)));
         match method.name {
-            b"rustias_init\0" => *self.modulation.borrow_mut() = Modulation::default(),
-            b"rustias_render\0" => self.modulation.borrow_mut().before_render(128),
+            b"rustias_init\0" => {
+                *self.modulation.borrow_mut() = Modulation::default();
+                self.render_phase.set(0);
+            }
+            b"rustias_render\0" => {
+                self.render_phase.set(0);
+                self.modulation.borrow_mut().before_render(128);
+            }
             b"rustias_save\0" => self.modulation.borrow_mut().restore(),
             b"rustias_stop\0" => self.modulation.borrow_mut().stop(),
             b"rustias_load\0" => {
@@ -276,6 +320,7 @@ impl NativeHost {
         }
         let result = (method.invoke)(args);
         match method.name {
+            b"rustias_load\0" if matches!(result, Value::Number(v) if v != 0.) => self.render_phase.set(0),
             b"rustias_note\0" if matches!(result, Value::Number(v) if v != 0.) => self
                 .modulation
                 .borrow_mut()

@@ -8,6 +8,7 @@
 #include <vector>
 #include <thread>
 #include <array>
+#include <bit>
 using Json=nlohmann::json;
 static void require(bool b,const std::string& message){if(!b)throw std::runtime_error(message);}
 static bool equivalent(const Json& a,const Json& b){
@@ -29,6 +30,8 @@ struct Engine {
 int main(int argc,char** argv){try{
   require(argc==2,"Browser parity fixture required");std::ifstream input(argv[1]);auto fixtures=Json::parse(input);unsigned total=0;
   for(auto& scenario:fixtures.at("cases")){
+    std::vector<float> original;size_t compared=0;
+    for(bool streamed:{false,true}){
     std::exception_ptr scenarioError;std::thread audioThread([&]{try{
     std::cerr<<"Native scenario: "<<scenario["name"].get<std::string>()<<"\n";
     Engine e;uint32_t buffer=0;double worst=0;
@@ -39,7 +42,19 @@ int main(int argc,char** argv){try{
       else if(op.contains("floats"))e.write(buffer,op["floats"].get<std::vector<float>>());
       else if(op.contains("render")){
         const auto expected=op["expected"].get<std::vector<float>>();size_t at=0;double squares=0,maxError=0;std::vector<float> block(256);
-        for(unsigned b=0;b<op["render"].get<unsigned>();b++){auto token=uint32_t(e.call("rustias_render"));e.read(token,block);for(auto value:block){require(std::isfinite(value),"Native PCM must be finite");auto delta=double(value)-expected.at(at++);squares+=delta*delta;maxError=std::max(maxError,std::abs(delta));}}
+        for(unsigned b=0;b<op["render"].get<unsigned>();b++){
+          unsigned remaining=128;
+          do{
+            const unsigned count=streamed?std::min(remaining,std::array{1u,7u,17u,31u,32u,64u,113u,128u}[(b+remaining)%8]):128;
+            auto token=uint32_t(streamed?e.call("rustias_render_frames",{double(count)}):e.call("rustias_render"));e.read(token,block);
+            for(unsigned i=0;i<count*2;i++){
+              auto value=block[i];require(std::isfinite(value),"Native PCM must be finite");
+              if(streamed)require(std::bit_cast<uint32_t>(value)==std::bit_cast<uint32_t>(original.at(compared++)),"Splitting native blocks preserves every PCM bit");else original.push_back(value);
+              auto delta=double(value)-expected.at(at++);squares+=delta*delta;maxError=std::max(maxError,std::abs(delta));
+            }
+            remaining-=count;
+          }while(remaining);
+        }
         auto rms=std::sqrt(squares/expected.size());worst=std::max(worst,maxError);
         require(maxError<.00005&&rms<.000005,"PCM parity: "+scenario["name"].get<std::string>()+" peak error="+std::to_string(maxError)+" RMS="+std::to_string(rms));
         if(op.contains("modulation")){const auto actual=orderedModulation(e.modulation()),expected=orderedModulation(op["modulation"]);if(!equivalent(actual,expected))std::cerr<<"Expected "<<expected.dump()<<"\nActual "<<actual.dump()<<"\n";require(equivalent(actual,expected),"Native modulation positions/values: "+scenario["name"].get<std::string>());}
@@ -47,9 +62,11 @@ int main(int argc,char** argv){try{
     }
     total++;std::cout<<scenario["name"].get<std::string>()<<": PCM/state passed (max error "<<worst<<")\n";
     }catch(...){scenarioError=std::current_exception();}});audioThread.join();if(scenarioError)std::rethrow_exception(scenarioError);
+    }
   }
   // The native ABI rejects stale/oversized writes and never shares instance state.
   Engine a,b;a.call("rustias_init");b.call("rustias_init");auto token=uint32_t(a.call("rustias_preset_buffer"));std::array<uint8_t,8> bytes{};
+  for(double count:{-1.,0.,.5,129.}){double value=0;require(!rustias_native_call(a.native.handle,a.names.at("rustias_render_frames"),&count,1,&value),"Invalid native render lengths fail before processing");}
   require(!rustias_native_read(b.native.handle,token,bytes.data(),bytes.size()),"Buffer tokens belong to an instance");
   a.call("rustias_preset_reserve",{131072});require(!rustias_native_write(a.native.handle,token,bytes.data(),bytes.size()),"Resizing revokes old tokens");
   token=uint32_t(a.call("rustias_render"));require(!rustias_native_write(a.native.handle,token,bytes.data(),bytes.size()),"Render buffers are read-only");

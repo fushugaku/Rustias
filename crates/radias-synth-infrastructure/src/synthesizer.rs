@@ -344,9 +344,9 @@ pub struct Synthesizer {
     vocoder: Option<Box<radias_synth_application::vocoder::VocoderRenderer>>,
     vocoder_program: Option<[u8; radias_synth_domain::vocoder_control::STORED_BYTES]>,
     effects: Option<Box<radias_synth_application::effect_audio::EffectAudioRack>>,
-    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    #[cfg(target_arch = "wasm32")]
     buffer: [[[StereoFrame; TIMBRE_COUNT]; 2]; 128],
-    #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+    #[cfg(target_arch = "wasm32")]
     position: usize,
     tuning: Option<(PitchTable, BandwidthTable)>,
     controller_tables: Option<ControllerTables>,
@@ -458,9 +458,9 @@ impl Synthesizer {
             vocoder: None,
             vocoder_program: None,
             effects: None,
-            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+            #[cfg(target_arch = "wasm32")]
             buffer: [[[StereoFrame::default(); TIMBRE_COUNT]; 2]; 128],
-            #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+            #[cfg(target_arch = "wasm32")]
             position: 128,
             tuning,
             controller_tables,
@@ -518,7 +518,7 @@ impl Synthesizer {
     }
     pub fn drum_kit(&mut self, kit: Box<radias_synth_application::drum_program::CompiledDrumKit>) {
         self.pool.stop();
-        #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+        #[cfg(target_arch = "wasm32")]
         {
             self.buffer
                 .fill([[StereoFrame::default(); TIMBRE_COUNT]; 2]);
@@ -559,7 +559,7 @@ impl Synthesizer {
     }
     pub fn clear_drums(&mut self) {
         self.pool.stop();
-        #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+        #[cfg(target_arch = "wasm32")]
         {
             self.buffer
                 .fill([[StereoFrame::default(); TIMBRE_COUNT]; 2]);
@@ -1364,8 +1364,9 @@ impl Synthesizer {
     /// pairs for the effects input. Master already includes Slave ingress;
     /// summing both processors would count the Slave voices twice.
     /// `sample` and this method share one clock and one WASM block cursor.
+    /// Native plugins stream on demand, without that WASM pre-render queue.
     pub fn sample_buses(&mut self) -> [[StereoFrame; TIMBRE_COUNT]; 2] {
-        #[cfg(not(any(target_arch = "wasm32", rustias_plugin)))]
+        #[cfg(not(target_arch = "wasm32"))]
         {
             self.pool.next_buses_with_modulation(
                 &self.table,
@@ -1374,7 +1375,7 @@ impl Synthesizer {
                 |program| &self.plans[program].events,
             )
         }
-        #[cfg(any(target_arch = "wasm32", rustias_plugin))]
+        #[cfg(target_arch = "wasm32")]
         {
             if self.position == 128 {
                 for sample in &mut self.buffer {

@@ -120,6 +120,7 @@ clap_process_status Instrument::process(const clap_process_t* p){
   auto left=p->audio_outputs[0].data32[0],right=p->audio_outputs[0].data32[1];
   try{
     drain();
+    runtime->telemetry(editorReady.load()&&editorVisible.load());
     auto transport=[&](const clap_event_transport_t* t,unsigned frames){
       const bool play=t->flags&CLAP_TRANSPORT_IS_PLAYING;
       const double tempo=(t->flags&CLAP_TRANSPORT_HAS_TEMPO)&&std::isfinite(t->tempo)&&t->tempo>0?t->tempo:previousTempo;
@@ -171,7 +172,7 @@ static const clap_plugin_gui_t gui={
   [](const clap_plugin_t*,const char** api,bool* floating){*api=RUSTIAS_WINDOW_API;*floating=false;return true;},
   [](const clap_plugin_t* p,const char* api,bool floating){
     if(floating||!api||std::strcmp(api,RUSTIAS_WINDOW_API))return false;auto& s=self(p);
-    try{if(!s.editor){s.editorReady=false;s.editor=std::make_unique<Editor>(s);
+    try{if(!s.editor){s.editorReady=false;s.editorVisible=true;s.editor=std::make_unique<Editor>(s);
 #ifdef __linux__
       if(auto timer=static_cast<const clap_host_timer_support_t*>(s.host->get_extension(s.host,CLAP_EXT_TIMER_SUPPORT)))timer->register_timer(s.host,16,&s.editorTimer);
 #endif
@@ -189,10 +190,10 @@ static const clap_plugin_gui_t gui={
   [](const clap_plugin_t* p,const clap_window_t* window){return self(p).editor&&window->api&&!std::strcmp(window->api,RUSTIAS_WINDOW_API)&&self(p).editor->parent(RUSTIAS_WINDOW_HANDLE(window));},
   [](const clap_plugin_t*,const clap_window_t*){return false;},
   [](const clap_plugin_t*,const char*){},
-  [](const clap_plugin_t* p){if(!self(p).editor)return false;self(p).editor->show(true);return true;},
-  [](const clap_plugin_t* p){if(self(p).editor)self(p).editor->show(false);return true;}
+  [](const clap_plugin_t* p){if(!self(p).editor)return false;self(p).editorVisible=true;self(p).editor->show(true);return true;},
+  [](const clap_plugin_t* p){self(p).editorVisible=false;if(self(p).editor)self(p).editor->show(false);return true;}
 };
-static const clap_plugin_latency_t latency={[](const clap_plugin_t*)->uint32_t{return 128;}};
+static const clap_plugin_latency_t latency={[](const clap_plugin_t* p)->uint32_t{const auto rate=self(p).rate;return rate==48000?0:uint32_t(std::ceil(2*rate/48000));}};
 static const clap_plugin_tail_t tail={[](const clap_plugin_t*)->uint32_t{return INT32_MAX;}};
 static const clap_plugin_timer_support_t editorTimerSupport={[](const clap_plugin_t* p,clap_id){if(self(p).editor)self(p).editor->poll();}};
 static const clap_plugin_t* create(const clap_plugin_factory_t*,const clap_host_t* host,const char* id){

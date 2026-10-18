@@ -69,6 +69,10 @@ at up to 30 Hz so wheel and CC bursts do not serialize a full program per event.
 Moving a synth knob sends a scalar control; Rust updates its modulation base
 without rebuilding the rack or resetting its clocks. Changes to bindings,
 sequencer settings and referenced FX/module programs resynchronize the rack.
+Short DAW buffers render only the required native samples, with no 128-sample
+calculation burst. The modulation/FX controller quantum stays at 128 samples,
+so buffer size does not change the sound. PCM buffers are reused, periodic editor
+telemetry is limited to 20 Hz, and closing or hiding the editor disables it.
 The existing web controls, program/timbre save, RDL import, sample upload,
 recordings and WAV/MP3 exports remain available.
 
@@ -120,7 +124,11 @@ architectures, user installation domain, selectable formats and upgrade behavior
 The installer has English and Russian screens and executes no install scripts.
 
 `ctest` compares 125 native PCM/state scenarios with the actual browser build,
-including 22 modulation scenarios executed directly through the Rust ABI with
+then repeats each with sliced native rendering and requires bit-identical PCM.
+Streaming checks compare 1/17/32/64/128/257/512-frame host buffers at
+44.1/48/96 kHz, timestamped edits, modulation and recording, and run four
+independent instances concurrently against their isolated PCM references.
+The fixture suite includes 22 modulation scenarios executed directly through the Rust ABI with
 no JavaScript runtime. It covers independent clocks, Step/Slide, all directions,
 OneShot, key sync, bipolar macro bindings, FX/chains, modules and sample profiles,
 then verifies the native engine at 44.1/48/96 kHz, MIDI, variable blocks,
@@ -140,6 +148,26 @@ use this check when `auval` cannot discover the bundle; local packaging requires
 strict `auval` validation. Both macOS architectures can run the direct check.
 
 ## Implementation
+
+The macOS offline AU benchmark compares one instance with two timbres, two/four
+instances, and RADIAS/M/Poly filters. For example, on an Apple M5 Max at 48 kHz,
+32-frame host buffers and eight held voices per instance, with editors closed:
+
+| Workload | P99 callback time, 0.2.2 | P99 callback time, 0.2.3 |
+| --- | ---: | ---: |
+| Two RADIAS instances | 329 µs | 131 µs |
+| Four RADIAS instances | 690 µs | 280 µs |
+| Four M/Poly instances | 986 µs | 393 µs |
+
+P99 fell by about 60% in these cases. Average callback cost fell by about 14–25%;
+the idle-instance average fell from 21 to 9 µs. The 32-frame budget is 667 µs.
+These are ordinary offline-host measurements; patch, host scheduling and machine
+load affect the results. Reproduce with each plugin version in a separate process:
+
+```sh
+cmake --build output/plugin/build --target rustias-au-benchmark
+output/plugin/build/rustias-au-benchmark /path/to/Rustias.component 1024 result.json
+```
 
 `plugin/engine` builds a Rust static library linked into the native plugin.
 It depends on `crates/radias-web` and the canonical `radias-synth-*` crates; there

@@ -109,6 +109,7 @@ pub struct Sampler {
     voices: Box<[Option<SampleVoice>]>,
     #[cfg(not(rustias_plugin))]
     voices: [Option<SampleVoice>; VOICES],
+    render_slots: u128,
     programs: [DrumInstrumentProgram; 16],
     controllers: Box<ControllerTables>,
     filter_tables: ControllerFilterTables,
@@ -215,6 +216,7 @@ impl Sampler {
             },
             shaper_tables: tables::shapers(),
             clock: InstrumentClock::internal(tables::tempo(), synth.settings[0][89] as u16),
+            render_slots: 0,
             seed: 0x2345,
             frames: 0,
             birth: 0,
@@ -879,6 +881,13 @@ impl Sampler {
     pub fn sample(&mut self, synth: &StandaloneSynth) -> StereoFrame {
         self.next_buses(synth, false)[0]
     }
+    pub fn prepare_render(&mut self) {
+        // Voice creation/control occurs between render calls. Rebuild once per
+        // call so every mutation path is covered; preserve ascending slot order.
+        self.render_slots = self.voices.iter().enumerate().fold(0, |mask, (slot, voice)| {
+            mask | if voice.is_some() { 1u128 << slot } else { 0 }
+        });
+    }
     pub fn sample_buses(&mut self, synth: &StandaloneSynth) -> [StereoFrame; TIMBRE_COUNT] {
         self.next_buses(synth, true)
     }
@@ -892,7 +901,10 @@ impl Sampler {
             self.clock.controller_service();
         }
         let mut buses = [StereoFrame::default(); TIMBRE_COUNT];
-        for slot in 0..VOICES {
+        let mut slots = self.render_slots;
+        while slots != 0 {
+            let slot = slots.trailing_zeros() as usize;
+            slots &= slots - 1;
             if self.frames.is_multiple_of(96) {
                 if let Some(v) = &mut self.voices[slot] {
                     v.modulation.pair.tick_with_tempo(
@@ -915,6 +927,7 @@ impl Sampler {
                 || (v.mode != 2 && v.position >= v.data.len() as f64)
             {
                 self.voices[slot] = None;
+                self.render_slots &= !(1u128 << slot);
                 continue;
             }
             let length = v.data.len();

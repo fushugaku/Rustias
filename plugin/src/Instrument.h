@@ -21,6 +21,7 @@ struct Instrument {
   std::atomic<bool> restoredParameters{false};
   std::atomic<bool> enabled{true};
   std::atomic<bool> editorReady{false};
+  std::atomic<bool> editorVisible{false};
   std::mutex incomingMutex,stateMutex;
   std::deque<std::string> incoming;
   std::map<std::string,std::pair<uint64_t,std::string>> remembered;

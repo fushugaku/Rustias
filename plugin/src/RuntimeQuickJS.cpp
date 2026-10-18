@@ -40,6 +40,13 @@ struct Runtime::Portable {
     bool ok=data&&offset+bytes<=capacity&&rustias_native_read(get(c).engine.handle,token,data+offset,bytes);JS_FreeValue(c,buffer);
     if(!ok){JS_FreeValue(c,view);return JS_ThrowInternalError(c,"Expired or invalid native buffer");}return view;
   }
+  static JSValue readBufferInto(JSContext* c,JSValueConst,int argc,JSValueConst* argv){
+    if(argc!=2)return JS_ThrowInternalError(c,"Invalid native buffer read");
+    uint32_t token;if(JS_ToUint32(c,&token,argv[0])<0)return JS_EXCEPTION;
+    size_t offset=0,bytes=0,element=0,capacity=0;auto buffer=JS_GetTypedArrayBuffer(c,argv[1],&offset,&bytes,&element);if(JS_IsException(buffer))return buffer;auto data=JS_GetArrayBuffer(c,&capacity,buffer);
+    bool ok=data&&offset<=capacity&&bytes<=capacity-offset&&rustias_native_read(get(c).engine.handle,token,data+offset,bytes);JS_FreeValue(c,buffer);
+    if(!ok)return JS_ThrowInternalError(c,"Expired or invalid native buffer");return JS_UNDEFINED;
+  }
   static JSValue writeBuffer(JSContext* c,JSValueConst,int argc,JSValueConst* argv){
     if(argc!=2)return JS_ThrowInternalError(c,"Invalid native buffer write");
     uint32_t token;if(JS_ToUint32(c,&token,argv[0])<0)return JS_EXCEPTION;
@@ -54,6 +61,7 @@ struct Runtime::Portable {
       auto name=rustias_native_method_name(i);JS_SetPropertyStr(ctx,api,name,JS_NewCFunctionMagic(ctx,invoke,name,int(rustias_native_method_arguments(i)),JS_CFUNC_generic_magic,int(i)));
     }
     JS_SetPropertyStr(ctx,api,"readBuffer",JS_NewCFunction(ctx,readBuffer,"readBuffer",3));
+    JS_SetPropertyStr(ctx,api,"readBufferInto",JS_NewCFunction(ctx,readBufferInto,"readBufferInto",2));
     JS_SetPropertyStr(ctx,api,"writeBuffer",JS_NewCFunction(ctx,writeBuffer,"writeBuffer",2));
     JS_SetPropertyStr(ctx,global,"__nativePost",JS_NewCFunction(ctx,post,"__nativePost",1));JS_FreeValue(ctx,global);
     evaluate("globalThis.WebAssembly=undefined;globalThis.AudioWorkletProcessor=class{constructor(){this.port={postMessage:data=>__nativePost(JSON.stringify(data,(_k,v)=>ArrayBuffer.isView(v)?Array.from(v):v))}}};globalThis.registerProcessor=(_name,fn)=>globalThis.PluginProcessor=fn;");
@@ -65,6 +73,7 @@ Runtime::~Runtime()=default;
 void Runtime::message(const std::string& text){auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);auto value=s.checked(JS_ParseJSON(s.ctx,text.data(),text.size(),"host-message"));auto result=s.call("pluginMessage",1,&value);JS_FreeValue(s.ctx,value);JS_FreeValue(s.ctx,result);}
 void Runtime::midi(unsigned char a,unsigned char b,unsigned char c){auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);JSValue args[]={JS_NewInt32(s.ctx,a),JS_NewInt32(s.ctx,b),JS_NewInt32(s.ctx,c)};auto r=s.call("pluginMidi",3,args);JS_FreeValue(s.ctx,r);}
 void Runtime::parameter(unsigned index,double value){auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);JSValue args[]={JS_NewInt32(s.ctx,index),JS_NewFloat64(s.ctx,value)};auto r=s.call("pluginParameter",2,args);JS_FreeValue(s.ctx,r);}
+void Runtime::telemetry(bool enabled){if(telemetryEnabled==enabled)return;auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);JSValue value=JS_NewBool(s.ctx,enabled);auto result=s.call("pluginTelemetry",1,&value);JS_FreeValue(s.ctx,result);telemetryEnabled=enabled;}
 void Runtime::render(float* left,float* right,unsigned frames){
   auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);JSValue count=JS_NewInt32(s.ctx,frames);auto result=s.call("pluginRender",1,&count);
   for(unsigned channel=0;channel<2;channel++){

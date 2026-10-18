@@ -20,6 +20,7 @@ int main(int argc,char** argv){try{
     AudioUnit instance=nullptr;check(AudioComponentInstanceNew(component,&instance),"Create AU instance");
     AudioStreamBasicDescription format{};format.mSampleRate=rate;format.mFormatID=kAudioFormatLinearPCM;format.mFormatFlags=kAudioFormatFlagIsFloat|kAudioFormatFlagsNativeEndian|kAudioFormatFlagIsNonInterleaved|kAudioFormatFlagIsPacked;format.mBytesPerPacket=format.mBytesPerFrame=4;format.mFramesPerPacket=1;format.mChannelsPerFrame=2;format.mBitsPerChannel=32;
     check(AudioUnitSetProperty(instance,kAudioUnitProperty_StreamFormat,kAudioUnitScope_Output,0,&format,sizeof format),"Set stereo format");check(AudioUnitInitialize(instance),"Initialize AU");
+    Float64 latency=0;UInt32 latencySize=sizeof latency;check(AudioUnitGetProperty(instance,kAudioUnitProperty_Latency,kAudioUnitScope_Global,0,&latency,&latencySize),"Read AU latency");require(std::abs(latency-(rate==48000?0:std::ceil(2*rate/48000)/rate))<1e-8,"AU reports actual resampling latency, not a render quantum");
     check(AudioUnitSetParameter(instance,8,kAudioUnitScope_Global,0,42,0),"Set AU output automation");
     check(MusicDeviceMIDIEvent(instance,0x90,69,100,0),"Send AU MIDI");
     struct Output{UInt32 count=2;AudioBuffer channels[2];} output;

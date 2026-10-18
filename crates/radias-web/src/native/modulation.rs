@@ -330,6 +330,8 @@ pub(super) struct Modulation {
     profiles: HashMap<(usize, String), u32>,
     held: Vec<HashSet<u64>>,
     live_macros: [Option<f64>; 8],
+    macro_motion: [Option<f64>; 8],
+    needs_reapply: bool,
     tempo: f64,
     running: bool,
     gain: f64,
@@ -348,6 +350,8 @@ impl Default for Modulation {
             profiles: HashMap::new(),
             held: (0..TIMBRE_COUNT).map(|_| HashSet::new()).collect(),
             live_macros: [None; 8],
+            macro_motion: [None; 8],
+            needs_reapply: false,
             tempo: 120.,
             running: false,
             gain: 0.3,
@@ -463,6 +467,8 @@ impl Modulation {
             })
             .unwrap_or_default();
         self.circuits = state.circuits;
+        self.macro_motion.fill(None);
+        self.needs_reapply = false;
         true
     }
     pub(super) fn set_profile(&mut self, timbre: usize, id: u32, source: String) {
@@ -591,6 +597,7 @@ impl Modulation {
             spec.macro_active = false;
         }
         self.live_macros.fill(None);
+        self.macro_motion.fill(None);
         for lanes in &mut self.config.tracks {
             for lane in lanes {
                 lane.position = None;
@@ -600,11 +607,12 @@ impl Modulation {
                 let value = lane.value(frames, self.tempo);
                 match lane.target.as_ref().unwrap() {
                     Target::Macro { index } => {
+                        self.macro_motion[*index] = Some(value);
                         self.live_macros[*index] = self
                             .macros
                             .knobs
                             .get(*index)
-                            .map(|knob| (knob.value + value).clamp(0., 100.))
+                            .map(|knob| (knob.value + value).clamp(0., 100.));
                     }
                     target => {
                         if let Some(i) = self.indices.get(target) {
@@ -614,6 +622,22 @@ impl Modulation {
                 }
             }
         }
+        self.apply_motion();
+    }
+    // Restore/rebase transactions must not remove the held modulation from the
+    // rest of a partial audio block. Reapply its cached offsets without advancing
+    // Step/Slide, probability, RNG or lane phase a second time.
+    pub(super) fn resume_render(&mut self) {
+        if !self.running || !self.needs_reapply { return; }
+        for i in 0..8 {
+            self.live_macros[i] = self.macro_motion[i].and_then(|offset| {
+                self.macros.knobs.get(i).map(|knob| (knob.value + offset).clamp(0., 100.))
+            });
+        }
+        self.apply_motion();
+    }
+    fn apply_motion(&mut self) {
+        self.needs_reapply = false;
         for (i, knob) in self.macros.knobs.iter().enumerate() {
             if self.live_macros[i].is_some() {
                 for binding in &knob.bindings {
@@ -651,6 +675,7 @@ impl Modulation {
         }
     }
     pub(super) fn restore(&mut self) {
+        self.needs_reapply |= self.specs.iter().any(|s| s.output.is_some());
         let mut changes: Vec<_> = self
             .specs
             .iter()
