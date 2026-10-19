@@ -86,9 +86,15 @@ assets, APK, export unit tests and Android lint. Do not start audible device tes
 reference builds, even under --all-features. Keep synthesis in these shared crates,
 not copied into the shell. NativeHost owns per-instance state; never rely on one
 thread-local singleton for multiple DAW instances or for thread migration.
-The JS editor/control/output adapter remains shared with web/worklet.js:
-JavaScriptCore on macOS, QuickJS-NG on Windows/Linux. WebAssembly is disabled in that
-context; do not reintroduce a WASM audio fallback, JS modulation clock or Wasmtime.
+Native DAW callbacks use plugin/src/RuntimeNative.cpp to dispatch directly to the
+canonical Rust engine. Never enter JavaScriptCore/QuickJS from production audio,
+MIDI, transport or parameter callbacks: VM locks and concurrent GC caused measured
+deadline misses in Logic with multiple AU instances. The former shared worklet
+adapter is an offline oracle only; native_adapter_exact_pcm compares both adapters
+bit for bit on each platform, including resampling and controller timestamps.
+Formatting outgoing JSON/recording PCM arrays runs on the native message worker;
+the audio callback only tries to take already formatted messages and never waits
+for that worker. Do not reintroduce WASM audio, a JS modulation clock or Wasmtime.
 Native plugins stream only the requested audio frames; Synthesizer's 128-frame
 pre-render buffer is WASM-only. Keep the 128-frame modulation/FX-controller quantum
 independent of host buffer size, and reapply held offsets after mid-quantum edits

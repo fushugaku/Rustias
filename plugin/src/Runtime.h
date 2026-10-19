@@ -1,5 +1,5 @@
 #pragma once
-#ifndef RUSTIAS_QUICKJS_RUNTIME
+#if !defined(RUSTIAS_QUICKJS_RUNTIME) && !defined(RUSTIAS_NATIVE_RUNTIME)
 #include <JavaScriptCore/JavaScriptCore.h>
 #endif
 #include "NativeEngine.h"
@@ -19,11 +19,16 @@ public:
   void render(float* left,float* right,unsigned frames);
   void telemetry(bool enabled);
   std::vector<std::string> takeMessages();
+  // The DAW callback only consumes messages already formatted by the worker.
+  std::vector<std::string> takeRealtimeMessages();
   std::string stats();
   bool failed()const{return failure;}
   const std::string& error()const{return errorText;}
 private:
-#ifdef RUSTIAS_QUICKJS_RUNTIME
+#ifdef RUSTIAS_NATIVE_RUNTIME
+  struct Direct;
+  std::unique_ptr<Direct> direct;
+#elif defined(RUSTIAS_QUICKJS_RUNTIME)
   struct Portable;
   std::unique_ptr<Portable> portable;
 #else

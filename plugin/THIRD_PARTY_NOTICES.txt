@@ -1,4 +1,4 @@
-Rustias plugin uses the canonical Rustias Rust engine compiled as native machine code, plus the shared web interface and control layer.
+Rustias plugin uses the canonical Rustias Rust engine compiled as native machine code, a native DAW adapter, and the shared web interface.
 No Korg firmware, factory PCM or commercial SDK binaries are included.
 
 Native shell dependencies:
@@ -11,7 +11,7 @@ Native shell dependencies:
   https://github.com/apple/AudioUnitSDK
 - nlohmann/json 3.12.0: MIT License, Copyright Niels Lohmann
   https://github.com/nlohmann/json
-- QuickJS-NG 0.17.0 (Windows): MIT License
+- QuickJS-NG 0.17.0 (offline adapter validation on Windows/Linux): MIT License
   Copyright Fabrice Bellard, Charlie Gordon and QuickJS-NG contributors
   https://github.com/quickjs-ng/quickjs
 - Microsoft.Web.WebView2 1.0.3856.49 (Windows build): Microsoft package license

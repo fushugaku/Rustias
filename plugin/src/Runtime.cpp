@@ -94,4 +94,5 @@ void Runtime::render(float* left,float* right,unsigned frames){
   JSValueUnprotect(context,result);
 }
 std::vector<std::string> Runtime::takeMessages(){std::vector<std::string> r;r.swap(outgoing);return r;}
+std::vector<std::string> Runtime::takeRealtimeMessages(){return takeMessages();}
 std::string Runtime::stats(){return text(context,call(statsFn,0,nullptr));}

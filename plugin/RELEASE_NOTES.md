@@ -1,16 +1,23 @@
 Native Rustias instrument: the same Rust synthesis engine as the browser version, compiled to native machine code. No firmware or WASM audio runtime required.
 
-This update removes native 128-frame pre-render queues that caused CPU bursts
-with multiple AU/VST3/CLAP instances and short DAW buffers. Rendering follows the
-host's requested frames while retaining the existing modulation/FX controller
-quantum and DSP arithmetic. PCM buffers are reused, the sampler visits occupied
-voice slots, and editor telemetry runs at 20 Hz only while its window is visible.
-Reported plugin latency now reflects the actual output path.
+Version 0.2.4 removes the script VM from the DAW audio path. A live Logic profile
+of 0.2.3 showed JavaScriptCore lock and garbage-collector waits in both AU render
+threads. Audio, MIDI, transport and parameter updates now call the canonical Rust
+engine directly. Outgoing message / recording-array formatting uses a separate
+native worker; the audio callback never waits for it. Browser UI and DSP stay shared.
 
-Native PCM before/after matches bit for bit across 125 scenarios and 1,047,680
-stereo frames. Browser PCM also remains byte-identical across 279 scenarios.
-Streaming checks cover 1/17/32/64/128/257/512-frame buffers at 44.1/48/96 kHz,
-held modulation and macro edits, recording and four concurrent instances.
+A silent offline stress test based on the observed patch used two parallel AU
+instances, four sources, two MS-20 filters, six voices per instance and continuous
+wheel/pitch events. At 48 kHz / 128 frames on Apple M5 Max, P99 fell from 3.918 ms
+to 0.867 ms; callbacks exceeding the 2.667 ms budget fell from 122/1536 to 0/1536.
+These measurements depend on patch and OS scheduling; they are not a universal
+real-time guarantee.
+
+The old worklet remains an offline oracle only. Native adapter PCM matches every
+bit in 210 scenes and 1,720,320 stereo frames at 44.1/48/96 kHz, including all
+filter models, oscillators, 30 effect algorithms, chains, samples and macros.
+The existing native/browser PCM, state, streaming, recording and editor checks
+remain in place. The original reference engine profile is unchanged.
 
 | System | Installer | Formats |
 | --- | --- | --- |
@@ -32,15 +39,21 @@ All builds pass offline native/WASM PCM and state checks. macOS also runs AU val
 
 Нативный Rustias для macOS, Windows и Linux. Звук считает общий Rust-движок, без прошивки и без WASM в аудиотракте.
 
-Обновление убирает предварительный расчёт 128 сэмплов в нативных плагинах,
-который создавал пики CPU при нескольких экземплярах и коротких буферах DAW.
-Аудиобуферы переиспользуются, самплер обходит занятые голоса, телеметрия работает
-с частотой 20 Гц только при видимом редакторе. Частота модуляции и DSP-арифметика
-сохранены, заявленная задержка соответствует аудиотракту.
+Версия 0.2.4 убирает интерпретатор из аудиотракта DAW. В профиле Logic с 0.2.3
+видны ожидания блокировок и сборщика мусора JavaScriptCore в обоих потоках AU.
+Теперь аудио, MIDI, транспорт и параметры обращаются к общему Rust-движку
+напрямую. Форматирование сообщений и массивов записи вынесено в отдельный
+нативный поток, которого аудиопоток не ждёт. Общие DSP и интерфейс сохранены.
 
-Нативный PCM до и после совпал побитово в 125 сценариях — 1 047 680 стереосэмплов.
-Проверены буферы 1–512 сэмплов при 44,1/48/96 кГц, изменения MIDI/макросов внутри
-блока, сохранение модуляции, запись и четыре одновременных экземпляра.
+В тихом стресс-тесте с двумя параллельными AU, четырьмя источниками, двумя
+фильтрами MS-20 и потоком Wheel/Pitch, при 48 кГц / 128 сэмплах P99 снизился
+с 3,918 до 0,867 мс. Превышения бюджета 2,667 мс — со 122 из 1536 до 0 из 1536.
+Результат зависит от патча и нагрузки ОС.
+
+PCM совпал побитово с прежним адаптером в 210 сценариевх — 1 720 320
+стереосэмплов на 44,1/48/96 кГц. Проверены все модели фильтров, осцилляторы,
+30 эффектов, цепочки, сэмплы и макросы. Прежний адаптер используется только
+в офлайн-проверках; эталонный профиль оригинального движка не менялся.
 
 Скачайте установщик для своей системы из таблицы выше. Перед установкой закройте DAW, после — запустите её и обновите список плагинов. В Windows можно выбрать VST3 и CLAP; недостающие компоненты Microsoft устанавливаются автоматически. Для Linux нужны Python 3, WebKitGTK 4.1 версии 2.40+ и X11/XWayland.
 

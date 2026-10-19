@@ -82,4 +82,5 @@ void Runtime::render(float* left,float* right,unsigned frames){
   }JS_FreeValue(s.ctx,result);
 }
 std::vector<std::string> Runtime::takeMessages(){std::vector<std::string> result;result.swap(portable->outgoing);return result;}
+std::vector<std::string> Runtime::takeRealtimeMessages(){return takeMessages();}
 std::string Runtime::stats(){auto& s=*portable;JS_UpdateStackTop(s.jsRuntime);auto value=s.call("pluginStats",0,nullptr);auto text=Portable::string(s.ctx,value);JS_FreeValue(s.ctx,value);return text;}

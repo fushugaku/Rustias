@@ -143,7 +143,7 @@ clap_process_status Instrument::process(const clap_process_t* p){
       else if(h->type==CLAP_EVENT_NOTE_CHOKE)runtime->message("{\"type\":\"stop\"}");
       else if(h->type==CLAP_EVENT_TRANSPORT)transport(reinterpret_cast<const clap_event_transport_t*>(h),p->frames_count-cursor);
     }
-    render(p->frames_count);for(auto& m:runtime->takeMessages())publish(std::move(m));return CLAP_PROCESS_CONTINUE;
+    render(p->frames_count);for(auto& m:runtime->takeRealtimeMessages())publish(std::move(m));return CLAP_PROCESS_CONTINUE;
   }catch(const std::exception& e){lastError=e.what();std::fill_n(left,p->frames_count,0);std::fill_n(right,p->frames_count,0);publish("{\"type\":\"error\",\"message\":\"Plugin audio stopped; reopen the project to reload its engine.\"}");return CLAP_PROCESS_ERROR;}
 }
 

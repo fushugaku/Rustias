@@ -73,6 +73,9 @@ Short DAW buffers render only the required native samples, with no 128-sample
 calculation burst. The modulation/FX controller quantum stays at 128 samples,
 so buffer size does not change the sound. PCM buffers are reused, periodic editor
 telemetry is limited to 20 Hz, and closing or hiding the editor disables it.
+Audio rendering, MIDI, transport and parameter updates call native Rust directly.
+The DAW callback does not enter a JavaScript VM. Outgoing message and recording
+array formatting runs on a separate native worker; the callback never waits for it.
 The existing web controls, program/timbre save, RDL import, sample upload,
 recordings and WAV/MP3 exports remain available.
 
@@ -149,6 +152,29 @@ strict `auval` validation. Both macOS architectures can run the direct check.
 
 ## Implementation
 
+Version 0.2.4 removes the remaining script VM from the native audio path. A live
+Logic profile of 0.2.3 showed JavaScriptCore lock and garbage-collector waits in
+both AU rendering threads. An offline stress scene based on the visible patch
+uses two parallel AU instances, six voices each, four sources, two MS-20 filters
+and continuous timestamped wheel/pitch events. On an Apple M5 Max, 48 kHz and
+128-frame buffers, three rounds of 512 callbacks measured:
+
+| Measurement | 0.2.3 | 0.2.4 |
+| --- | ---: | ---: |
+| Mean callback | 790 µs | 312 µs |
+| P99 callback | 3,918 µs | 867 µs |
+| Callbacks exceeding 2,667 µs | 122 / 1,536 | 0 / 1,536 |
+
+These are ordinary offline-host measurements, including thread rendezvous;
+they do not promise deadlines under every patch or OS load. The former adapter
+remains an offline reference only. Tests compare every PCM bit in 210 scenes
+and 1,720,320 stereo frames on each platform at 44.1/48/96 kHz: all filter models,
+oscillators, all 30 FX algorithms, chains, samples, macros and buffer splits.
+
+```sh
+output/plugin/build/rustias-au-benchmark /path/to/Rustias.component 512 parallel.json parallel
+```
+
 The macOS offline AU benchmark compares one instance with two timbres, two/four
 instances, and RADIAS/M/Poly filters. For example, on an Apple M5 Max at 48 kHz,
 32-frame host buffers and eight held voices per instance, with editors closed:
@@ -183,10 +209,11 @@ native engine directly on the DAW thread.
 phase advancement, interpolation, lane priority, macro bindings, parameter writes
 and base-value restoration. The UI only edits its configuration and displays its
 reported positions. Saving or stopping never stores temporary playback offsets.
-The shared editor/control/output adapter runs in system JavaScriptCore on macOS
-and QuickJS-NG on Windows/Linux, calling that native library.
-The full editor uses WKWebView / WebView2 / WebKitGTK (XEmbed). On Linux, GTK/WebKit and their event loop live in a separate helper process; bounded nonblocking IPC forwards UI commands and state, while synthesis stays inside the DAW plugin. WebAssembly is disabled in the audio
-control context and Wasmtime is no longer a dependency. A WASM file remains in
+`plugin/src/RuntimeNative.cpp` dispatches controls, MIDI and output buffers to
+that native library, retaining the former worklet's resampling arithmetic.
+JavaScriptCore on macOS and QuickJS-NG on Windows/Linux are used only by the
+offline adapter oracle, not linked as the production audio adapter.
+The full editor uses WKWebView / WebView2 / WebKitGTK (XEmbed). On Linux, GTK/WebKit and their event loop live in a separate helper process; bounded nonblocking IPC forwards UI commands and state, while synthesis stays inside the DAW plugin. The native audio bridge has no WebAssembly runtime or Wasmtime dependency. A WASM file remains in
 the editor's web assets for local RDL parsing and metadata; it does not render
 the plugin's sound. The UI, controls and storage stay shared with the browser.
 
