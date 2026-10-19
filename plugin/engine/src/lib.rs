@@ -117,3 +117,49 @@ pub unsafe extern "C" fn rustias_native_write(
     }
     (unsafe { &mut *host }).write(token, unsafe { std::slice::from_raw_parts(data, length) })
 }
+
+// Snapshot ownership is handed from the serialized audio producer to the
+// formatter, then returned to a pool. The formatter never reads NativeHost.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rustias_native_snapshot_create(
+    host: *mut NativeHost,
+) -> *mut radias_web::native::NativeSnapshot {
+    if host.is_null() {
+        return std::ptr::null_mut();
+    }
+    Box::into_raw(Box::new(unsafe { &mut *host }.new_snapshot()))
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rustias_native_snapshot_destroy(
+    snapshot: *mut radias_web::native::NativeSnapshot,
+) {
+    if !snapshot.is_null() {
+        drop(unsafe { Box::from_raw(snapshot) });
+    }
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rustias_native_snapshot_capture(
+    host: *mut NativeHost,
+    snapshot: *mut radias_web::native::NativeSnapshot,
+    kind: u32,
+) -> bool {
+    if host.is_null() || snapshot.is_null() {
+        return false;
+    }
+    unsafe { &mut *host }.capture_snapshot(unsafe { &mut *snapshot }, kind)
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rustias_native_snapshot_format(
+    snapshot: *mut radias_web::native::NativeSnapshot,
+    meta: *const radias_web::native::SnapshotMetadata,
+    length: *mut usize,
+) -> *const u8 {
+    if snapshot.is_null() || meta.is_null() || length.is_null() {
+        return std::ptr::null();
+    }
+    let bytes = unsafe { &mut *snapshot }.format(unsafe { &*meta });
+    unsafe {
+        *length = bytes.len();
+    }
+    bytes.as_ptr()
+}

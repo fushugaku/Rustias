@@ -109,13 +109,16 @@ impl Target {
         match self {
             Self::Macro { .. } | Self::SequenceGate { .. } => 100,
             Self::Synth {
-                parameter: 53 | 15 | 175 | 183, ..
+                parameter: 53 | 15 | 175 | 183,
+                ..
             }
             | Self::Drum {
-                parameter: 53 | 15 | 175 | 183, ..
+                parameter: 53 | 15 | 175 | 183,
+                ..
             }
             | Self::Sample {
-                parameter: 53 | 15 | 175 | 183, ..
+                parameter: 53 | 15 | 175 | 183,
+                ..
             } => 24,
             _ => 63,
         }
@@ -126,15 +129,15 @@ impl Target {
             Self::Synth {
                 parameter: 0 | 171 | 179,
                 ..
-            } | Self::Global { parameter: 0 | 171 | 179 }
-                | Self::Drum {
-                    parameter: 0 | 171 | 179,
-                    ..
-                }
-                | Self::Sample {
-                    parameter: 0 | 171 | 179,
-                    ..
-                }
+            } | Self::Global {
+                parameter: 0 | 171 | 179
+            } | Self::Drum {
+                parameter: 0 | 171 | 179,
+                ..
+            } | Self::Sample {
+                parameter: 0 | 171 | 179,
+                ..
+            }
         )
     }
 }
@@ -193,6 +196,8 @@ struct Lane {
     beats: f64,
     #[serde(skip)]
     position: Option<usize>,
+    #[serde(skip)]
+    target_index: Option<usize>,
 }
 impl Lane {
     fn cycle(&self) -> usize {
@@ -319,15 +324,97 @@ struct State {
     circuits: Vec<Value>,
 }
 
+// Prepared at topology edits, never serialized by a modulation quantum. Keep
+// invalid parameter entries too: a later edit may repair them, just as the JSON
+// boundary did. Headers, integer conversion and length limits retain that ABI.
+struct MotionEffect {
+    kind: Option<u64>,
+    header: Option<effects::Program>,
+    parameters: Vec<Option<u8>>,
+    parameter_bytes: Vec<usize>,
+    bytes: usize,
+}
+impl MotionEffect {
+    fn new(raw: Value) -> Self {
+        let kind = raw.get("kind").and_then(Value::as_u64);
+        let bytes = serde_json::to_vec(&raw).map_or(usize::MAX, |b| b.len());
+        let values = raw.get("parameters").and_then(Value::as_array);
+        let parameters = values
+            .map(|ps| {
+                ps.iter()
+                    .map(|p| serde_json::from_value::<u8>(p.clone()).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let parameter_bytes = values
+            .map(|ps| {
+                ps.iter()
+                    .map(|p| serde_json::to_vec(p).unwrap().len())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut header = raw;
+        if let Some(object) = header.as_object_mut() {
+            object.insert("parameters".into(), json!(([0u8; 20])));
+        }
+        Self {
+            kind,
+            header: serde_json::from_value(header).ok(),
+            parameters,
+            parameter_bytes,
+            bytes,
+        }
+    }
+    fn set(&mut self, kind: u32, parameter: usize, value: i32) -> bool {
+        if self.kind != Some(kind as u64) {
+            return false;
+        }
+        let Some(p) = self.parameters.get_mut(parameter) else {
+            return false;
+        };
+        let length = if value == 0 {
+            1
+        } else {
+            value.unsigned_abs().ilog10() as usize + 1 + usize::from(value < 0)
+        };
+        self.bytes = self
+            .bytes
+            .saturating_sub(self.parameter_bytes[parameter])
+            .saturating_add(length);
+        self.parameter_bytes[parameter] = length;
+        *p = u8::try_from(value).ok();
+        true
+    }
+    fn program(&self) -> Option<effects::Program> {
+        let mut p = self.header?;
+        if self.parameters.len() != p.parameters.len() {
+            return None;
+        }
+        for (to, from) in p.parameters.iter_mut().zip(&self.parameters) {
+            *to = (*from)?;
+        }
+        Some(p)
+    }
+}
+struct MotionChain {
+    id: Option<String>,
+    effect: MotionEffect,
+}
+
 pub(super) struct Modulation {
     config: Config,
     macros: Macros,
     specs: Vec<Spec>,
     indices: HashMap<Target, usize>,
-    effects: Vec<Value>,
-    chains: Vec<Vec<Value>>,
+    effects: Vec<MotionEffect>,
+    chains: Vec<Vec<MotionChain>>,
     circuits: Vec<Value>,
-    profiles: HashMap<(usize, String), u32>,
+    profiles: [HashMap<String, u32>; TIMBRE_COUNT],
+    changes: Vec<(usize, f64)>,
+    ordered: Vec<(usize, f64)>,
+    dirty_chains: HashSet<(usize, usize)>,
+    macro_bindings: Vec<Vec<(usize, i32)>>,
+    knob_targets: [Vec<usize>; 8],
     held: Vec<HashSet<u64>>,
     live_macros: [Option<f64>; 8],
     macro_motion: [Option<f64>; 8],
@@ -347,7 +434,12 @@ impl Default for Modulation {
             effects: vec![],
             chains: vec![],
             circuits: vec![],
-            profiles: HashMap::new(),
+            profiles: core::array::from_fn(|_| HashMap::new()),
+            changes: vec![],
+            ordered: vec![],
+            dirty_chains: HashSet::new(),
+            macro_bindings: vec![],
+            knob_targets: core::array::from_fn(|_| vec![]),
             held: (0..TIMBRE_COUNT).map(|_| HashSet::new()).collect(),
             live_macros: [None; 8],
             macro_motion: [None; 8],
@@ -422,7 +514,8 @@ impl Modulation {
                 if !valid_id(&lane.id)
                     || !ids.insert(lane.id.clone())
                     || !(-100..=100).contains(&lane.amount)
-                    || lane.direction==Direction::Random&&lane.playback.as_deref()!=Some("Poly")
+                    || lane.direction == Direction::Random
+                        && lane.playback.as_deref() != Some("Poly")
                     || !(1..=128).contains(&lane.length)
                     || !DIVISIONS.contains(&lane.resolution.as_str())
                     || lane.values.len() != 128
@@ -432,6 +525,10 @@ impl Modulation {
                     return false;
                 }
                 let (n, d) = lane.resolution.split_once('/').unwrap();
+                lane.target_index = lane
+                    .target
+                    .as_ref()
+                    .and_then(|target| indices.get(target).copied());
                 lane.beats = 4. * n.parse::<f64>().unwrap() / d.parse::<f64>().unwrap();
                 lane.phase = self
                     .config
@@ -453,7 +550,7 @@ impl Modulation {
             .effects
             .get("slots")
             .and_then(Value::as_array)
-            .cloned()
+            .map(|slots| slots.iter().cloned().map(MotionEffect::new).collect())
             .unwrap_or_default();
         self.chains = state
             .effects
@@ -462,20 +559,46 @@ impl Modulation {
             .map(|tracks| {
                 tracks
                     .iter()
-                    .map(|track| track.as_array().cloned().unwrap_or_default())
+                    .map(|track| {
+                        track
+                            .as_array()
+                            .map(|ps| {
+                                ps.iter()
+                                    .cloned()
+                                    .map(|p| MotionChain {
+                                        id: p.get("id").and_then(Value::as_str).map(str::to_owned),
+                                        effect: MotionEffect::new(p),
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    })
                     .collect()
             })
             .unwrap_or_default();
         self.circuits = state.circuits;
+        self.changes = Vec::with_capacity(self.specs.len().max(12));
+        self.ordered = Vec::with_capacity(self.specs.len().max(12));
+        self.dirty_chains = HashSet::with_capacity(self.specs.len());
+        self.macro_bindings = (0..self.specs.len()).map(|_| vec![]).collect();
+        self.knob_targets.iter_mut().for_each(Vec::clear);
+        for (k, knob) in self.macros.knobs.iter().enumerate() {
+            for binding in &knob.bindings {
+                if let Some(&i) = self.indices.get(&binding.target) {
+                    self.macro_bindings[i].push((k, binding.amount));
+                    self.knob_targets[k].push(i);
+                }
+            }
+        }
         self.macro_motion.fill(None);
         self.needs_reapply = false;
         true
     }
     pub(super) fn set_profile(&mut self, timbre: usize, id: u32, source: String) {
-        self.profiles.insert((timbre, source), id);
+        self.profiles[timbre].insert(source, id);
     }
     pub(super) fn clear_profiles(&mut self) {
-        self.profiles.clear();
+        self.profiles.iter_mut().for_each(HashMap::clear);
     }
     pub(super) fn release_keys(&mut self, timbre: usize) {
         self.held[timbre].clear();
@@ -535,19 +658,18 @@ impl Modulation {
             self.held[timbre].remove(&note);
         }
     }
-    fn macro_offset(&self, target: &Target, min: f64, max: f64, live: bool) -> f64 {
+    fn macro_offset(&self, index: usize, min: f64, max: f64, live: bool) -> f64 {
         let mut weight = 0.;
-        for (i, knob) in self.macros.knobs.iter().enumerate() {
+        // Preserve original knob/binding order and every separately rounded
+        // operation. Do not pre-sum duplicate weights or factor divisions out.
+        for &(i, amount) in &self.macro_bindings[index] {
+            let knob = &self.macros.knobs[i];
             let value = if live {
                 self.live_macros[i].unwrap_or(knob.value)
             } else {
                 knob.value
             };
-            for binding in &knob.bindings {
-                if binding.target == *target {
-                    weight += value / 100. * binding.amount as f64 / 100.;
-                }
-            }
+            weight += value / 100. * amount as f64 / 100.;
         }
         weight * (max - min)
     }
@@ -565,12 +687,9 @@ impl Modulation {
             return;
         };
         knob.value = value.clamp(0., 100.);
-        let targets: Vec<_> = knob.bindings.iter().map(|b| b.target.clone()).collect();
-        let mut changes = Vec::with_capacity(targets.len());
-        for target in targets {
-            let Some(&i) = self.indices.get(&target) else {
-                continue;
-            };
+        let mut changes = std::mem::take(&mut self.changes);
+        changes.clear();
+        for &i in &self.knob_targets[index] {
             let spec = &self.specs[i];
             let Some(base) = spec.macro_base else {
                 continue;
@@ -578,17 +697,27 @@ impl Modulation {
             if !spec.available {
                 continue;
             }
-            let value = spec.bounded(base + self.macro_offset(&target, spec.min, spec.max, false));
+            let value = spec.bounded(base + self.macro_offset(i, spec.min, spec.max, false));
             self.specs[i].base = value;
             changes.push((i, value));
         }
         self.write(&mut changes);
+        changes.clear();
+        self.changes = changes;
     }
     pub(super) fn gain(&self) -> f64 {
         self.gain
     }
     pub(super) fn before_render(&mut self, frames: usize) {
-        if self.config.tracks.iter().flatten().any(|lane|lane.playback.as_deref()==Some("Poly")) {rustias_poly_motion_tempo(self.tempo);}
+        if self
+            .config
+            .tracks
+            .iter()
+            .flatten()
+            .any(|lane| lane.playback.as_deref() == Some("Poly"))
+        {
+            rustias_poly_motion_tempo(self.tempo);
+        }
         if !self.running {
             return;
         }
@@ -601,7 +730,10 @@ impl Modulation {
         for lanes in &mut self.config.tracks {
             for lane in lanes {
                 lane.position = None;
-                if !lane.enabled || lane.target.is_none() || lane.playback.as_deref()==Some("Poly") {
+                if !lane.enabled
+                    || lane.target.is_none()
+                    || lane.playback.as_deref() == Some("Poly")
+                {
                     continue;
                 }
                 let value = lane.value(frames, self.tempo);
@@ -614,9 +746,9 @@ impl Modulation {
                             .get(*index)
                             .map(|knob| (knob.value + value).clamp(0., 100.));
                     }
-                    target => {
-                        if let Some(i) = self.indices.get(target) {
-                            self.specs[*i].offset = Some(value);
+                    _ => {
+                        if let Some(i) = lane.target_index {
+                            self.specs[i].offset = Some(value);
                         }
                     }
                 }
@@ -628,26 +760,33 @@ impl Modulation {
     // rest of a partial audio block. Reapply its cached offsets without advancing
     // Step/Slide, probability, RNG or lane phase a second time.
     pub(super) fn resume_render(&mut self) {
-        if !self.running || !self.needs_reapply { return; }
+        if !self.running || !self.needs_reapply {
+            return;
+        }
         for i in 0..8 {
             self.live_macros[i] = self.macro_motion[i].and_then(|offset| {
-                self.macros.knobs.get(i).map(|knob| (knob.value + offset).clamp(0., 100.))
+                self.macros
+                    .knobs
+                    .get(i)
+                    .map(|knob| (knob.value + offset).clamp(0., 100.))
             });
         }
         self.apply_motion();
     }
     fn apply_motion(&mut self) {
         self.needs_reapply = false;
-        for (i, knob) in self.macros.knobs.iter().enumerate() {
+        if self.specs.is_empty() {
+            return;
+        }
+        for (i, targets) in self.knob_targets.iter().enumerate() {
             if self.live_macros[i].is_some() {
-                for binding in &knob.bindings {
-                    if let Some(i) = self.indices.get(&binding.target) {
-                        self.specs[*i].macro_active = true;
-                    }
+                for &index in targets {
+                    self.specs[index].macro_active = true;
                 }
             }
         }
-        let mut changes = Vec::new();
+        let mut changes = std::mem::take(&mut self.changes);
+        changes.clear();
         for (i, spec) in self.specs.iter().enumerate() {
             let active = spec.offset.is_some() || spec.macro_active;
             if !active && spec.output.is_none() {
@@ -656,7 +795,7 @@ impl Modulation {
             let mut value = spec.base;
             if active && spec.available {
                 if let Some(base) = spec.macro_base {
-                    value = base + self.macro_offset(&spec.target, spec.min, spec.max, true);
+                    value = base + self.macro_offset(i, spec.min, spec.max, true);
                 }
                 value = spec.bounded(value + spec.offset.unwrap_or(0.));
             }
@@ -665,7 +804,7 @@ impl Modulation {
             }
         }
         self.write(&mut changes);
-        for (i, value) in changes {
+        for &(i, value) in &changes {
             let spec = &mut self.specs[i];
             spec.output = if spec.offset.is_some() || spec.macro_active {
                 Some(value)
@@ -673,28 +812,34 @@ impl Modulation {
                 None
             };
         }
+        changes.clear();
+        self.changes = changes;
     }
     pub(super) fn restore(&mut self) {
         self.needs_reapply |= self.specs.iter().any(|s| s.output.is_some());
-        let mut changes: Vec<_> = self
-            .specs
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| s.output.is_some())
-            .map(|(i, s)| (i, s.base))
-            .collect();
+        let mut changes = std::mem::take(&mut self.changes);
+        changes.clear();
+        changes.extend(
+            self.specs
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.output.is_some())
+                .map(|(i, s)| (i, s.base)),
+        );
         self.write(&mut changes);
         for spec in &mut self.specs {
             spec.output = None;
         }
         self.live_macros.fill(None);
+        changes.clear();
+        self.changes = changes;
     }
     pub(super) fn accept_values(&mut self) {
         for i in 0..self.specs.len() {
             let spec = &self.specs[i];
             if let Some(value) = self.read(&spec.target) {
                 if value != spec.base {
-                    let offset = self.macro_offset(&spec.target, spec.min, spec.max, false);
+                    let offset = self.macro_offset(i, spec.min, spec.max, false);
                     let spec = &mut self.specs[i];
                     spec.base = value;
                     if spec.macro_base.is_some() {
@@ -722,9 +867,8 @@ impl Modulation {
                 timbre,
                 source,
                 parameter,
-            } => self
-                .profiles
-                .get(&(*timbre, source.clone()))
+            } => self.profiles[*timbre]
+                .get(source.as_str())
                 .map(|id| rustias_library_value(*id, *parameter) as f64),
             _ => None,
         }
@@ -732,10 +876,26 @@ impl Modulation {
     // All destinations use the same Rust controls/FX/circuit compiler as the UI.
     // Only changes are written; oscillator and envelope audio state is preserved.
     fn write(&mut self, changes: &mut Vec<(usize, f64)>) {
-        changes.sort_by_key(|(i, _)| !self.specs[*i].target.wave());
-        let mut fx = HashSet::new();
-        let mut chains = HashSet::new();
-        let mut circuits = HashSet::new();
+        if changes.is_empty() {
+            return;
+        }
+        self.ordered.clear();
+        self.ordered.extend(
+            changes
+                .iter()
+                .copied()
+                .filter(|(i, _)| self.specs[*i].target.wave()),
+        );
+        self.ordered.extend(
+            changes
+                .iter()
+                .copied()
+                .filter(|(i, _)| !self.specs[*i].target.wave()),
+        );
+        std::mem::swap(changes, &mut self.ordered);
+        let mut fx = [false; EFFECT_SLOTS];
+        self.dirty_chains.clear();
+        let mut circuits = [false; TIMBRE_COUNT];
         let mut library = false;
         changes.retain_mut(|(i, value)| {
             let target = &self.specs[*i].target;
@@ -780,7 +940,7 @@ impl Modulation {
                     source,
                     parameter,
                 } => {
-                    let Some(id) = self.profiles.get(&(*timbre, source.clone())) else {
+                    let Some(id) = self.profiles[*timbre].get(source.as_str()) else {
                         return false;
                     };
                     if let Some(wave) = mode_wave(*parameter) {
@@ -797,22 +957,13 @@ impl Modulation {
                     effect_kind,
                     parameter,
                 } => {
-                    let Some(program) = self
-                        .effects
-                        .get_mut(*slot)
-                        .filter(|p| p["kind"].as_u64() == Some(*effect_kind as u64))
-                    else {
+                    let Some(program) = self.effects.get_mut(*slot) else {
                         return false;
                     };
-                    let Some(p) = program
-                        .get_mut("parameters")
-                        .and_then(Value::as_array_mut)
-                        .and_then(|ps| ps.get_mut(*parameter))
-                    else {
+                    if !program.set(*effect_kind, *parameter, *value as i32) {
                         return false;
-                    };
-                    *p = json!(*value as i32);
-                    fx.insert(*slot);
+                    }
+                    fx[*slot] = true;
                     true
                 }
                 Target::ChainEffect {
@@ -821,23 +972,26 @@ impl Modulation {
                     effect_kind,
                     parameter,
                 } => {
-                    let Some(program) = self.chains.get_mut(*timbre).and_then(|chain| {
-                        chain.iter_mut().find(|p| {
-                            p["id"].as_str() == Some(id)
-                                && p["kind"].as_u64() == Some(*effect_kind as u64)
+                    let Some((index, program)) = self.chains.get_mut(*timbre).and_then(|chain| {
+                        chain.iter_mut().enumerate().find(|(_, p)| {
+                            p.id.as_deref() == Some(id)
+                                && p.effect.kind == Some(*effect_kind as u64)
                         })
                     }) else {
                         return false;
                     };
-                    let Some(p) = program
-                        .get_mut("parameters")
-                        .and_then(Value::as_array_mut)
-                        .and_then(|ps| ps.get_mut(*parameter))
-                    else {
+                    if !program.effect.set(*effect_kind, *parameter, *value as i32) {
                         return false;
-                    };
-                    *p = json!(*value as i32);
-                    chains.insert((*timbre, id.clone()));
+                    }
+                    // The historical JSON dispatcher selects the first ID after
+                    // mutating the first (ID, kind). Preserve that behavior even
+                    // for accepted raw modulation states with duplicate IDs.
+                    let dispatch = self.chains[*timbre]
+                        .iter()
+                        .position(|p| p.id.as_deref() == Some(id))
+                        .unwrap();
+                    let _ = index;
+                    self.dirty_chains.insert((*timbre, dispatch));
                     true
                 }
                 Target::Module {
@@ -873,7 +1027,7 @@ impl Modulation {
                             *value = 0.;
                         }
                     }
-                    circuits.insert(*timbre);
+                    circuits[*timbre] = true;
                     true
                 }
                 Target::KitGain => {
@@ -890,29 +1044,91 @@ impl Modulation {
         if library {
             rustias_library_sync();
         }
-        let mut failed = HashSet::new();
-        for slot in fx {
-            if !json_call(&self.effects[slot], |len| rustias_effect(slot as u32, len)) {
-                failed.extend(changes.iter().filter(|(i, _)| matches!(self.specs[*i].target, Target::Effect { slot: s, .. } if s == slot)).map(|(i, _)| *i));
+        let mut failed = [false; 8 * 6 + 96];
+        for (slot, dirty) in fx.into_iter().enumerate() {
+            if !dirty {
+                continue;
+            }
+            let ok = self.effects[slot].bytes <= PRESET_CAPACITY
+                && self.effects[slot].program().is_some_and(|p| {
+                    with_engine(|e| {
+                        e.borrow_mut()
+                            .as_mut()
+                            .is_some_and(|e| apply_effect(e, slot, p))
+                    })
+                });
+            if !ok {
+                for &(i, _) in changes.iter() {
+                    if matches!(self.specs[i].target, Target::Effect { slot: s, .. } if s == slot) {
+                        failed[i] = true;
+                    }
+                }
             }
         }
-        for (timbre, id) in chains {
-            let program = self.chains[timbre]
-                .iter()
-                .find(|p| p["id"].as_str() == Some(&id))
-                .unwrap();
-            if !json_call(program, |len| rustias_chain_effect(timbre as u32, len)) {
-                failed.extend(changes.iter().filter(|(i, _)| matches!(&self.specs[*i].target, Target::ChainEffect { timbre: t, id: s, .. } if *t == timbre && s == &id)).map(|(i, _)| *i));
+        for &(timbre, index) in &self.dirty_chains {
+            let fx = &self.chains[timbre][index];
+            let id = fx.id.as_deref().unwrap();
+            let ok = fx.effect.program().is_some_and(|p| {
+                with_engine(|e| {
+                    e.borrow_mut()
+                        .as_mut()
+                        .is_some_and(|e| apply_chain_effect(e, timbre, id, p))
+                })
+            });
+            if !ok {
+                for &(i, _) in changes.iter() {
+                    if matches!(&self.specs[i].target, Target::ChainEffect { timbre: t, id: s, .. } if *t == timbre && s == id)
+                    {
+                        failed[i] = true;
+                    }
+                }
             }
         }
-        for timbre in circuits {
-            if !json_call(&self.circuits[timbre], |len| {
-                rustias_circuit(timbre as u32, len)
-            }) {
-                failed.extend(changes.iter().filter(|(i, _)| matches!(self.specs[*i].target, Target::Module { timbre: t, .. } if t == timbre)).map(|(i, _)| *i));
+        for (timbre, dirty) in circuits.into_iter().enumerate() {
+            if dirty
+                && !json_call(&self.circuits[timbre], |len| {
+                    rustias_circuit(timbre as u32, len)
+                })
+            {
+                for &(i, _) in changes.iter() {
+                    if matches!(self.specs[i].target, Target::Module { timbre: t, .. } if t == timbre)
+                    {
+                        failed[i] = true;
+                    }
+                }
             }
         }
-        changes.retain(|(i, _)| !failed.contains(i));
+        changes.retain(|(i, _)| !failed[*i]);
+    }
+    pub(super) fn snapshot_layout(&self) -> (Vec<Target>, Vec<(usize, String, u32)>) {
+        let mut profiles: Vec<_> = self
+            .profiles
+            .iter()
+            .enumerate()
+            .flat_map(|(t, ps)| ps.iter().map(move |(source, id)| (t, source.clone(), *id)))
+            .collect();
+        profiles.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+        (
+            self.specs.iter().map(|s| s.target.clone()).collect(),
+            profiles,
+        )
+    }
+    pub(super) fn capture_status(&self, s: &mut super::snapshot::MotionStatus) {
+        s.running = self.running;
+        s.macros = self.live_macros;
+        s.tracks = self.config.tracks.len();
+        s.positions.fill(-1);
+        s.lengths.fill(0);
+        for (t, lanes) in self.config.tracks.iter().enumerate() {
+            s.lengths[t] = lanes.len();
+            for (i, lane) in lanes.iter().enumerate() {
+                s.positions[t * 6 + i] = lane.position.map_or(-1, |p| p as i32);
+            }
+        }
+        s.outputs.fill(None);
+        for (to, spec) in s.outputs.iter_mut().zip(&self.specs) {
+            *to = spec.output;
+        }
     }
     pub(super) fn status(&self) -> Value {
         let positions: Vec<Vec<i32>> = self

@@ -92,6 +92,16 @@ MIDI, transport or parameter callbacks: VM locks and concurrent GC caused measur
 deadline misses in Logic with multiple AU instances. The former shared worklet
 adapter is an offline oracle only; native_adapter_exact_pcm compares both adapters
 bit for bit on each platform, including resampling and controller timestamps.
+Native MIDI snapshots and periodic telemetry capture only typed values into
+preallocated, exclusively owned snapshot slots; the formatter never reads a live
+NativeHost. Topology/profile edits prepare immutable layouts and new slot pools.
+Preserve final MIDI/CC7 and full corrective states under queue pressure, including
+Stop without another render: the triple-buffer mailbox coalesces state while
+retaining per-channel volumes and promoting pending full corrections.
+Native modulation prepares macro links and reuses change/ordering scratch. FX
+and chain motion use the same typed compiler/configure helpers as the JSON API,
+with identical casts, invalid-parameter repair, batch commits and legacy first-ID
+chain dispatch. Do not change floating-point operation or binding order.
 Formatting outgoing JSON/recording PCM arrays runs on the native message worker;
 the audio callback only tries to take already formatted messages and never waits
 for that worker. Do not reintroduce WASM audio, a JS modulation clock or Wasmtime.

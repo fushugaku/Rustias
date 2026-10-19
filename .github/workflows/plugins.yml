@@ -79,7 +79,7 @@ jobs:
         if: runner.os == 'Linux'
         run: cmake -S plugin -B output/plugin/build -DCMAKE_BUILD_TYPE=Release
       - name: Build instruments and offline checks
-        run: cmake --build output/plugin/build --config Release --target rustias_clap rustias_vst3 rustias-runtime-check rustias-streaming-check rustias-adapter-check rustias-engine-check rustias-host-check rustias-editor-check --parallel 4
+        run: cmake --build output/plugin/build --config Release --target rustias_clap rustias_vst3 rustias-runtime-check rustias-streaming-check rustias-control-check rustias-adapter-check rustias-engine-check rustias-host-check rustias-editor-check --parallel 4
       - name: Build AU
         if: runner.os == 'macOS'
         run: cmake --build output/plugin/build --target rustias_au rustias-au-check --parallel 4

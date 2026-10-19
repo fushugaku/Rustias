@@ -61,17 +61,21 @@ pub extern "C" fn rustias_effect(slot: u32, length: u32) -> u32 {
         let Ok(p) = serde_json::from_slice::<effects::Program>(&e.preset[..length as usize]) else {
             return 0;
         };
-        if p.master != effect_uses_master(slot as usize) {
-            return 0;
-        }
-        let Ok(settings) = radias_synth_infrastructure::effect_audio::compile(
-            p.into(),
-            e.synth.settings[0][89] as u16,
-        ) else {
-            return 0;
-        };
-        e.effects.configure(slot as usize, settings).is_ok() as u32
+        apply_effect(e, slot as usize, p) as u32
     })
+}
+// Both external JSON controls and native modulation use this exact compiler and
+// configure transaction. Modulation already owns a validated typed program.
+fn apply_effect(e: &mut WebEngine, slot: usize, p: effects::Program) -> bool {
+    if slot >= EFFECT_SLOTS || p.master != effect_uses_master(slot) { return false; }
+    let Ok(settings) = radias_synth_infrastructure::effect_audio::compile(p.into(), e.synth.settings[0][89] as u16) else { return false; };
+    e.effects.configure(slot, settings).is_ok()
+}
+#[cfg(any(target_arch = "wasm32", rustias_plugin))]
+fn apply_chain_effect(e: &mut WebEngine, timbre: usize, id: &str, p: effects::Program) -> bool {
+    if !p.master { return false; }
+    let Ok(settings) = radias_synth_infrastructure::effect_audio::compile(p.into(), e.synth.settings[0][89] as u16) else { return false; };
+    e.effects.configure_chain_effect(timbre, id, settings).is_ok()
 }
 #[cfg(any(target_arch = "wasm32", rustias_plugin))]
 #[unsafe(no_mangle)]
@@ -120,18 +124,7 @@ pub extern "C" fn rustias_chain_effect(timbre: u32, length: u32) -> u32 {
         let Ok(fx) = serde_json::from_slice::<effects::ChainProgram>(bytes) else {
             return 0;
         };
-        if !fx.program.master {
-            return 0;
-        }
-        let Ok(settings) = radias_synth_infrastructure::effect_audio::compile(
-            fx.program.into(),
-            e.synth.settings[0][89] as u16,
-        ) else {
-            return 0;
-        };
-        e.effects
-            .configure_chain_effect(timbre as usize, &fx.id, settings)
-            .is_ok() as u32
+        apply_chain_effect(e, timbre as usize, &fx.id, fx.program) as u32
     })
 }
 #[unsafe(no_mangle)]

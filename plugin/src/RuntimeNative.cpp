@@ -30,7 +30,8 @@ struct Runtime::Direct {
   double peak=0;
   bool statsEnabled=true;
   std::optional<std::array<unsigned char,3>> pendingMidi;
-  std::map<unsigned,std::array<unsigned char,3>> pendingVolumes;
+  std::array<std::array<unsigned char,3>,16> pendingVolumes{};
+  unsigned pendingVolumeMask=0;
   struct Profile {unsigned id,timbre;std::string source;};
   std::map<std::pair<unsigned,std::string>,Profile> profiles;
   using Note=std::pair<unsigned,Json>;
@@ -39,34 +40,72 @@ struct Runtime::Direct {
   double releaseAt=0;
   std::string recording;
   uint64_t recordedFrames=0,recordIndex=0;
-  std::vector<int16_t> recordingPCM;
   static constexpr size_t chunkSamples=32768;
+  struct RecordingPool {
+    std::string id;
+    // Preserve the full FIFO backlog: 255 queued + one formatting + one writing.
+    // Keep flags compact, so preparation does not touch every PCM page.
+    std::array<std::array<int16_t,chunkSamples>,257> chunks;
+    std::array<std::atomic<bool>,257> available;
+    explicit RecordingPool(std::string value):id(std::move(value)){for(auto& flag:available)flag.store(true,std::memory_order_relaxed);}
+  };
+  std::shared_ptr<RecordingPool> recordingPool;
+  int recordingSlot=-1;
+  size_t recordingSamples=0;
+  struct SnapshotPool {
+    std::array<void*,19> data{};
+    std::array<std::atomic<bool>,19> available;
+    explicit SnapshotPool(void* engine){for(size_t i=0;i<data.size();i++){data[i]=rustias_native_snapshot_create(engine);available[i].store(true);}}
+    ~SnapshotPool(){for(auto* p:data)rustias_native_snapshot_destroy(p);}
+  };
+  std::shared_ptr<SnapshotPool> snapshotPool;
+  void prepareSnapshots(){snapshotPool=std::make_shared<SnapshotPool>(engine.handle);}
 
   // Single audio producer, single formatter consumer. Formatting JSON / large
   // PCM arrays cannot hold up a DAW callback. Slow UI consumers cannot lock it.
-  struct Packet {Json message;std::vector<int16_t> pcm;};
+  struct Packet {
+    Json message;
+    std::shared_ptr<SnapshotPool> snapshot;
+    std::shared_ptr<RecordingPool> recording;
+    NativeSnapshotMetadata metadata;
+    unsigned slot=0,snapshotKind=0;
+    uint64_t recordIndex=0,recordFrames=0;
+    size_t samples=0;
+  };
   std::array<Packet,256> packets;
+  // Triple-buffer mailbox for mandatory state under queue pressure. The audio
+  // side owns back, the formatter owns front; exchange transfers only middle.
+  // A pending state can be coalesced without touching either thread's buffer.
+  std::array<Packet,3> latestState;
+  std::atomic<unsigned> stateMiddle{2};
+  unsigned stateBack=0,stateFront=1;
+  static constexpr unsigned stateDirty=4;
   std::atomic<unsigned> read{0},write{0};
   std::atomic<bool> quitting{false};
-  std::mutex consumerMutex,readyMutex,wakeMutex;
-  std::condition_variable wake;
+  std::mutex consumerMutex,readyMutex;
+  std::atomic<uint64_t> wakeRevision{0};
   std::vector<std::string> ready;
   std::thread formatter;
 
   Direct(Runtime& r,double sampleRate):owner(r),rate(sampleRate){
     for(unsigned i=0;i<rustias_native_method_count();i++)methods.emplace(rustias_native_method_name(i),i);
     call("rustias_init");
+    prepareSnapshots();
     post({{"type","ready"},{"sampleRate",rate}});
     formatter=std::thread([this]{
-      while(!quitting.load(std::memory_order_acquire)){
+      auto observed=wakeRevision.load(std::memory_order_acquire);
+      for(;;){
         pump();
-        std::unique_lock lock(wakeMutex);
-        wake.wait_for(lock,std::chrono::milliseconds(2),[this]{return quitting.load()||read.load()!=write.load();});
+        if(quitting.load(std::memory_order_acquire))break;
+        // Read the generation before draining. A producer between pump() and
+        // wait() changes it, so wait cannot lose that notification.
+        wakeRevision.wait(observed,std::memory_order_acquire);
+        observed=wakeRevision.load(std::memory_order_acquire);
       }
       pump();
     });
   }
-  ~Direct(){quitting.store(true,std::memory_order_release);wake.notify_one();if(formatter.joinable())formatter.join();}
+  ~Direct(){quitting.store(true,std::memory_order_release);wakeRevision.fetch_add(1,std::memory_order_release);wakeRevision.notify_one();if(formatter.joinable())formatter.join();}
   double call(const char* name,std::initializer_list<double> args={}){
     double result=0;auto found=methods.find(name);
     if(found==methods.end()||!rustias_native_call(engine.handle,found->second,args.begin(),unsigned(args.size()),&result))
@@ -85,21 +124,82 @@ struct Runtime::Direct {
     if(!rustias_native_read(engine.handle,token,reinterpret_cast<uint8_t*>(bytes.data()),size))throw std::runtime_error("Invalid native JSON buffer");
     return Json::parse(bytes);
   }
-  bool post(Json message,std::vector<int16_t> pcm={}){
-    const auto w=write.load(std::memory_order_relaxed);
-    const auto next=(w+1)%packets.size();
+  bool enqueue(Packet packet){
+    const auto w=write.load(std::memory_order_relaxed);const auto next=(w+1)%packets.size();
     if(next==read.load(std::memory_order_acquire))return false;
-    packets[w]={std::move(message),std::move(pcm)};write.store(unsigned(next),std::memory_order_release);wake.notify_one();return true;
+    packets[w]=std::move(packet);write.store(unsigned(next),std::memory_order_release);
+    wakeRevision.fetch_add(1,std::memory_order_release);wakeRevision.notify_one();return true;
   }
+  bool post(Json message){Packet p;p.message=std::move(message);return enqueue(std::move(p));}
+  std::string format(const Packet& packet){
+    if(packet.snapshot){
+      size_t size=0;auto* bytes=rustias_native_snapshot_format(packet.snapshot->data[packet.slot],&packet.metadata,&size);
+      if(!bytes)throw std::runtime_error("Invalid native snapshot");
+      std::string text(reinterpret_cast<const char*>(bytes),size);
+      if(packet.slot<16)packet.snapshot->available[packet.slot].store(true,std::memory_order_release);
+      return text;
+    }
+    if(packet.recording){
+      auto& chunk=packet.recording->chunks[packet.slot];
+      Json pcm=Json::array();auto& values=pcm.get_ref<Json::array_t&>();values.reserve(packet.samples);
+      for(size_t i=0;i<packet.samples;i++)values.push_back(chunk[i]);
+      auto text=Json{{"type","record-chunk"},{"id",packet.recording->id},{"index",packet.recordIndex},{"frames",packet.recordFrames},{"pcm",std::move(pcm)}}.dump();
+      packet.recording->available[packet.slot].store(true,std::memory_order_release);
+      return text;
+    }
+    return packet.message.dump();
+  }
+  void deliver(const Packet& packet){auto text=format(packet);std::lock_guard lock(readyMutex);ready.push_back(std::move(text));}
   void pump(){
     std::lock_guard consumer(consumerMutex);
     auto r=read.load(std::memory_order_relaxed);
     while(r!=write.load(std::memory_order_acquire)){
       auto packet=std::move(packets[r]);packets[r]={};
       r=(r+1)%packets.size();read.store(r,std::memory_order_release);
-      if(!packet.pcm.empty())packet.message["pcm"]=packet.pcm;
-      auto text=packet.message.dump();std::lock_guard lock(readyMutex);ready.push_back(std::move(text));
+      deliver(packet);
     }
+    if(stateMiddle.load(std::memory_order_acquire)&stateDirty){
+      const auto published=stateMiddle.exchange(stateFront,std::memory_order_acq_rel);
+      stateFront=published&3;
+      deliver(latestState[stateFront]);
+    }
+  }
+  Packet metadata(unsigned kind){
+    Packet packet;packet.snapshot=snapshotPool;
+    auto& meta=packet.metadata;meta.callbacks=callbacks;meta.audibleFrames=audibleFrames;meta.peak=peak;meta.failed=owner.failure;
+    if(kind==2&&pendingMidi){meta.hasMidi=1;std::copy(pendingMidi->begin(),pendingMidi->end(),meta.midi);meta.volumeMask=pendingVolumeMask;for(unsigned c=0;c<16;c++)std::copy(pendingVolumes[c].begin(),pendingVolumes[c].end(),meta.volumes[c]);}
+    return packet;
+  }
+  bool captureState(unsigned kind){
+    auto packet=metadata(kind);packet.slot=16+stateBack;
+    const auto previous=stateMiddle.load(std::memory_order_acquire);
+    // A pending full correction must not be downgraded to a MIDI-only state.
+    const unsigned capturedKind=(previous&stateDirty)&&latestState[previous&3].snapshotKind==1?1:kind;
+    packet.snapshotKind=capturedKind;
+    if(!rustias_native_snapshot_capture(engine.handle,snapshotPool->data[packet.slot],capturedKind))return false;
+    if(previous&stateDirty){
+      // Only read immutable metadata. The consumer never moves/clears mailbox
+      // packets; this producer cannot reuse that middle until after exchange.
+      const auto& old=latestState[previous&3].metadata;auto& current=packet.metadata;
+      for(unsigned c=0;c<16;c++)if((old.volumeMask&(1u<<c))&&!(current.volumeMask&(1u<<c)))std::copy(std::begin(old.volumes[c]),std::end(old.volumes[c]),current.volumes[c]);
+      current.volumeMask|=old.volumeMask;
+      if(!current.hasMidi&&old.hasMidi){current.hasMidi=1;std::copy(std::begin(old.midi),std::end(old.midi),current.midi);}
+    }
+    latestState[stateBack]=std::move(packet);
+    stateBack=stateMiddle.exchange(stateBack|stateDirty,std::memory_order_acq_rel)&3;
+    wakeRevision.fetch_add(1,std::memory_order_release);wakeRevision.notify_one();
+    return true;
+  }
+  bool capture(unsigned kind){
+    if(kind!=0&&(stateMiddle.load(std::memory_order_acquire)&stateDirty))return captureState(kind);
+    for(unsigned i=0;i<16;i++)if(snapshotPool->available[i].load(std::memory_order_acquire)){
+      if(!rustias_native_snapshot_capture(engine.handle,snapshotPool->data[i],kind))return false;
+      auto packet=metadata(kind);packet.slot=i;
+      snapshotPool->available[i].store(false,std::memory_order_release);
+      if(enqueue(std::move(packet)))return true;
+      snapshotPool->available[i].store(true,std::memory_order_release);break;
+    }
+    return kind!=0&&captureState(kind);
   }
   std::vector<std::string> take(bool realtime){
     if(!realtime)pump();
@@ -118,22 +218,14 @@ struct Runtime::Direct {
   }
   Json stats(){return {{"frames",call("rustias_frames")},{"voices",call("rustias_voices")},{"capacity",call("rustias_voice_capacity")},{"failed",owner.failure},{"backend","native-rust"},{"modulation",modulationStatus()}};}
   void snapshot(bool midi=false){
-    auto program=json("rustias_save");Json volumes=Json::array();
-    for(auto& [_,p]:profiles)volumes.push_back({{"timbre",p.timbre},{"source",p.source},{"value",call("rustias_library_value",{double(p.id),117})}});
-    Json message={{"type","state"},{"program",std::move(program)},{"libraryVolumes",std::move(volumes)}};
-    if(midi&&pendingMidi){
-      message["midi"]=*pendingMidi;message["midiBatch"]=Json::array();
-      for(auto& [_,bytes]:pendingVolumes)message["midiBatch"].push_back(bytes);
-      message["program"].erase("effects");pendingMidi.reset();pendingVolumes.clear();snapshotFrames=0;
-    }
-    post(std::move(message));
+    if(capture(midi?2:1)&&midi&&pendingMidi){pendingMidi.reset();pendingVolumeMask=0;snapshotFrames=0;}
   }
   void flushMidi(){if(pendingMidi)snapshot(true);}
   void midi(unsigned char a,unsigned char b,unsigned char c){
     // NativeHost restores / rebases modulation, handles KeySync and all channel
     // receive rules. Do not run the browser note sequencer in a DAW.
     call("rustias_modulation_restore");call("rustias_midi",{double(a),double(b),double(c)});
-    if((a&240)==176||(a&240)==224){pendingMidi=std::array{a,b,c};if((a&240)==176&&b==7)pendingVolumes[a&15]=*pendingMidi;}
+    if((a&240)==176||(a&240)==224){pendingMidi=std::array{a,b,c};if((a&240)==176&&b==7){pendingVolumes[a&15]=*pendingMidi;pendingVolumeMask|=1u<<(a&15);}}
   }
   void note(const Note& voice,unsigned velocity,bool preview=false){
     if(preview&&velocity&&voice.second.is_number_integer()){
@@ -154,13 +246,23 @@ struct Runtime::Direct {
   void auditionBlock(unsigned frames){if(!audition.empty()&&auditionFrame>=releaseAt)stopAudition();auditionFrame+=frames;}
   void resetOutput(){index=length=0;nativePhase=0;phase=0;currentLeft=currentRight=nextLeft=nextRight=0;}
   void flushRecording(){
-    if(recordingPCM.empty())return;
-    if(!post({{"type","record-chunk"},{"id",recording},{"index",recordIndex++},{"frames",recordedFrames}},std::move(recordingPCM)))throw std::runtime_error("Recording output queue is full");
-    recordingPCM={};recordingPCM.reserve(chunkSamples);
+    if(!recordingSamples)return;
+    Packet packet;packet.recording=recordingPool;packet.slot=unsigned(recordingSlot);packet.samples=recordingSamples;packet.recordIndex=recordIndex++;packet.recordFrames=recordedFrames;
+    if(!enqueue(std::move(packet)))throw std::runtime_error("Recording output queue is full");
+    recordingSlot=-1;recordingSamples=0;
+  }
+  void recordFrame(float left,float right){
+    if(recordingSlot<0){
+      for(unsigned i=0;i<recordingPool->chunks.size();i++)if(recordingPool->available[i].load(std::memory_order_acquire)){recordingSlot=int(i);recordingPool->available[i].store(false,std::memory_order_release);break;}
+      if(recordingSlot<0)throw std::runtime_error("Recording output queue is full");
+    }
+    auto& pcm=recordingPool->chunks[recordingSlot];
+    for(float v:{left,right}){const double x=std::isfinite(v)?std::clamp(double(v),-1.,1.):0.;pcm[recordingSamples++]=int16_t(std::floor(x*(x<0?32768:32767)+.5));}
+    recordedFrames++;if(recordingSamples==chunkSamples)flushRecording();
   }
   void stopRecording(const Json& message){
     if(recording.empty()||message.value("id",recording)!=recording)return;
-    flushRecording();post({{"type","record-stopped"},{"id",recording},{"frames",recordedFrames}});recording.clear();recordingPCM.clear();
+    flushRecording();post({{"type","record-stopped"},{"id",recording},{"frames",recordedFrames}});recording.clear();recordingPool.reset();
   }
   void sample(const Json& data,bool library){
     const auto id=data.at(library?"asset":"instrument").get<unsigned>();const auto pcm=data.at("data").get<std::vector<float>>();
@@ -199,9 +301,9 @@ struct Runtime::Direct {
     }else if(type=="circuit"){
       const auto n=stage(data.at("circuit"));if(!call("rustias_circuit",{data.at("timbre"),double(n)}))warning("The engine rejected this modular patch.");
     }else if(type=="load"){
-      pendingMidi.reset();pendingVolumes.clear();snapshotFrames=0;call("rustias_modulation_stop");
+      pendingMidi.reset();pendingVolumeMask=0;snapshotFrames=0;call("rustias_modulation_stop");
       const auto n=stage(data.at("program"));
-      if(!call("rustias_load",{double(n)})){warning("The Rust engine rejected this program.");snapshot();}
+      if(!call("rustias_load",{double(n)})){prepareSnapshots();warning("The Rust engine rejected this program.");snapshot();}
       else {const auto unavailable=data.value("unavailable",Json::object());call("rustias_rdl_mute",{unavailable.value("timbres",0.),unavailable.value("drums",0.)});stopAudition();manualNotes.clear();auditionNotes.clear();call("rustias_modulation_stop");resetOutput();}
     }else if(type=="rdl-muted")call("rustias_rdl_mute",{data.at("timbres"),data.at("drums")});
     else if(type=="stop"){
@@ -216,7 +318,7 @@ struct Runtime::Direct {
       call("rustias_library_sync");const auto source=data.at("source").get<std::string>();profiles[{unsigned(t),source}]={unsigned(id),unsigned(t),source};const auto n=stage(source);
       if(!call("rustias_modulation_profile",{t,id,double(n)}))throw std::runtime_error("The native modulation sample mapping was rejected.");
     }else if(type=="record-start"){
-      if(recording.empty()&&data.contains("id")&&data["id"].is_string()){recording=data["id"];recordedFrames=recordIndex=0;recordingPCM.clear();recordingPCM.reserve(chunkSamples);post({{"type","record-started"},{"id",recording},{"sampleRate",rate}});}
+      if(recording.empty()&&data.contains("id")&&data["id"].is_string()){recording=data["id"];recordedFrames=recordIndex=0;recordingPool=std::make_shared<RecordingPool>(recording);recordingSlot=-1;recordingSamples=0;post({{"type","record-started"},{"id",recording},{"sampleRate",rate}});}
     }else if(type=="record-stop")stopRecording(data);
     else if(type=="audition"){
       stopAudition();const unsigned t=data.at("timbre");if(t>=8)throw std::runtime_error("Invalid audition timbre.");const auto& step=data.at("step");const unsigned velocity=step.value("velocity",100);
@@ -229,13 +331,14 @@ struct Runtime::Direct {
       const auto resolution=data.value("resolution",std::string("1/16"));const auto slash=resolution.find('/');const auto beats=4*std::stod(resolution.substr(0,slash))/std::stod(resolution.substr(slash+1));
       releaseAt=auditionFrame+std::max(128.,48000.*60/(call("rustias_value",{0,89})/10)*beats*step.value("gate",75.)/100);
     }
+    if(type=="modulation"||type=="load"||type=="effect-chain"||type=="library-profile"||type=="library-reset")prepareSnapshots();
     // Browser note sequencer messages are deliberately inert in DAW plugins.
   }
   void nativeBlock(unsigned needed){
     if(index!=length)return;
     const unsigned count=std::min(needed,128-nativePhase);auditionBlock(count);
     const auto token=uint32_t(call("rustias_render_frames",{double(count)}));
-    if(!rustias_native_read(engine.handle,token,reinterpret_cast<uint8_t*>(block.data()),sizeof(block)))throw std::runtime_error("Invalid native PCM buffer");
+    if(!rustias_native_read(engine.handle,token,reinterpret_cast<uint8_t*>(block.data()),count*2*sizeof(float)))throw std::runtime_error("Invalid native PCM buffer");
     gain=call("rustias_modulation_gain");nativePhase=(nativePhase+count)%128;length=count;index=0;
   }
   void render(float* left,float* right,unsigned frames){
@@ -249,14 +352,11 @@ struct Runtime::Direct {
       phase+=48000;
       while(phase>=rate){phase-=rate;currentLeft=nextLeft;currentRight=nextRight;nativeBlock(1+unsigned(std::floor((phase+48000.*(frames-i-1))/rate)));nextLeft=block[index*2];nextRight=block[index*2+1];index++;}
     }
-    if(!recording.empty())for(unsigned i=0;i<frames;i++){
-      for(float v:{left[i],right[i]}){const double x=std::isfinite(v)?std::clamp(double(v),-1.,1.):0.;recordingPCM.push_back(int16_t(std::floor(x*(x<0?32768:32767)+.5)));}
-      recordedFrames++;if(recordingPCM.size()==chunkSamples)flushRecording();
-    }
+    if(!recording.empty())for(unsigned i=0;i<frames;i++)recordFrame(left[i],right[i]);
     callbacks++;
     if(statsEnabled){
       for(unsigned i=0;i<frames;i++){peak=std::max({peak,std::abs(double(left[i])),std::abs(double(right[i]))});if(left[i]!=0||right[i]!=0)audibleFrames++;}
-      statsFrames+=frames;if(statsFrames>=rate/20){statsFrames=std::fmod(statsFrames,rate/20);auto status=stats();status["type"]="stats";status["audibleFrames"]=audibleFrames;status["peak"]=peak;status["callbacks"]=callbacks;status["sequence"]=nullptr;post(std::move(status));peak=0;}
+      statsFrames+=frames;if(statsFrames>=rate/20){statsFrames=std::fmod(statsFrames,rate/20);capture(0);peak=0;}
     }
     snapshotFrames=std::min(uint64_t(std::ceil(rate/30)),snapshotFrames+frames);if(snapshotFrames>=rate/30)flushMidi();
   }

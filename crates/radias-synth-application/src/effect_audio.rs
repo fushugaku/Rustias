@@ -174,6 +174,12 @@ impl EffectAudioRack {
         })
     }
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub fn chain_program_entries(&self) -> impl Iterator<Item = (usize, &str, EffectAudioProgram)> + '_ {
+        self.chains.iter().enumerate().flat_map(|(t, chain)| {
+            chain.iter().map(move |fx| (t, fx.id.as_str(), fx.processor.settings().program))
+        })
+    }
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub fn configure_chain(
         &mut self,
         timbre: usize,

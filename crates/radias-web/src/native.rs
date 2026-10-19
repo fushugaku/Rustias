@@ -3,6 +3,8 @@
 use super::*;
 use std::cell::Cell;
 mod modulation;
+mod snapshot;
+pub use snapshot::{NativeSnapshot, SnapshotMetadata};
 use modulation::Modulation;
 
 thread_local! {
@@ -268,6 +270,7 @@ pub struct NativeHost {
     region: Option<Region>,
     serial: u32,
     render_phase: Cell<usize>,
+    snapshot_layout: Option<std::sync::Arc<snapshot::Layout>>,
 }
 impl Default for NativeHost {
     fn default() -> Self {
@@ -277,6 +280,7 @@ impl Default for NativeHost {
             region: None,
             serial: 0,
             render_phase: Cell::new(0),
+            snapshot_layout: None,
         }
     }
 }
@@ -294,6 +298,9 @@ impl NativeHost {
         // A token never exposes a process address to JavaScript. Any subsequent
         // engine operation revokes it, including operations that reallocate PCM.
         self.region = None;
+        if matches!(method.name, b"rustias_init\0" | b"rustias_load\0" | b"rustias_effect_chain\0" | b"rustias_modulation_state\0" | b"rustias_modulation_profile\0" | b"rustias_library_reset\0") {
+            self.snapshot_layout = None;
+        }
         let _scope = Scope(ACTIVE.with(|active| active.replace(self)));
         match method.name {
             b"rustias_init\0" => {

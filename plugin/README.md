@@ -152,6 +152,43 @@ strict `auval` validation. Both macOS architectures can run the direct check.
 
 ## Implementation
 
+Version 0.2.5 captures MIDI/display state and telemetry into preallocated owned
+snapshots. JSON formatting happens on the message worker, which never reads a
+live engine. A coalescing mailbox preserves the final MIDI/CC7 and full corrective
+state even when Stop is followed by no further rendering. FX and chain modulation
+call shared typed compiler/configure helpers; change scratch and macro/lane links
+are prepared ahead of rendering. Recording reuses PCM chunks, and idle formatters
+wait for notifications instead of waking on a 2 ms timer.
+
+A frozen 0.2.4 engine remains the local before/after reference: 210 adapter scenes
+plus 12 dense-control timelines match every PCM bit and state snapshot on Apple
+Silicon and Intel. The browser's 279 scenes / 3,428,352 stereo frames also match.
+Control tests include invalid FX parameter repair, duplicate chain IDs, final Stop
+under queue pressure, independent telemetry readback and exact recorded PCM.
+
+On Apple M5 Max at 48 kHz / 128 frames, two ABBA passes (each three rounds of
+1,024 callback batches) measured these per-pass ranges:
+
+| Workload | Mean µs, 0.2.4 → 0.2.5 | P99 µs, 0.2.4 → 0.2.5 |
+| --- | ---: | ---: |
+| Two parallel AU, four sources / MS-20 / controllers | 274–284 → 226–230 | 684–686 → 415–417 |
+| Two native runtimes, MIDI / editor telemetry | 253–271 → 216–219 | 709–728 → 237–241 |
+| Two native runtimes, FX Slide / dense macros | 298–302 → 247–249 | 776 → 278–289 |
+| Eight native runtimes, MIDI / editor telemetry | 1,014–1,086 → 869–879 | 2,817–2,875 → 937–944 |
+
+The eight-runtime test exceeded its 2,667 µs budget in 474/6,144 batches before
+and 0/6,144 after. Runtime tests process instances sequentially with telemetry
+enabled, without opening editor windows; the AU test includes parallel thread
+rendezvous. Static two/four-instance AU mean times differed by less than 3%.
+These are workload-specific offline measurements, not a scheduling guarantee.
+C++ `new` calls in measured MIDI/recording callbacks fell to zero; this counter
+does not count Rust allocations, setup or incoming JSON editor commands.
+
+```sh
+cmake --build output/plugin/build --target rustias-control-benchmark
+output/plugin/build/rustias-control-benchmark output/plugin/resources result.json
+```
+
 Version 0.2.4 removes the remaining script VM from the native audio path. A live
 Logic profile of 0.2.3 showed JavaScriptCore lock and garbage-collector waits in
 both AU rendering threads. An offline stress scene based on the visible patch

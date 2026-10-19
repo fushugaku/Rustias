@@ -1,23 +1,23 @@
 Native Rustias instrument: the same Rust synthesis engine as the browser version, compiled to native machine code. No firmware or WASM audio runtime required.
 
-Version 0.2.4 removes the script VM from the DAW audio path. A live Logic profile
-of 0.2.3 showed JavaScriptCore lock and garbage-collector waits in both AU render
-threads. Audio, MIDI, transport and parameter updates now call the canonical Rust
-engine directly. Outgoing message / recording-array formatting uses a separate
-native worker; the audio callback never waits for it. Browser UI and DSP stay shared.
+Version 0.2.5 removes JSON round trips from MIDI/display snapshots, telemetry
+and native FX/chain modulation. Snapshots and recording chunks reuse prepared
+buffers; macro/lane links and modulation scratch are retained. Message workers
+sleep until notified. Final MIDI/CC7 and full corrective states survive queue
+pressure and Stop without another audio callback.
 
-A silent offline stress test based on the observed patch used two parallel AU
-instances, four sources, two MS-20 filters, six voices per instance and continuous
-wheel/pitch events. At 48 kHz / 128 frames on Apple M5 Max, P99 fell from 3.918 ms
-to 0.867 ms; callbacks exceeding the 2.667 ms budget fell from 122/1536 to 0/1536.
-These measurements depend on patch and OS scheduling; they are not a universal
-real-time guarantee.
+A silent Apple M5 Max test at 48 kHz / 128 frames compared frozen 0.2.4 and
+0.2.5 in ABBA order. With two parallel AU, four sources, two MS-20 filters and
+continuous controllers, mean callback time fell from 274–284 to 226–230 µs;
+P99 fell from 684–686 to 415–417 µs. A separate sequential eight-runtime
+MIDI/telemetry test reduced budget misses from 474/6,144 to 0/6,144.
+Static AU mean times differed by less than 3%. These are workload-specific
+ordinary offline-host measurements, not a universal real-time guarantee.
 
-The old worklet remains an offline oracle only. Native adapter PCM matches every
-bit in 210 scenes and 1,720,320 stereo frames at 44.1/48/96 kHz, including all
-filter models, oscillators, 30 effect algorithms, chains, samples and macros.
-The existing native/browser PCM, state, streaming, recording and editor checks
-remain in place. The original reference engine profile is unchanged.
+PCM and state match frozen 0.2.4 in 210 adapter scenes plus 12 control timelines
+on both Mac architectures. The browser's 279 scenes / 3,428,352 stereo frames
+also match. Original synthesis arithmetic, filter quality, controller quantum
+and reference desktop profile are unchanged. All checks remain silent.
 
 | System | Installer | Formats |
 | --- | --- | --- |
@@ -39,21 +39,24 @@ All builds pass offline native/WASM PCM and state checks. macOS also runs AU val
 
 Нативный Rustias для macOS, Windows и Linux. Звук считает общий Rust-движок, без прошивки и без WASM в аудиотракте.
 
-Версия 0.2.4 убирает интерпретатор из аудиотракта DAW. В профиле Logic с 0.2.3
-видны ожидания блокировок и сборщика мусора JavaScriptCore в обоих потоках AU.
-Теперь аудио, MIDI, транспорт и параметры обращаются к общему Rust-движку
-напрямую. Форматирование сообщений и массивов записи вынесено в отдельный
-нативный поток, которого аудиопоток не ждёт. Общие DSP и интерфейс сохранены.
+Версия 0.2.5 убирает JSON из снимков MIDI-состояния, телеметрии и модуляции
+эффектов/цепочек. Снимки и блоки записи переиспользуют готовые буферы; связи
+макросов/линий и рабочая память модуляции подготавливаются заранее. Фоновые
+потоки ждут уведомлений. Последние MIDI/CC7 и полное корректирующее состояние
+доходят при переполнении пула и после Stop без следующего аудиоблока.
 
-В тихом стресс-тесте с двумя параллельными AU, четырьмя источниками, двумя
-фильтрами MS-20 и потоком Wheel/Pitch, при 48 кГц / 128 сэмплах P99 снизился
-с 3,918 до 0,867 мс. Превышения бюджета 2,667 мс — со 122 из 1536 до 0 из 1536.
-Результат зависит от патча и нагрузки ОС.
+В двух параллельных AU на Apple M5 Max, 48 кГц / 128 сэмплов, с четырьмя
+источниками, MS-20 и потоком контроллеров, среднее время снизилось с 274–284
+до 226–230 мкс, P99 — с 684–686 до 415–417 мкс. В отдельном последовательном
+тесте восьми нативных экземпляров превышения бюджета снизились с 474 из 6 144
+до нуля. Для статичных AU разница среднего времени — меньше 3%. Результат
+зависит от патча и планировщика ОС.
 
-PCM совпал побитово с прежним адаптером в 210 сценариевх — 1 720 320
-стереосэмплов на 44,1/48/96 кГц. Проверены все модели фильтров, осцилляторы,
-30 эффектов, цепочки, сэмплы и макросы. Прежний адаптер используется только
-в офлайн-проверках; эталонный профиль оригинального движка не менялся.
+Звук и состояние совпали с замороженной 0.2.4: 210 сценариев адаптера и 12
+сценариев управления на Apple Silicon и Intel. Браузер сохранил PCM во всех
+279 сценариях — 3 428 352 стереокадра. Арифметика синтеза, качество фильтров,
+квант контроллеров и эталонный профиль исходного движка сохранены.
+Все аудиопроверки выполнены в памяти, без вывода звука.
 
 Скачайте установщик для своей системы из таблицы выше. Перед установкой закройте DAW, после — запустите её и обновите список плагинов. В Windows можно выбрать VST3 и CLAP; недостающие компоненты Microsoft устанавливаются автоматически. Для Linux нужны Python 3, WebKitGTK 4.1 версии 2.40+ и X11/XWayland.
 
