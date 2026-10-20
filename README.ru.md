@@ -34,7 +34,7 @@ Rustias также собирается в универсальные AU/VST3/CL
 | OSC3 | Формы, режимы и CTRL1/2 как у OSC1; собственные semitone/fine tune; Normal/Ring/Sync/Ring+Sync с выбором OSC1, OSC2 или результата OSC1→2 |
 | Filters | Морфинг Filter1, cutoff, resonance, EG1 и key tracking; Single/Serial/Parallel/Individual; Filter2 LP/HP/BP/Comb, Link, cutoff, resonance, EG1 и key tracking |
 | Drive / WS | Отдельные режимы Off / Drive / WavShape; 11 типов WS: Decimator, Hard Clip, OctSaw, MultiTri, MultiSin, четыре SubOSC, Pickup и Level Boost; Depth 0–127 и позиция PreFilt1 / PreAmp. Тип WS и глубина сохраняются при смене режима |
-| EG1 / EG2 / EG3 | Независимые ADSR, восемь кривых, чувствительность уровня и времени к velocity, key tracking |
+| EG1 / EG2 / EG3 | RADIAS ADSR по умолчанию; отдельный выбор Q ADSR / ADS1DS2R / One Shot / Loop S1S2 / Loop All для каждой EG; velocity level/time и key tracking |
 | Amplifier | Уровень, панорама, key tracking, смещение уровня, source gain/Expression и MIDI volume; автоматический gain bank для Unison |
 | LFO1 / LFO2 / LFO3 | Форма, shape, частота, фаза, Free/Timbre/Voice sync, tempo sync, деление и смещение скорости |
 | Virtual patches | Восемь маршрутов source/destination/intensity, ручные смещения и обратные связи для всех восьми патчей |
@@ -43,6 +43,8 @@ Rustias также собирается в универсальные AU/VST3/CL
 | Drum Kit | 16 независимых инструментов синтеза или сэмплов; тембр-владелец, общий уровень/pan/transpose и Gain −24…+24 dB, trigger note, exclusive group; 224 встроенные записи и загрузка своих файлов |
 | Веб-секвенсор | По дорожке на тембр — до восьми, каждая по 1–128 шагов; общий Play. Аккорд, любые сэмплы, выделение и Copy/Paste, velocity и gate каждого шага; независимые длина, включение и длительность шага; восемь блоков по 16 шагов |
 | Макросы | Восемь ручек на программу, до двенадцати целей на каждую; сила влияния −100…+100%, редактируемые названия и привязки |
+
+**Огибающие Q.** В браузере и AU/VST3/CLAP у каждой EG есть dropdown **Type**. RADIAS сохраняет прежний расчёт и восемь кривых. Режимы Q используют собственную шкалу 0–60 с, мгновенную нулевую атаку, линейный Attack и быстрый начальный спад с плавным хвостом. ADS1DS2R добавляет **Attack level**, **Decay 2**, **Sustain 2**; One Shot проходит Attack/Decay/Release независимо от длительности ноты; Loop S1S2 повторяет два участка спада после одной атаки; Loop All повторяет полный цикл до отпускания ноты. В режиме Q ручка RADIAS Curve скрыта. Настройки сохраняются в программах, тембрах и звуках сэмплов и доступны макросам и мод-секвенсорам, включая Poly. Старые файлы получают RADIAS. Это самостоятельная реализация режимов из [руководства Waldorf Q, стр. 122–127](https://www.polynominal.com/waldorf-q/WALDORF_Q16CLASSIC_ENG.pdf#page=121); времена и кривые пока не откалиброваны по железу Q. Исходный профиль RADIAS для сверки с оригиналом не меняется.
 
 LFO 3 — браузерное расширение на общем Rust-контроллере LFO. Его формы совпадают с LFO 1 (Saw, Square, Triangle, S&H); shape, частота, фаза, key sync и синхронизация с темпом независимы. Выберите **LFO 3** как Source в Virtual Patch или **LFO 3 Rate** как Destination. В Build доступен его CV-выход, параметры можно назначить макросам и mod sequencer. Программы, сохранённые тембры и профили сэмплов хранят все восемь настроек. Старые файлы с 155/163 параметрами получают значения по умолчанию; RDL сохраняет два исходных LFO. В desktop остаются два LFO и прежние номера параметров.
 

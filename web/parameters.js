@@ -1,4 +1,5 @@
 import {MAX_TIMBRES,PATCH_ROUTES,LFO3_BASE,OSC3_BASE,OSC4_BASE} from './limits.js';
+import {ENVELOPES,ENVELOPE_MODES} from './envelopes.js';
 export function webParameters(native){
   const parameters=structuredClone(native);
   if(parameters.length!==155)throw new Error('Invalid native parameter definitions.');
@@ -20,6 +21,10 @@ export function webParameters(native){
   const models=['RADIAS','Ladder LP24','MS-20 LP12','MS-20 HP12','Pro LP24','SEM','Multi Filter','Ladder HP24','Ladder BP24','M/Poly LP24','Linear LP12','Linear LP24','Linear HP12','Linear HP24','Linear BP12','Linear BP24','Linear Notch12','Linear Notch24'];
   for(const id of [189,190])parameters.push({id,group:id===189?'Filter 1':'Filter 2',label:'Model',min:0,max:17,default:0,options:models});
   for(const [id,group,label]of [[191,'Filter 1','Drive'],[192,'Filter 2','Drive'],[193,'Filter 1','Model morph'],[194,'Filter 2','Model morph']])parameters.push({id,group,label,min:0,max:127,default:0});
+  for(const [i,p]of ENVELOPES.entries()){
+    parameters.push({id:p.base,group:`EG ${i+1}`,label:'Type',min:0,max:5,default:0,options:ENVELOPE_MODES});
+    for(const [offset,label,defaultValue]of [[1,'Attack level',127],[2,'Decay 2',64],[3,'Sustain 2',64]])parameters.push({id:p.base+offset,group:`EG ${i+1}`,label,min:0,max:127,default:defaultValue});
+  }
   return parameters;
 }
 export function extendValues(input,parameters){
@@ -32,5 +37,6 @@ export function extendValues(input,parameters){
   if(v.length===OSC3_BASE+6)v.push(0,0);
   if(v.length===179&&parameters)for(const p of parameters.slice(179))v.push(p.default);
   else if(v.length===179)v.push(3,4,32,64,64,64,0,0,0,0,0,0,0,0,0,0);
+  if(v.length===195)v.push(...(parameters?parameters.slice(195).map(p=>p.default):[0,127,64,64,0,127,64,64,0,127,64,64]));
   return v;
 }

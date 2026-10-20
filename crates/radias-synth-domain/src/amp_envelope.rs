@@ -18,6 +18,8 @@ pub enum EnvelopeStage {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AmpEnvelopeParameters {
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub q: crate::q_envelope::Settings,
     pub attack: u8,
     pub decay: u8,
     pub sustain: u8,
@@ -31,6 +33,8 @@ pub struct AmpEnvelopeParameters {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AmpEnvelope {
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    q: crate::q_envelope::Envelope,
     pub segment: EnvelopeSegment,
     pub stage: EnvelopeStage,
     pub published_level: u16,
@@ -44,6 +48,8 @@ pub struct AmpEnvelope {
 impl Default for AmpEnvelope {
     fn default() -> Self {
         Self {
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+            q: Default::default(),
             segment: EnvelopeSegment::default(),
             stage: EnvelopeStage::Disabled,
             published_level: 0,
@@ -57,6 +63,20 @@ impl Default for AmpEnvelope {
 }
 
 impl AmpEnvelope {
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    fn publish_q(&mut self) {
+        use crate::q_envelope::Stage;
+        self.segment.level = self.q.level;
+        self.published_level = self.q.level;
+        self.stage = match self.q.stage {
+            Stage::Attack => EnvelopeStage::Attack,
+            Stage::Decay | Stage::Decay2 => EnvelopeStage::Decay,
+            Stage::Sustain => EnvelopeStage::Sustain,
+            Stage::Release => EnvelopeStage::Release,
+            Stage::Finished => EnvelopeStage::Finished,
+        };
+        self.dirty = true;
+    }
     fn timing(parameters: AmpEnvelopeParameters, time: u8) -> EnvelopeTiming {
         EnvelopeTiming {
             curve: parameters.curve,
@@ -83,6 +103,12 @@ impl AmpEnvelope {
         tables: &EnvelopeTimingTables,
         initial_phase: u32,
     ) {
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        if parameters.q.mode != 0 {
+            self.q.note_on(parameters.q, parameters, tables);
+            self.publish_q();
+            return;
+        }
         self.stage = EnvelopeStage::Attack;
         self.dirty = true;
         self.increment_flags = 2;
@@ -100,6 +126,12 @@ impl AmpEnvelope {
         self.evaluate(curves, 5);
     }
     pub fn release(&mut self, parameters: AmpEnvelopeParameters, tables: &EnvelopeTimingTables) {
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        if parameters.q.mode != 0 {
+            self.q.release(parameters, tables);
+            self.publish_q();
+            return;
+        }
         let keep_segment = self.stage == EnvelopeStage::Decay && parameters.sustain & 127 == 0;
         self.stage = EnvelopeStage::Release;
         self.dirty = true;
@@ -122,6 +154,52 @@ impl AmpEnvelope {
         next: AmpEnvelopeParameters,
         tables: &EnvelopeTimingTables,
     ) {
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        {
+            if previous.q.mode != next.q.mode {
+                let held = matches!(
+                    self.stage,
+                    EnvelopeStage::Attack | EnvelopeStage::Decay | EnvelopeStage::Sustain
+                );
+                if next.q.mode != 0 {
+                    if !matches!(
+                        self.stage,
+                        EnvelopeStage::Disabled | EnvelopeStage::Finished
+                    ) {
+                        self.q.adopt(next.q, self.segment.level, held, next, tables);
+                        self.publish_q();
+                    }
+                    return;
+                }
+                if !matches!(
+                    self.stage,
+                    EnvelopeStage::Disabled | EnvelopeStage::Finished
+                ) {
+                    self.stage = if held {
+                        EnvelopeStage::Attack
+                    } else {
+                        EnvelopeStage::Release
+                    };
+                    self.increment_flags = 0;
+                    self.divider = 0;
+                    self.target = 0;
+                    self.segment.begin(
+                        if held { 32766 } else { 0 },
+                        if held {
+                            tables.increments[3][(next.attack & 127) as usize]
+                        } else {
+                            tables.increment(Self::timing(next, next.release))
+                        },
+                    );
+                }
+                return;
+            }
+            if next.q.mode != 0 {
+                self.q.edit(previous, next, next.q, tables);
+                self.publish_q();
+                return;
+            }
+        }
         if previous.sustain != next.sustain {
             let target = Self::expanded(next.sustain);
             if self.stage == EnvelopeStage::Sustain {
@@ -165,6 +243,12 @@ impl AmpEnvelope {
         tables: &EnvelopeTimingTables,
         release_acknowledged: bool,
     ) {
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        if parameters.q.mode != 0 {
+            self.q.tick(parameters, tables);
+            self.publish_q();
+            return;
+        }
         match self.stage {
             EnvelopeStage::Attack | EnvelopeStage::Decay | EnvelopeStage::Release => {
                 let stage = self.stage;

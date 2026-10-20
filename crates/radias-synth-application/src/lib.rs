@@ -15,7 +15,7 @@ pub trait VoiceCircuit: radias_synth_domain::voice::SignalProcessor {
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn extension_parameters(&mut self, _values: &[i32]) {}
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-    fn extension_instrument(&mut self, _values: &[i32;195]) {}
+    fn extension_instrument(&mut self, _values: &[i32;207]) {}
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn extension_tempo(&mut self, _tempo:i32) {}
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
@@ -38,7 +38,7 @@ pub trait VoiceCircuit: radias_synth_domain::voice::SignalProcessor {
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn prepare_motion(&mut self) {}
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-    fn set_motion_offsets(&mut self,_offsets:&[f64;195],_positions:[i16;6]) {}
+    fn set_motion_offsets(&mut self,_offsets:&[f64;207],_positions:[i16;6]) {}
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn oscillator3(
         &mut self,

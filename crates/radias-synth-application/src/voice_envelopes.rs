@@ -8,6 +8,8 @@ use radias_synth_domain::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModEnvelopeProgram {
+    #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+    pub q: radias_synth_domain::q_envelope::Settings,
     pub adsr: [u8; 4],
     pub curve: u8,
     pub velocity_time_sensitivity: u8,
@@ -17,6 +19,8 @@ pub struct ModEnvelopeProgram {
 impl Default for ModEnvelopeProgram {
     fn default() -> Self {
         Self {
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+            q: Default::default(),
             adsr: [0, 0, 127, 10],
             curve: 1,
             velocity_time_sensitivity: 64,
@@ -28,6 +32,8 @@ impl Default for ModEnvelopeProgram {
 impl ModEnvelopeProgram {
     pub fn parameters(self, note: u8, velocity: u8) -> ModEnvelopeParameters {
         ModEnvelopeParameters {
+            #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+            q: self.q,
             attack: self.adsr[0],
             decay: self.adsr[1],
             sustain: self.adsr[2],

@@ -22,7 +22,7 @@ pub struct VoiceMotion {
     dirty: bool,
     pub seed: u32,
     pub positions: [i16; 6],
-    pub offsets: [f64; 195],
+    pub offsets: [f64; 207],
 }
 impl Default for VoiceMotion {
     fn default() -> Self {
@@ -32,13 +32,13 @@ impl Default for VoiceMotion {
             previous_frame: 0,
             dirty: true,
             seed: 1,
-            offsets: [0.0; 195],
+            offsets: [0.0; 207],
             positions: [-1; 6],
         }
     }
 }
 pub fn supported(id: usize) -> bool {
-    matches!(id, 1..=8 | 11 | 12 | 15..=19 | 22 | 23 | 25..=28 | 31..=51 | 53 | 54 | 59 | 75 | 83 | 165 | 171..=194)
+    matches!(id, 1..=8 | 11 | 12 | 15..=19 | 22 | 23 | 25..=28 | 31..=51 | 53 | 54 | 59 | 75 | 83 | 165 | 171..=206)
 }
 fn next_step(lane: &Lane, clock: &mut Clock, random: u32) -> usize {
     if lane.start == lane.end {

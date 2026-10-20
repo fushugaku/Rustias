@@ -626,7 +626,7 @@ impl VoiceCircuit for CircuitVoice {
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     fn extension_parameters(&mut self, values: &[i32]) { self.expanded.parameters(values); }
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-    fn extension_instrument(&mut self, values:&[i32;195]) {
+    fn extension_instrument(&mut self, values:&[i32;207]) {
         let tempo=self.expanded.values[89];self.expanded.parameters(values);self.expanded.values[89]=tempo;
     }
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
@@ -654,7 +654,7 @@ impl VoiceCircuit for CircuitVoice {
         let _=self.motion_targets(Default::default());
     }
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-    fn set_motion_offsets(&mut self,offsets:&[f64;195],positions:[i16;6]) {
+    fn set_motion_offsets(&mut self,offsets:&[f64;207],positions:[i16;6]) {
         self.expanded.motion.offsets=*offsets;self.expanded.motion.positions=positions;
     }
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]

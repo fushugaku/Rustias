@@ -1,11 +1,11 @@
-import {MAX_TIMBRES,INITIAL_TIMBRES,effectTimbre,effectRole,timbreEffectSlot} from './limits.js';
+import {MAX_TIMBRES,INITIAL_TIMBRES,PARAMETER_COUNT,effectTimbre,effectRole,timbreEffectSlot} from './limits.js';
 import {RESOLUTIONS} from './sequence.js';
 import {macroTarget,targetKey,macroOffset} from './macros.js';
 
 export const MOD_LANES=6,MOD_STEPS=128;
 export const MOD_RESOLUTIONS=['1/48',...RESOLUTIONS];
 export const MOD_DIRECTIONS=['Forward','Reverse','Alt1','Alt2','Random'];
-export const POLY_PARAMETERS=new Set([1,2,3,4,5,6,7,8,11,12,15,16,17,18,19,22,23,25,26,27,28,...Array.from({length:21},(_,i)=>31+i),53,54,59,75,83,165,...Array.from({length:24},(_,i)=>171+i)]);
+export const POLY_PARAMETERS=new Set([1,2,3,4,5,6,7,8,11,12,15,16,17,18,19,22,23,25,26,27,28,...Array.from({length:21},(_,i)=>31+i),53,54,59,75,83,165,...Array.from({length:PARAMETER_COUNT-171},(_,i)=>171+i)]);
 export const polyTarget=(target,t)=>target?.kind==='synth'&&target.timbre===t&&POLY_PARAMETERS.has(target.parameter);
 export const MOD_RUN_MODES=['Loop','OneShot'];
 export const MOD_KEY_SYNC=['Off','Timbre','Voice'];

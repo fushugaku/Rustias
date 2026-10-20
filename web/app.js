@@ -1,5 +1,6 @@
 import {MAX_TIMBRES,INITIAL_TIMBRES,MASTER_EFFECT_SLOT,timbreArray,effectUsesMaster,effectTimbre,effectRole,timbreEffectSlots,LFO3_BASE,OSC3_BASE,OSC4_BASE} from './limits.js';
 import {webParameters} from './parameters.js';
+import {ENVELOPES,envelopeParameter,qEnvelopeSeconds} from './envelopes.js';
 import {createMacrosPanel} from './macros-ui.js';
 import {createModulationEditor} from './modulation-ui.js';
 import {modulationKey} from './modulation.js';
@@ -76,6 +77,10 @@ function sendCircuits(timbre){if(!circuitUI)return;const config=circuitUI.getCon
 function replaceSource(timbre,drum){if(rdlSource)rdlSource.unavailable=rdlSource.unavailable.filter(s=>drum==null?s.drum!=null||s.timbre!==timbre:s.drum!==drum);}
 function format(id, value) {
   const p = parameters[id];
+  const envelope=envelopeParameter(id);
+  if(envelope&&values()[envelope.base]!==0&&(envelope.adsr.filter((_,i)=>i!==2).includes(id)||id===envelope.base+2)){
+    const ms=qEnvelopeSeconds(value)*1000;return ms<1000?`${Number(ms.toFixed(1))} ms`:`${Number((ms/1000).toFixed(2))} s`;
+  }
   if (p.options) return p.options[(p.values ?? p.options.map((_, i) => p.min + i)).indexOf(value)];
   if(id===9){const types=['LPF 24','LPF 12','BPF','HPF','Thru'];if(value===127)return 'Thru';const i=Math.floor(value/32),part=value%32;return part?`${types[i]} → ${types[i+1]} ${Math.round(part/32*100)}%`:types[i];}
   if ([1, 22].includes(id)) { const hz = 30 * 200 ** (value / 127); return hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` : `${Math.round(hz)} Hz`; }
@@ -94,7 +99,7 @@ function format(id, value) {
 function disabled(id, v) {
   if(isSample()&&([0,10,11,12,13,14,15,16,17,18,19].includes(id)||id>=OSC3_BASE&&id<=188))return true;
   if(isSample()&&[59,60,61,62,63,64,65,66,67,68,69,70,139].includes(id))return true;
-  if(isSample()&&[6,35,39].includes(id)&&(sampleProfile()?.mode??sampleUI.getConfig().slots[global(142)].mode)===0)return true;
+  if(isSample()&&[6,35,39].includes(id)&&(sampleProfile()?.mode??sampleUI.getConfig().slots[global(142)].mode)===0&&!v[envelopeParameter(id).base])return true;
   if(unavailableSource()&&[10,11,12].includes(id))return true;
   if (id === 10) return v[0] >= 4;
   if (id === OSC3_BASE+1) return v[OSC3_BASE] >= 4;

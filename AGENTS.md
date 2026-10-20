@@ -135,7 +135,7 @@ must work without another set_parent. Keep the pinned wrapper lifecycle patch in
 through the real AU bundle without audio hardware.
 
 Expanded synthesis appends OSC 4 IDs 179–188 and filter model/drive/morph IDs
-189–194 (195 parameters total). Old OSC 3 API accepts only 171–178; never send
+189–194 (195 parameters before Q envelope extensions). Old OSC 3 API accepts only 171–178; never send
 OSC 4/filter controls through rustias_osc3_control. OSC 4 starts muted; filter
 model 0 retains RADIAS arithmetic. Build builtin OSC 4 uses free ID 62 in new
 graphs and mixer input d; do not rewrite existing custom graphs or occupied IDs.
@@ -151,3 +151,15 @@ also applying Poly offsets globally. Verify real WASM, native/browser fixtures,
 old PCM, and exact original-profile tests; run UI checks with audio stopped.
 
 Release tags must match the plugin CMake version. `release.yml` publishes only after all platform checks, actual installer smoke tests and VST3 validation pass. Keep installers and archives in Release assets, never commit generated binaries. Windows Setup installs VST3/CLAP plus signed Microsoft prerequisites; preserve LocalAppData libraries on uninstall. Linux `.run` installs per-user with upgrade backups; `.deb` installs in standard system plugin paths. Neither uninstaller removes user patches or recordings.
+
+Q-style envelopes append IDs 195–206 (207 parameters total), four per EG in
+EG1/EG2/EG3 order: type, Attack Level, Decay 2, Sustain 2. Type 0 is RADIAS; old
+195-parameter programs/sample profiles must gain defaults without changing PCM.
+The independent q_envelope domain model implements ADSR, ADS1DS2R, One Shot,
+Loop S1S2 and Loop All. It has a zero-time attack, a separate rate table and
+linear attack/cubic decay; these are firmware-free models, not measured Q parity.
+Only the expanded WASM/plugin profile selects them. Keep the native reference
+AmpEnvelope fields and path unchanged. Mode/curve-dependent controls and graphs
+follow each EG; new settings must reach synth/drum/PCM/Build, macros, shared and
+Poly motion, and browser/native fixtures. Do not add allocation/transcendentals
+to Q note/parameter/render callbacks or truncate One Shot on a short MIDI gate.

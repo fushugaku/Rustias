@@ -42,7 +42,7 @@ use radias_synth_domain::{
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const NATIVE_PARAMETER_COUNT: usize = 155;
 pub const PARAMETER_COUNT: usize = if cfg!(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin))) {
-    195
+    radias_synth_domain::q_envelope::PARAMETER_COUNT
 } else {
     NATIVE_PARAMETER_COUNT
 };
@@ -103,6 +103,11 @@ pub fn parameters() -> Vec<Parameter> {
             (187,0,127,0),(188,0,4,0),(189,0,17,0),(190,0,17,0),
             (191,0,127,0),(192,0,127,0),(193,0,127,0),(194,0,127,0),
         ] { spec.push(Parameter { id, min, max, default, values: None, scope: String::new() }); }
+        for envelope in 0..3 {
+            for (offset, max, default) in [(0, 5, 0), (1, 127, 127), (2, 127, 64), (3, 127, 64)] {
+                spec.push(Parameter { id: 195 + envelope * 4 + offset, min: 0, max, default, values: None, scope: String::new() });
+            }
+        }
     }
     spec
 }
@@ -123,6 +128,8 @@ fn envelope(v: &Values, index: usize) -> ModEnvelopeProgram {
         _ => (36, 48),
     };
     ModEnvelopeProgram {
+        #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+        q: radias_synth_domain::q_envelope::Settings::from_controls(|id| v[id] as u8, index),
         adsr: core::array::from_fn(|i| v[a + i] as u8),
         curve: v[b] as u8,
         velocity_level_sensitivity: v[b + 1] as u8,
@@ -510,12 +517,12 @@ impl StandaloneSynth {
         if is(&[29, 30, 31, 154]) {
             self.engine.apply(Command::Shaper(t, c.shaper));
         }
-        if changed.is_none_or(|id| matches!(id,32..=43|48..=51)) {
+        if changed.is_none_or(|id| matches!(id,32..=43|48..=51|195..=198|203..=206)) {
             self.engine
                 .apply(Command::Auxiliary(t, [c.envelope[0], c.envelope[2]]));
         }
         if is(&[
-            3, 4, 5, 6, 7, 44, 45, 46, 47, 52, 114, 115, 116, 117, 118, 151, 153,
+            199, 200, 201, 202, 3, 4, 5, 6, 7, 44, 45, 46, 47, 52, 114, 115, 116, 117, 118, 151, 153,
         ]) {
             if self.active_drums(t) {
                 if is(&[115]) && v[152] == 0 {
@@ -862,6 +869,7 @@ impl StandaloneSynth {
                     || v.len() == 171
                     || v.len() == 177
                     || v.len() == 179
+                    || v.len() == 195
                 {
                     v.extend_from_slice(&defaults[v.len()..]);
                 }

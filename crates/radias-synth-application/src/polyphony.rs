@@ -40,7 +40,7 @@ pub struct ActiveVoice {
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub third: crate::primary::ThirdProgram,
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-    pub extensions: Option<[i32;195]>,
+    pub extensions: Option<[i32;207]>,
     pub shaper: Option<crate::shaper::ShaperProgram>,
     pub comb_program: Option<crate::comb::CombProgram>,
     pub timbre: u8,

@@ -18,7 +18,7 @@ function setup(options={}){api.rustias_init();for(const [id,value]of [[17,0],[18
 function sound(options={}){setup(options);api.rustias_note(0,69,100);return render();}
 function frequency(a){let count=0;for(let i=4001;i<a.length;i++)if(a[i]>=0&&a[i-1]<0)count++;return count*48000/(a.length-4000);}
 
-assert.equal(api.rustias_parameter_count(),195);
+assert.equal(api.rustias_parameter_count(),207);
 assert.ok(Math.abs(frequency(sound())-440)<5,'OSC4 is independently tuned to A4');
 assert.ok(Math.abs(frequency(sound({183:76}))-880)<5,'OSC4 semitone');
 assert.ok(Math.abs(frequency(sound({184:127}))-466.16)<5,'OSC4 fine');

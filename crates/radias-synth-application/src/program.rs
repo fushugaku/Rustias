@@ -29,7 +29,7 @@ pub struct TimbreControls {
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     pub third: crate::primary::ThirdProgram,
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-    pub extensions: [i32;195],
+    pub extensions: [i32;207],
     pub mixer: MixerProgram,
     pub filter_route: u8,
     pub cutoff: [u8; 2],
@@ -116,6 +116,8 @@ impl TimbreControls {
         let envelope = core::array::from_fn(|i| {
             let b = 0x34 + i * 8;
             ModEnvelopeProgram {
+                #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
+                q: Default::default(),
                 adsr: p[b..b + 4].try_into().unwrap(),
                 curve: p[b + 4],
                 velocity_level_sensitivity: p[b + 5],
@@ -149,7 +151,7 @@ impl TimbreControls {
             #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
             third: Default::default(),
             #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-            extensions: [0;195],
+            extensions: [0;207],
             oscillator_selection: p[0x16],
             oscillator_controls: [p[0x17], p[0x18]],
             secondary: SecondaryProgram {

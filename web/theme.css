@@ -1,4 +1,5 @@
 /* Shared instrument skin, from the Sad Pet plugin family. Layouts live separately. */
+.module-controls > .envelope-type { grid-column: 1 / -1; }
 :root {
   color-scheme: dark;
   --canvas: #111612;

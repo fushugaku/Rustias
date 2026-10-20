@@ -387,7 +387,7 @@ pub(crate) struct Timbre {
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
     third: radias_synth_application::primary::ThirdProgram,
     #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-    extensions: [i32;195],
+    extensions: [i32;207],
     enabled: bool,
     channel: u8,
     modulation: ModulationProgram,
@@ -445,7 +445,7 @@ impl Synthesizer {
                 #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
                 third: Default::default(),
                 #[cfg(all(feature = "web-expanded", any(target_arch = "wasm32", rustias_plugin)))]
-                extensions: [0;195],
+                extensions: [0;207],
                 enabled: i == 0,
                 channel: i as u8,
                 modulation: ModulationProgram::default(),

@@ -31,6 +31,21 @@ const sample=Float32Array.from({length:4800},(_,i)=>.3*Math.sin(i*2*Math.PI*440/
 scenario('Kit PCM with amplifier, filter and drum gain',()=>{control(140,1);pcm('rustias_sample_buffer',[0],sample);call('rustias_sample_commit',0,sample.length,2);call('rustias_drum_control',0,9,100);call('rustias_drum_control',0,114,32);call('rustias_drum_gain',12);call('rustias_drum_pad',0,100);render();call('rustias_drum_control',0,9,0);render();call('rustias_drum_pad',0,0);});
 scenario('Sample library in timbre eight',()=>{control(71,1,7);control(141,7);control(140,1);pcm('rustias_library_sample_buffer',[77],sample);call('rustias_library_sample_commit',77,sample.length);call('rustias_library_profile',77,77,7,2);call('rustias_library_control',77,9,110);call('rustias_library_sync');call('rustias_library_note',7,77,100);render();call('rustias_library_control',77,9,0);call('rustias_library_sync');});
 for(let kind=1;kind<=30;kind++)scenario(`Native FX ${kind}`,()=>{source({wave:3});json('rustias_effect',[0],defaultEffect(kind));json('rustias_effect',[17],defaultEffect(kind,true));json('rustias_effect_chain',[0],[{...defaultEffect(kind,true),id:'native-chain'}]);call('rustias_note',0,69,100);render();control(89,1350);render();call('rustias_note',0,69,0);});
+for(const mode of [1,2,3,4,5])scenario(`Q envelope modes ${mode}`,()=>{
+  source({wave:0});control(9,0);control(1,35);control(25,110);
+  for(const [base,adsr]of [[195,32],[199,3],[203,36]]){
+    for(const [id,value]of [[base,mode],[base+1,100],[base+2,35],[base+3,24],[adsr,0],[adsr+1,45],[adsr+2,90],[adsr+3,24]])control(id,value);
+  }
+  control(90,2);control(91,7);control(92,90);call('rustias_note',0,60,100);render(64);
+  call('rustias_note',0,60,0);render(16);call('rustias_voices');
+  call('rustias_note',0,67,100);render(8);control(199,1);control(202,75);render(8);control(199,0);render(8);call('rustias_stop');
+});
+scenario('Q sample envelope and polyphonic Decay 2',()=>{
+  control(140,1);pcm('rustias_sample_buffer',[0],sample);call('rustias_sample_commit',0,sample.length,2);
+  for(const [id,value]of [[199,4],[3,0],[4,40],[5,100],[6,24],[201,30],[202,20]])call('rustias_drum_control',0,id,value);
+  const motion=emptyModulation(),lane=newModulationLane('q-decay2');Object.assign(lane,{playback:'Poly',target:{kind:'synth',timbre:0,parameter:201},length:2,values:Array.from({length:128},(_,i)=>i%2?30:-20)});motion.tracks[0]=[lane];json('rustias_poly_motion',[],motion);
+  call('rustias_drum_pad',0,100);render(64);call('rustias_drum_pad',0,0);render(16);
+});
 cases.push(...modulationFixtures(module));
 for(let mode=0;mode<=4;mode++)scenario(`OSC4 native mode ${mode}`,()=>{
   source();control(17,0);control(187,100);control(179,3);control(180,mode);control(181,80);control(182,90);call('rustias_note',0,69,100);render();control(183,76);control(184,100);render();control(15,80);control(16,120);

@@ -1,4 +1,5 @@
 import {PATCH_ROUTES,LFO3_BASE,OSC3_BASE,OSC4_BASE} from './limits.js';
+import {ENVELOPES,ENVELOPE_MODES,envelopePreview} from './envelopes.js';
 import {bindMacroTarget} from './macro-gesture.js';
 import {targetKey} from './macros.js';
 // Shared hardware controls for the complete firmware-free instrument.
@@ -22,9 +23,7 @@ const rows = [
     {key:"drive",name:"DRIVE / WS",span:4,columns:2,ids:[29,154,31,30],drive:true},
   ],
   [
-    {key:"eg1",name:"EG 1 · FILTER",ids:[32,33,34,35,40,41,42,43]},
-    {key:"eg2",name:"EG 2 · AMP",ids:[3,4,5,6,44,45,46,47]},
-    {key:"eg3",name:"EG 3",ids:[36,37,38,39,48,49,50,51]},
+    ...ENVELOPES.map((p,i)=>({key:p.key,name:['EG 1 · FILTER','EG 2 · AMP','EG 3'][i],envelope:i,ids:[...p.adsr,p.curve,p.curve+1,p.curve+2,p.curve+3],base:p.base})),
     {key:"lfo1",name:"LFO 1",ids:[73,74,75,76,77,78,79,80]},
     {key:"lfo2",name:"LFO 2",ids:[81,82,83,84,85,86,87,88]},
     {key:"lfo3",name:"LFO 3",ids:Array.from({length:8},(_,i)=>LFO3_BASE+i)},
@@ -133,7 +132,10 @@ export function createPanel({parameters,readValues,setControl,format,disabled,di
         const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),path=document.createElementNS(ns,'path');svg.classList.add('module-preview');svg.setAttribute('viewBox','0 0 240 72');svg.setAttribute('role','img');svg.append(path);head.append(svg);previews.push({plan,svg,path});
       }
       if(plan.patch){section.classList.add("patch-module");body.classList.add("patch-body");const route=document.createElement("div");route.className="patch-route";route.append(field(plan.ids[0]),field(plan.ids[1]));body.append(route,field(plan.ids[2]),field(plan.ids[3]));}
-      else for(const id of plan.ids)body.append(field(id));
+      else if(plan.envelope!=null){
+        const type=field(plan.base);type.classList.add('envelope-type');body.append(type);
+        for(const id of [...plan.ids.slice(0,4),plan.base+1,plan.base+2,plan.base+3,...plan.ids.slice(4)])body.append(field(id));
+      }else for(const id of plan.ids)body.append(field(id));
       section.append(head,body);row.append(section);
     }
   });
@@ -141,8 +143,7 @@ export function createPanel({parameters,readValues,setControl,format,disabled,di
     for(const {plan,svg,path}of previews){
       svg.toggleAttribute('hidden',!!disabled(plan.ids[0],v));
       if(plan.key.startsWith('eg')){
-        const [a,d,s,r]=plan.ids.map(id=>v[id]),attack=8+a/127*52,decay=8+d/127*52,release=8+r/127*52,total=attack+decay+release+56,y=60-s/127*48;
-        path.setAttribute('d',`M0 60 L${attack/total*240} 12 L${(attack+decay)/total*240} ${y} H${(attack+decay+56)/total*240} L240 60`);svg.setAttribute('aria-label',`${plan.name} envelope shape`);
+        path.setAttribute('d',envelopePreview(v,plan.envelope));svg.setAttribute('aria-label',`${plan.name} ${ENVELOPE_MODES[v[plan.base]??0]} envelope shape`);
       }else{
         const p=parameters[plan.ids[0]],label=p.options?.[p.values?p.values.indexOf(v[plan.ids[0]]):v[plan.ids[0]]-p.min]??'';
         const shape=label.toLowerCase(),d=shape.includes('sine')?`M${Array.from({length:61},(_,i)=>`${i*4} ${36-24*Math.sin(i/60*4*Math.PI)}`).join(' L')}`:shape.includes('tri')?'M0 36 L30 12 L90 60 L150 12 L210 60 L240 36':shape.includes('square')||shape.includes('pulse')?'M0 60 V12 H60 V60 H120 V12 H180 V60 H240':shape.includes('s&h')?'M0 36 H30 V12 H70 V52 H110 V28 H150 V60 H190 V20 H240':'M0 60 L60 12 V60 L120 12 V60 L180 12 V60 L240 12';
@@ -150,6 +151,8 @@ export function createPanel({parameters,readValues,setControl,format,disabled,di
       }
     }
     for(const [id,f] of fields){const p=parameters[id],value=v[id],inactive=disabled(id,v);
+      const envelope=ENVELOPES.find(p=>id===p.curve||id>p.base&&id<p.base+4);
+      if(envelope){const mode=v[envelope.base]??0;f.wrap.hidden=id===envelope.curve?mode!==0:![2,4,5].includes(mode);}
       if(id===181||id===182)f.wrap.querySelector("label").textContent=v[180]===4?(id===181?"Fold":"Bias"):(id===181?"CTRL 1":"CTRL 2");f.wrap.classList.toggle("inactive",inactive);for(const input of f.inputs)input.disabled=inactive;
       if(f.output)f.output.value=format(id,value);
       if(f.picker)f.picker.render(value,overrides[id]);

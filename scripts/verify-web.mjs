@@ -31,6 +31,7 @@ import {verifyOsc3Worklet} from './verify-osc3-worklet.mjs';
 import {verifyWebAssets} from './verify-web-assets.mjs';
 import {verifyBrowserExtensions} from './verify-browser-extensions.mjs';
 import {verifyRuntimeCaches} from './verify-runtime-caches.mjs';
+import {verifyQEnvelopes} from './verify-q-envelopes.mjs';
 
 const path = process.argv[2] ?? "dist/rustias.wasm";
 const module = await WebAssembly.compile(fs.readFileSync(path));
@@ -71,6 +72,7 @@ function load(program) {
   return api.rustias_load(data.length);
 }
 const features=[];
+features.push(...verifyQEnvelopes({module,parameters:schema}));
 features.push(verifyRuntimeCaches({module}));
 features.push(verifyWebAssets());
 features.push(verifySequenceView());

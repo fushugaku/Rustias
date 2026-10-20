@@ -765,10 +765,10 @@ impl Sampler {
             if let Some(circuit)=&mut v.circuit {circuit.extension_parameters(&v.settings);circuit.set_motion_offsets(&v.motion.offsets,v.motion.positions);}
             v.modulation.patches.targets=targets;
             if let Some(filter)=&mut v.envelopes.filter {filter.resonance=((v.settings[2]+targets.controls[6] as i32).clamp(0,127) as f64/127.0*0.95*2147483647.0) as i32;}
-            v.motion_envelopes |= v.motion.program.lanes.iter().any(|l|matches!(l.parameter,3..=6|32..=51));
+            v.motion_envelopes |= v.motion.program.lanes.iter().any(|l|matches!(l.parameter,3..=6|32..=51|195..=206));
             if v.motion_envelopes {
                 let get=|id:usize|(v.settings[id] as f64+v.motion.offsets[id]).round().clamp(0.0,127.0) as u8;
-                let programs:[radias_synth_application::voice_envelopes::ModEnvelopeProgram;3]=core::array::from_fn(|i|{let (a,b)=match i {0=>(32,40),1=>(3,44),_=>(36,48)};radias_synth_application::voice_envelopes::ModEnvelopeProgram {adsr:core::array::from_fn(|i|get(a+i)),curve:get(b).min(7),velocity_level_sensitivity:get(b+1),velocity_time_sensitivity:get(b+2),key_tracking:get(b+3)}});
+                let programs:[radias_synth_application::voice_envelopes::ModEnvelopeProgram;3]=core::array::from_fn(|i|{let (a,b)=match i {0=>(32,40),1=>(3,44),_=>(36,48)};radias_synth_application::voice_envelopes::ModEnvelopeProgram {q:radias_synth_domain::q_envelope::Settings::from_controls(get,i),adsr:core::array::from_fn(|i|get(a+i)),curve:get(b).min(7),velocity_level_sensitivity:get(b+1),velocity_time_sensitivity:get(b+2),key_tracking:get(b+3)}});
                 if initial {v.amplitude.initialize_motion_envelope(programs[1],&self.controllers);} else {v.amplitude.edit_motion_envelope(programs[1],&self.controllers);}
                 let aux=[programs[0],programs[2]];if initial {v.envelopes.initialize_motion_envelopes(aux,&self.controllers);} else if v.envelopes.programs!=aux {v.envelopes.edit(aux,&self.controllers);}
             }

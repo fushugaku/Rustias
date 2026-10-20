@@ -1,5 +1,6 @@
 //! RADIAS synthesis algorithms. No CPU emulation, allocation, devices or files.
 #![no_std]
+pub mod q_envelope;
 pub mod effect_audio;
 pub mod auto_pan_delay;
 pub mod cabinet_effect;

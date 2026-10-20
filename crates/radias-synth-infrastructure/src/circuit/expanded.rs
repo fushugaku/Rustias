@@ -89,7 +89,7 @@ impl Expanded {
             .program
             .lanes
             .iter()
-            .any(|l| matches!(l.parameter,3..=6|32..=51));
+            .any(|l| matches!(l.parameter,3..=6|32..=51|195..=206));
         if !self.envelopes_modified {
             return None;
         }
@@ -105,6 +105,7 @@ impl Expanded {
                 _ => (36, 48),
             };
             radias_synth_application::voice_envelopes::ModEnvelopeProgram {
+                q: radias_synth_domain::q_envelope::Settings::from_controls(get, i),
                 adsr: core::array::from_fn(|i| get(a + i)),
                 curve: get(b).min(7),
                 velocity_level_sensitivity: get(b + 1),
