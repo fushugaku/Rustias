@@ -163,3 +163,7 @@ AmpEnvelope fields and path unchanged. Mode/curve-dependent controls and graphs
 follow each EG; new settings must reach synth/drum/PCM/Build, macros, shared and
 Poly motion, and browser/native fixtures. Do not add allocation/transcendentals
 to Q note/parameter/render callbacks or truncate One Shot on a short MIDI gate.
+
+Before tagging, update plugin/RELEASE_NOTES.md in both languages for the final
+version; release.yml uses it verbatim. Do not carry forward stale version-specific
+benchmarks as claims about a new release.

@@ -1,23 +1,24 @@
 Native Rustias instrument: the same Rust synthesis engine as the browser version, compiled to native machine code. No firmware or WASM audio runtime required.
 
-Version 0.2.5 removes JSON round trips from MIDI/display snapshots, telemetry
-and native FX/chain modulation. Snapshots and recording chunks reuse prepared
-buffers; macro/lane links and modulation scratch are retained. Message workers
-sleep until notified. Final MIDI/CC7 and full corrective states survive queue
-pressure and Stop without another audio callback.
+Version 0.2.6 adds an independent Type dropdown to EG1, EG2 and EG3:
+RADIAS (default), Q ADSR, Q ADS1DS2R, Q One Shot, Q Loop S1S2 and Q Loop All.
+Extended modes expose Attack Level, Decay 2 and Sustain 2. Q modes have their
+own time scale, an instantaneous zero Attack and a fast initial decay with a
+smooth tail. One Shot completes even after a short key press; looping modes
+stop on note-off. The normal per-sample gain smoothing remains in place.
 
-A silent Apple M5 Max test at 48 kHz / 128 frames compared frozen 0.2.4 and
-0.2.5 in ABBA order. With two parallel AU, four sources, two MS-20 filters and
-continuous controllers, mean callback time fell from 274–284 to 226–230 µs;
-P99 fell from 684–686 to 415–417 µs. A separate sequential eight-runtime
-MIDI/telemetry test reduced budget misses from 474/6,144 to 0/6,144.
-Static AU mean times differed by less than 3%. These are workload-specific
-ordinary offline-host measurements, not a universal real-time guarantee.
+Programs, timbre sounds and sample profiles retain the settings. Synth voices,
+drum instruments, PCM and Build use the same native Rust envelope implementation;
+macros and modulation sequencers, including per-voice Poly motion, can target it.
+Older programs default to RADIAS.
 
-PCM and state match frozen 0.2.4 in 210 adapter scenes plus 12 control timelines
-on both Mac architectures. The browser's 279 scenes / 3,428,352 stereo frames
-also match. Original synthesis arithmetic, filter quality, controller quantum
-and reference desktop profile are unchanged. All checks remain silent.
+These are firmware-free models of the Q manual's stage behavior. Rates and
+curves have not been calibrated against Q hardware. RADIAS retains its original
+calculation: before/after PCM matched bit for bit in 279 scenarios / 3,428,352
+stereo frames. Validation includes six envelope lifecycle tests, the complete
+WASM suite, 131 native/browser PCM and state scenarios, native host/editor
+checks, strict Apple auval and Steinberg VST3 validation. All audio checks run
+in discarded memory without playback.
 
 | System | Installer | Formats |
 | --- | --- | --- |
@@ -39,24 +40,24 @@ All builds pass offline native/WASM PCM and state checks. macOS also runs AU val
 
 Нативный Rustias для macOS, Windows и Linux. Звук считает общий Rust-движок, без прошивки и без WASM в аудиотракте.
 
-Версия 0.2.5 убирает JSON из снимков MIDI-состояния, телеметрии и модуляции
-эффектов/цепочек. Снимки и блоки записи переиспользуют готовые буферы; связи
-макросов/линий и рабочая память модуляции подготавливаются заранее. Фоновые
-потоки ждут уведомлений. Последние MIDI/CC7 и полное корректирующее состояние
-доходят при переполнении пула и после Stop без следующего аудиоблока.
+Версия 0.2.6 добавляет отдельный dropdown Type для EG1, EG2 и EG3:
+RADIAS по умолчанию, Q ADSR, Q ADS1DS2R, Q One Shot, Q Loop S1S2 и Q Loop All.
+В расширенных режимах доступны Attack Level, Decay 2 и Sustain 2. У Q своя
+шкала времени, мгновенная нулевая атака и быстрый начальный спад с плавным
+хвостом. One Shot проходит все стадии независимо от длительности нажатия;
+циклические режимы выходят в Release при отпускании ноты. Сглаживание усиления
+на уровне аудиосэмплов сохранено.
 
-В двух параллельных AU на Apple M5 Max, 48 кГц / 128 сэмплов, с четырьмя
-источниками, MS-20 и потоком контроллеров, среднее время снизилось с 274–284
-до 226–230 мкс, P99 — с 684–686 до 415–417 мкс. В отдельном последовательном
-тесте восьми нативных экземпляров превышения бюджета снизились с 474 из 6 144
-до нуля. Для статичных AU разница среднего времени — меньше 3%. Результат
-зависит от патча и планировщика ОС.
+Настройки сохраняются в программах, тембрах и звуках сэмплов. Синтез, Drum Kit,
+PCM и Build используют одну реализацию на Rust; параметры доступны макросам и
+мод-секвенсорам, включая Poly. Старые программы получают режим RADIAS.
 
-Звук и состояние совпали с замороженной 0.2.4: 210 сценариев адаптера и 12
-сценариев управления на Apple Silicon и Intel. Браузер сохранил PCM во всех
-279 сценариях — 3 428 352 стереокадра. Арифметика синтеза, качество фильтров,
-квант контроллеров и эталонный профиль исходного движка сохранены.
-Все аудиопроверки выполнены в памяти, без вывода звука.
+Это самостоятельные модели режимов из руководства Q. Точные времена и кривые
+пока не откалиброваны по железу. Расчёт RADIAS сохранён: PCM побитно совпал с
+предыдущей сборкой в 279 сценариях — 3 428 352 стереокадра. Проверены жизненный
+цикл огибающих, весь WASM, 131 сценарий совпадения нативного движка и браузера,
+хост и редактор, строгий auval и валидатор VST3. Все аудиопроверки выполнены в
+памяти без воспроизведения.
 
 Скачайте установщик для своей системы из таблицы выше. Перед установкой закройте DAW, после — запустите её и обновите список плагинов. В Windows можно выбрать VST3 и CLAP; недостающие компоненты Microsoft устанавливаются автоматически. Для Linux нужны Python 3, WebKitGTK 4.1 версии 2.40+ и X11/XWayland.
 
